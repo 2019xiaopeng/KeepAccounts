@@ -12,6 +12,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -19,14 +20,21 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.google.accompanist.systemuicontroller.rememberSystemUiController
 import com.qcb.keepaccounts.ui.components.BottomNavigationBar
 import com.qcb.keepaccounts.ui.navigation.KeepAccountsDestination
 import com.qcb.keepaccounts.ui.screens.ChatScreen
+import com.qcb.keepaccounts.ui.screens.HelpFeedbackScreen
 import com.qcb.keepaccounts.ui.screens.HomeScreen
+import com.qcb.keepaccounts.ui.screens.ImportExportScreen
+import com.qcb.keepaccounts.ui.screens.LedgerSettingsScreen
 import com.qcb.keepaccounts.ui.screens.LedgerScreen
+import com.qcb.keepaccounts.ui.screens.CacheCleanupScreen
+import com.qcb.keepaccounts.ui.screens.CategoryManagementScreen
 import com.qcb.keepaccounts.ui.screens.ProfileScreen
+import com.qcb.keepaccounts.ui.screens.ThemeAppearanceScreen
 import com.qcb.keepaccounts.ui.theme.KeepAccountsTheme
 import com.qcb.keepaccounts.ui.viewmodel.MainViewModel
 
@@ -45,6 +53,8 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun KeepAccountsApp() {
     val navController = rememberNavController()
+    val backStackEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = backStackEntry?.destination?.route
     val appContainer = (LocalContext.current.applicationContext as KeepAccountsApplication).container
     val mainViewModel: MainViewModel = viewModel(
         factory = MainViewModel.provideFactory(appContainer.transactionRepository),
@@ -74,10 +84,12 @@ fun KeepAccountsApp() {
                 modifier = Modifier.fillMaxSize(),
                 containerColor = Color.Transparent,
                 bottomBar = {
-                    BottomNavigationBar(
-                        navController = navController,
-                        items = KeepAccountsDestination.bottomNavItems,
-                    )
+                    if (KeepAccountsDestination.isBottomNavRoute(currentRoute)) {
+                        BottomNavigationBar(
+                            navController = navController,
+                            items = KeepAccountsDestination.bottomNavItems,
+                        )
+                    }
                 },
             ) { innerPadding ->
                 NavHost(
@@ -92,7 +104,28 @@ fun KeepAccountsApp() {
                     }
                     composable(KeepAccountsDestination.CHAT) { ChatScreen() }
                     composable(KeepAccountsDestination.LEDGER) { LedgerScreen(viewModel = mainViewModel) }
-                    composable(KeepAccountsDestination.PROFILE) { ProfileScreen() }
+                    composable(KeepAccountsDestination.PROFILE) {
+                        ProfileScreen(onNavigateToOption = { route -> navController.navigate(route) })
+                    }
+
+                    composable(KeepAccountsDestination.CATEGORY_MANAGEMENT) {
+                        CategoryManagementScreen(onBack = { navController.popBackStack() })
+                    }
+                    composable(KeepAccountsDestination.LEDGER_SETTINGS) {
+                        LedgerSettingsScreen(onBack = { navController.popBackStack() })
+                    }
+                    composable(KeepAccountsDestination.IMPORT_EXPORT) {
+                        ImportExportScreen(onBack = { navController.popBackStack() })
+                    }
+                    composable(KeepAccountsDestination.CLEAR_CACHE) {
+                        CacheCleanupScreen(onBack = { navController.popBackStack() })
+                    }
+                    composable(KeepAccountsDestination.THEME_APPEARANCE) {
+                        ThemeAppearanceScreen(onBack = { navController.popBackStack() })
+                    }
+                    composable(KeepAccountsDestination.HELP_FEEDBACK) {
+                        HelpFeedbackScreen(onBack = { navController.popBackStack() })
+                    }
                 }
             }
         }
