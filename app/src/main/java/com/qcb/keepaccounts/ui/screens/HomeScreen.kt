@@ -22,6 +22,13 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.ChatBubble
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
@@ -37,11 +44,15 @@ import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.qcb.keepaccounts.data.local.entity.TransactionEntity
 import com.qcb.keepaccounts.ui.components.glassCard
+import com.qcb.keepaccounts.ui.icons.KeepAccountsIcons
+import com.qcb.keepaccounts.ui.icons.resolveCategoryIcon
 import com.qcb.keepaccounts.ui.theme.MintGreen
 import com.qcb.keepaccounts.ui.theme.MintGreenSoft
 import com.qcb.keepaccounts.ui.theme.WarmBrown
@@ -55,7 +66,7 @@ import java.util.Date
 import java.util.Locale
 
 private data class ActivityRecord(
-    val icon: String,
+    val icon: ImageVector,
     val category: String,
     val desc: String,
     val time: String,
@@ -74,8 +85,20 @@ private val demoSections = listOf(
         title = "今天 ${todayMMDD()}",
         summary = "支出 ¥58.50",
         records = listOf(
-            ActivityRecord(icon = "☕", category = "餐饮美食", desc = "星巴克拿铁", time = "12:30", amount = "-¥ 30.00"),
-            ActivityRecord(icon = "🚗", category = "交通出行", desc = "滴滴出行", time = "09:15", amount = "-¥ 28.50"),
+            ActivityRecord(
+                icon = resolveCategoryIcon("餐饮美食"),
+                category = "餐饮美食",
+                desc = "星巴克拿铁",
+                time = "12:30",
+                amount = "-¥ 30.00",
+            ),
+            ActivityRecord(
+                icon = resolveCategoryIcon("交通出行"),
+                category = "交通出行",
+                desc = "滴滴出行",
+                time = "09:15",
+                amount = "-¥ 28.50",
+            ),
         ),
     ),
 )
@@ -108,18 +131,14 @@ fun HomeScreen(
                         record.desc.lowercase(Locale.getDefault()).contains(key) ||
                         record.time.lowercase(Locale.getDefault()).contains(key)
                 }
-                if (filteredRecords.isNotEmpty()) {
-                    section.copy(records = filteredRecords)
-                } else {
-                    null
-                }
+                if (filteredRecords.isNotEmpty()) section.copy(records = filteredRecords) else null
             }
         }
     }
 
     LazyColumn(
         modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 96.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 102.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         item {
@@ -127,9 +146,7 @@ fun HomeScreen(
                 searchExpanded = searchExpanded,
                 onToggleSearch = {
                     searchExpanded = !searchExpanded
-                    if (!searchExpanded) {
-                        searchQuery = ""
-                    }
+                    if (!searchExpanded) searchQuery = ""
                 },
             )
         }
@@ -144,9 +161,7 @@ fun HomeScreen(
             }
         }
 
-        item {
-            BudgetCard(transactions = transactions)
-        }
+        item { BudgetCard(transactions = transactions) }
 
         item {
             ActionButtons(
@@ -155,9 +170,7 @@ fun HomeScreen(
             )
         }
 
-        item {
-            RecentHeader(onViewAllClick = onViewAllClick)
-        }
+        item { RecentHeader(onViewAllClick = onViewAllClick) }
 
         if (sections.isEmpty()) {
             item {
@@ -167,7 +180,12 @@ fun HomeScreen(
                         .glassCard(shape = RoundedCornerShape(24.dp), glowColor = MintGreen.copy(alpha = 0.15f))
                         .padding(horizontal = 14.dp, vertical = 12.dp),
                 ) {
-                    Text(text = "没有找到相关账单，试试其他关键词", color = WarmBrownMuted, fontWeight = FontWeight.Bold)
+                    Text(
+                        text = "没有找到相关账单，试试其他关键词",
+                        color = WarmBrownMuted,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp,
+                    )
                 }
             }
         } else {
@@ -188,24 +206,29 @@ private fun HomeHeader(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(horizontalArrangement = Arrangement.spacedBy(11.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(
                 modifier = Modifier
-                    .size(44.dp)
-                    .glassCard(shape = CircleShape, glowColor = MintGreen.copy(alpha = 0.25f))
+                    .size(46.dp)
+                    .glassCard(shape = CircleShape, glowColor = MintGreen.copy(alpha = 0.24f))
                     .background(
                         brush = Brush.radialGradient(
-                            listOf(Color.White.copy(alpha = 0.95f), MintGreenSoft),
+                            listOf(Color.White.copy(alpha = 0.96f), MintGreenSoft),
                         ),
                         shape = CircleShape,
                     ),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(text = "🌊")
+                Icon(
+                    imageVector = KeepAccountsIcons.Assistant,
+                    contentDescription = "assistant",
+                    tint = WarmBrown,
+                    modifier = Modifier.size(22.dp),
+                )
             }
-            Column {
-                Text(text = "Nanami", color = WarmBrown, fontWeight = FontWeight.ExtraBold)
-                Text(text = "营业中 ✨", color = WarmBrown.copy(alpha = 0.6f), fontWeight = FontWeight.Medium)
+            Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                Text(text = "Nanami", color = WarmBrown, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
+                Text(text = "营业中", color = WarmBrown.copy(alpha = 0.6f), fontWeight = FontWeight.Medium, fontSize = 12.sp)
             }
         }
 
@@ -216,7 +239,12 @@ private fun HomeHeader(
                 .clickable { onToggleSearch() },
             contentAlignment = Alignment.Center,
         ) {
-            Text(text = if (searchExpanded) "✖" else "🔍")
+            Icon(
+                imageVector = if (searchExpanded) Icons.Rounded.Close else Icons.Rounded.Search,
+                contentDescription = "search",
+                tint = WarmBrown.copy(alpha = 0.85f),
+                modifier = Modifier.size(20.dp),
+            )
         }
     }
 }
@@ -230,18 +258,23 @@ private fun SearchBar(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .glassCard(shape = RoundedCornerShape(20.dp), glowColor = MintGreen.copy(alpha = 0.15f))
+            .glassCard(shape = RoundedCornerShape(20.dp), glowColor = MintGreen.copy(alpha = 0.16f))
             .padding(horizontal = 10.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Text(text = "🔎")
+        Icon(
+            imageVector = Icons.Rounded.Search,
+            contentDescription = "search",
+            tint = WarmBrown.copy(alpha = 0.55f),
+            modifier = Modifier.size(18.dp),
+        )
         TextField(
             value = value,
             onValueChange = onValueChange,
             modifier = Modifier.weight(1f),
             placeholder = {
-                Text(text = "搜索账单、备注、分类", color = WarmBrownMuted)
+                Text(text = "搜索账单、备注、分类", color = WarmBrownMuted, fontSize = 13.sp)
             },
             colors = TextFieldDefaults.colors(
                 focusedContainerColor = Color.Transparent,
@@ -258,6 +291,7 @@ private fun SearchBar(
                 text = "清空",
                 color = WarmBrown.copy(alpha = 0.65f),
                 fontWeight = FontWeight.Bold,
+                fontSize = 12.sp,
                 modifier = Modifier.clickable { onClear() },
             )
         }
@@ -284,17 +318,17 @@ private fun BudgetCard(transactions: List<TransactionEntity>) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .glassCard(shape = RoundedCornerShape(32.dp), glowColor = MintGreen.copy(alpha = 0.25f))
+            .glassCard(shape = RoundedCornerShape(32.dp), glowColor = MintGreen.copy(alpha = 0.24f))
             .padding(18.dp),
     ) {
         Box(
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .size(130.dp)
-                .blur(26.dp)
+                .blur(28.dp)
                 .background(
                     brush = Brush.radialGradient(
-                        colors = listOf(MintGreen.copy(alpha = 0.65f), Color.Transparent),
+                        colors = listOf(MintGreen.copy(alpha = 0.62f), Color.Transparent),
                     ),
                     shape = CircleShape,
                 ),
@@ -307,16 +341,25 @@ private fun BudgetCard(transactions: List<TransactionEntity>) {
                 verticalAlignment = Alignment.Bottom,
             ) {
                 Column {
-                    Text(text = "本月预算 🎯", color = WarmBrown.copy(alpha = 0.7f), fontWeight = FontWeight.Bold)
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = KeepAccountsIcons.Money,
+                            contentDescription = "budget",
+                            tint = WarmBrown.copy(alpha = 0.65f),
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Text(text = "本月预算", color = WarmBrown.copy(alpha = 0.7f), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    }
                     Text(
                         text = "¥${money(monthExpense)}",
                         color = WarmBrown,
                         fontWeight = FontWeight.ExtraBold,
+                        fontSize = 30.sp,
                     )
                 }
                 Column(horizontalAlignment = Alignment.End) {
-                    Text(text = "剩余", color = WarmBrown.copy(alpha = 0.55f), fontWeight = FontWeight.Medium)
-                    Text(text = "¥ ${money(remain)}", color = MintGreen, fontWeight = FontWeight.Bold)
+                    Text(text = "剩余", color = WarmBrown.copy(alpha = 0.55f), fontWeight = FontWeight.Medium, fontSize = 12.sp)
+                    Text(text = "¥ ${money(remain)}", color = MintGreen, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 }
             }
 
@@ -342,8 +385,14 @@ private fun BudgetCard(transactions: List<TransactionEntity>) {
                     text = "已用 ${(usedRatio * 100).toInt()}%",
                     color = WarmBrown.copy(alpha = 0.55f),
                     fontWeight = FontWeight.Medium,
+                    fontSize = 11.sp,
                 )
-                Text(text = "总计 ¥${money(budgetTotal)}", color = WarmBrown.copy(alpha = 0.55f), fontWeight = FontWeight.Medium)
+                Text(
+                    text = "总计 ¥${money(budgetTotal)}",
+                    color = WarmBrown.copy(alpha = 0.55f),
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 11.sp,
+                )
             }
         }
     }
@@ -360,16 +409,16 @@ private fun ActionButtons(
     ) {
         ActionButton(
             modifier = Modifier.weight(1f),
-            icon = "💬",
+            icon = Icons.Rounded.ChatBubble,
             text = "跟 Nanami 记账",
             brush = Brush.linearGradient(listOf(MintGreen.copy(alpha = 0.9f), MintGreenSoft.copy(alpha = 0.9f))),
             onClick = onAiRecordClick,
         )
         ActionButton(
             modifier = Modifier.weight(1f),
-            icon = "✍️",
+            icon = Icons.Rounded.Edit,
             text = "手动记一笔",
-            brush = Brush.linearGradient(listOf(Color.White.copy(alpha = 0.95f), Color.White.copy(alpha = 0.85f))),
+            brush = Brush.linearGradient(listOf(Color.White.copy(alpha = 0.95f), Color.White.copy(alpha = 0.86f))),
             onClick = onManualRecordClick,
         )
     }
@@ -378,7 +427,7 @@ private fun ActionButtons(
 @Composable
 private fun ActionButton(
     modifier: Modifier,
-    icon: String,
+    icon: ImageVector,
     text: String,
     brush: Brush,
     onClick: () -> Unit,
@@ -386,7 +435,7 @@ private fun ActionButton(
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val scale by animateFloatAsState(
-        targetValue = if (pressed) 0.96f else 1f,
+        targetValue = if (pressed) 0.965f else 1f,
         animationSpec = spring(dampingRatio = 0.65f, stiffness = 380f),
         label = "actionScale",
     )
@@ -397,12 +446,12 @@ private fun ActionButton(
             .glassCard(shape = RoundedCornerShape(28.dp), glowColor = MintGreen.copy(alpha = 0.22f))
             .background(brush = brush, shape = RoundedCornerShape(28.dp))
             .clickable(interactionSource = interaction, indication = null) { onClick() }
-            .padding(vertical = 14.dp, horizontal = 10.dp),
+            .padding(vertical = 15.dp, horizontal = 10.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(3.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Text(text = icon)
-        Text(text = text, color = WarmBrown, fontWeight = FontWeight.ExtraBold)
+        Icon(imageVector = icon, contentDescription = text, tint = WarmBrown.copy(alpha = 0.92f), modifier = Modifier.size(22.dp))
+        Text(text = text, color = WarmBrown, fontWeight = FontWeight.ExtraBold, fontSize = 12.sp)
     }
 }
 
@@ -413,11 +462,20 @@ private fun RecentHeader(onViewAllClick: () -> Unit) {
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(text = "最近动态 🍃", color = WarmBrown, fontWeight = FontWeight.ExtraBold)
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                imageVector = Icons.Rounded.Schedule,
+                contentDescription = "recent",
+                tint = WarmBrown.copy(alpha = 0.75f),
+                modifier = Modifier.size(17.dp),
+            )
+            Text(text = "最近动态", color = WarmBrown, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
+        }
         Text(
             text = "查看全部",
             color = WarmBrown.copy(alpha = 0.5f),
             fontWeight = FontWeight.Bold,
+            fontSize = 12.sp,
             modifier = Modifier.clickable { onViewAllClick() },
         )
     }
@@ -436,9 +494,9 @@ private fun DaySectionCard(section: DaySection) {
                     .background(Color.White.copy(alpha = 0.55f), shape = RoundedCornerShape(999.dp))
                     .padding(horizontal = 10.dp, vertical = 4.dp),
             ) {
-                Text(text = section.title, color = WarmBrown.copy(alpha = 0.65f), fontWeight = FontWeight.Bold)
+                Text(text = section.title, color = WarmBrown.copy(alpha = 0.65f), fontWeight = FontWeight.Bold, fontSize = 11.sp)
             }
-            Text(text = section.summary, color = WarmBrown.copy(alpha = 0.55f), fontWeight = FontWeight.Bold)
+            Text(text = section.summary, color = WarmBrown.copy(alpha = 0.55f), fontWeight = FontWeight.Bold, fontSize = 11.sp)
         }
 
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -456,7 +514,7 @@ private fun ActivityItem(record: ActivityRecord) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .glassCard(shape = RoundedCornerShape(24.dp), glowColor = MintGreen.copy(alpha = 0.12f))
+            .glassCard(shape = RoundedCornerShape(24.dp), glowColor = MintGreen.copy(alpha = 0.11f))
             .padding(horizontal = 14.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
@@ -464,28 +522,34 @@ private fun ActivityItem(record: ActivityRecord) {
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(
                 modifier = Modifier
-                    .size(44.dp)
-                    .glassCard(shape = RoundedCornerShape(16.dp), glowColor = Color.Transparent)
+                    .size(42.dp)
+                    .glassCard(shape = RoundedCornerShape(15.dp), glowColor = Color.Transparent)
                     .background(
                         brush = Brush.linearGradient(listOf(Color.White, Color(0xFFF0FDF4))),
-                        shape = RoundedCornerShape(16.dp),
+                        shape = RoundedCornerShape(15.dp),
                     ),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(text = record.icon)
+                Icon(
+                    imageVector = record.icon,
+                    contentDescription = record.category,
+                    tint = WarmBrown.copy(alpha = 0.92f),
+                    modifier = Modifier.size(20.dp),
+                )
             }
 
             Column {
-                Text(text = record.category, color = WarmBrown, fontWeight = FontWeight.Bold)
+                Text(text = record.category, color = WarmBrown, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 Text(
                     text = "${record.desc} · ${record.time}",
                     color = WarmBrownMuted,
                     fontWeight = FontWeight.Medium,
+                    fontSize = 11.sp,
                 )
             }
         }
 
-        Text(text = record.amount, color = amountColor, fontWeight = FontWeight.ExtraBold)
+        Text(text = record.amount, color = amountColor, fontWeight = FontWeight.ExtraBold, fontSize = 15.sp)
     }
 }
 
@@ -513,16 +577,12 @@ private fun mapTransactionsToSections(transactions: List<TransactionEntity>): Li
 
         val expense = list.filter { it.type == 0 }.sumOf { it.amount }
         val income = list.filter { it.type == 1 }.sumOf { it.amount }
-        val summary = if (income > expense) {
-            "收入 ¥${money(income)}"
-        } else {
-            "支出 ¥${money(expense)}"
-        }
+        val summary = if (income > expense) "收入 ¥${money(income)}" else "支出 ¥${money(expense)}"
 
         val records = list.sortedByDescending { it.recordTimestamp }.map { tx ->
             val isIncome = tx.type == 1
             ActivityRecord(
-                icon = tx.categoryIcon,
+                icon = resolveCategoryIcon(tx.categoryName, tx.remark),
                 category = tx.categoryName,
                 desc = tx.remark,
                 time = timeFormat.format(Date(tx.recordTimestamp)),

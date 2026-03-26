@@ -21,9 +21,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ShowChart
+import androidx.compose.material.icons.automirrored.rounded.TrendingUp
+import androidx.compose.material.icons.rounded.BarChart
+import androidx.compose.material.icons.rounded.CalendarMonth
+import androidx.compose.material.icons.rounded.ChevronLeft
+import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.PieChart
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -40,9 +48,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.qcb.keepaccounts.ui.components.glassCard
+import com.qcb.keepaccounts.ui.icons.resolveCategoryIcon
 import com.qcb.keepaccounts.ui.theme.MintGreen
 import com.qcb.keepaccounts.ui.theme.PeachIncome
 import com.qcb.keepaccounts.ui.theme.WarmBrown
@@ -59,7 +70,7 @@ private data class CalendarCell(
 
 private data class RankItem(
     val id: Int,
-    val icon: String,
+    val icon: ImageVector,
     val name: String,
     val amount: Int,
     val percent: Int,
@@ -67,11 +78,11 @@ private data class RankItem(
 )
 
 private val rankItems = listOf(
-    RankItem(1, "☕", "餐饮美食", 1250, 45, WatermelonRed),
-    RankItem(2, "🚗", "交通出行", 580, 21, MintGreen),
-    RankItem(3, "🛍️", "购物消费", 450, 16, Color(0xFFFFD3B6)),
-    RankItem(4, "🏠", "居家生活", 320, 12, Color(0xFFDCEDC1)),
-    RankItem(5, "🎮", "娱乐休闲", 180, 6, Color(0xFFFFAAA5)),
+    RankItem(1, resolveCategoryIcon("餐饮美食"), "餐饮美食", 1250, 45, WatermelonRed),
+    RankItem(2, resolveCategoryIcon("交通出行"), "交通出行", 580, 21, MintGreen),
+    RankItem(3, resolveCategoryIcon("购物消费"), "购物消费", 450, 16, Color(0xFFFFD3B6)),
+    RankItem(4, resolveCategoryIcon("居家生活"), "居家生活", 320, 12, Color(0xFFDCEDC1)),
+    RankItem(5, resolveCategoryIcon("娱乐休闲"), "娱乐休闲", 180, 6, Color(0xFFFFAAA5)),
 )
 
 @Composable
@@ -104,8 +115,8 @@ fun LedgerScreen(
     ) {
         item {
             SegmentedToggle(
-                leftText = "📅 日历记账",
-                rightText = "📊 统计报表",
+                leftText = "日历记账",
+                rightText = "统计报表",
                 leftSelected = viewMode == "calendar",
                 onLeftClick = { viewMode = "calendar" },
                 onRightClick = { viewMode = "stats" },
@@ -116,8 +127,7 @@ fun LedgerScreen(
             AnimatedContent(
                 targetState = viewMode,
                 transitionSpec = {
-                    fadeIn(animationSpec = tween(220)) togetherWith
-                        fadeOut(animationSpec = tween(180))
+                    fadeIn(animationSpec = tween(220)) togetherWith fadeOut(animationSpec = tween(180))
                 },
                 label = "ledgerMode",
             ) { mode ->
@@ -143,7 +153,7 @@ fun LedgerScreen(
             }
         }
 
-        item { Spacer(modifier = Modifier.height(88.dp)) }
+        item { Spacer(modifier = Modifier.height(90.dp)) }
     }
 }
 
@@ -166,9 +176,25 @@ private fun CalendarMode(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(text = "◀", color = WarmBrown.copy(alpha = 0.6f), fontWeight = FontWeight.Bold)
-                    Text(text = "2026年 3月", color = WarmBrown, fontWeight = FontWeight.ExtraBold)
-                    Text(text = "▶", color = WarmBrown.copy(alpha = 0.6f), fontWeight = FontWeight.Bold)
+                    Icon(
+                        imageVector = Icons.Rounded.ChevronLeft,
+                        contentDescription = "prev",
+                        tint = WarmBrown.copy(alpha = 0.6f),
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Rounded.CalendarMonth,
+                            contentDescription = null,
+                            tint = WarmBrown.copy(alpha = 0.68f),
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Text(text = "2026年 3月", color = WarmBrown, fontWeight = FontWeight.ExtraBold, fontSize = 15.sp)
+                    }
+                    Icon(
+                        imageVector = Icons.Rounded.ChevronRight,
+                        contentDescription = "next",
+                        tint = WarmBrown.copy(alpha = 0.6f),
+                    )
                 }
 
                 Row(
@@ -176,7 +202,7 @@ private fun CalendarMode(
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
                     listOf("日", "一", "二", "三", "四", "五", "六").forEach { day ->
-                        Text(text = day, color = WarmBrown.copy(alpha = 0.42f), fontWeight = FontWeight.Bold)
+                        Text(text = day, color = WarmBrown.copy(alpha = 0.42f), fontWeight = FontWeight.Bold, fontSize = 12.sp)
                     }
                 }
 
@@ -204,16 +230,19 @@ private fun CalendarMode(
                                     text = cell.date.toString(),
                                     color = if (selected) WarmBrown else WarmBrown.copy(alpha = 0.8f),
                                     fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
                                 )
                                 Text(
                                     text = if (cell.income > 0) "+${cell.income}" else " ",
                                     color = Color(0xFF22C55E),
                                     fontWeight = FontWeight.Bold,
+                                    fontSize = 9.sp,
                                 )
                                 Text(
                                     text = if (cell.expense > 0) "-${cell.expense}" else " ",
                                     color = WatermelonRed,
                                     fontWeight = FontWeight.Bold,
+                                    fontSize = 9.sp,
                                 )
                             }
                         }
@@ -238,12 +267,12 @@ private fun CalendarMode(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
-                    Text(text = "3月${selectedDate}日 明细", color = WarmBrown, fontWeight = FontWeight.ExtraBold)
-                    Text(text = "共 3 笔", color = WarmBrownMuted, fontWeight = FontWeight.Bold)
+                    Text(text = "3月${selectedDate}日 明细", color = WarmBrown, fontWeight = FontWeight.ExtraBold, fontSize = 15.sp)
+                    Text(text = "共 3 笔", color = WarmBrownMuted, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                 }
-                DailyItem(icon = "☕", name = "星巴克", time = "12:30", amount = "-¥30.00")
-                DailyItem(icon = "🚗", name = "打车", time = "09:15", amount = "-¥28.50")
-                DailyItem(icon = "💰", name = "稿费", time = "15:00", amount = "+¥120.00", isIncome = true)
+                DailyItem(icon = resolveCategoryIcon("餐饮美食"), name = "星巴克", time = "12:30", amount = "-¥30.00")
+                DailyItem(icon = resolveCategoryIcon("交通出行"), name = "打车", time = "09:15", amount = "-¥28.50")
+                DailyItem(icon = resolveCategoryIcon("收入"), name = "稿费", time = "15:00", amount = "+¥120.00", isIncome = true)
             }
         }
     }
@@ -251,7 +280,7 @@ private fun CalendarMode(
 
 @Composable
 private fun DailyItem(
-    icon: String,
+    icon: ImageVector,
     name: String,
     time: String,
     amount: String,
@@ -272,17 +301,18 @@ private fun DailyItem(
                     .background(Color.White.copy(alpha = 0.8f), RoundedCornerShape(14.dp)),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(text = icon)
+                Icon(imageVector = icon, contentDescription = name, tint = WarmBrown, modifier = Modifier.size(18.dp))
             }
             Column {
-                Text(text = name, color = WarmBrown, fontWeight = FontWeight.Bold)
-                Text(text = time, color = WarmBrownMuted)
+                Text(text = name, color = WarmBrown, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                Text(text = time, color = WarmBrownMuted, fontSize = 11.sp)
             }
         }
         Text(
             text = amount,
             color = if (isIncome) MintGreen else WatermelonRed,
             fontWeight = FontWeight.ExtraBold,
+            fontSize = 14.sp,
         )
     }
 }
@@ -313,17 +343,14 @@ private fun StatsMode(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            MiniArrow(text = "<", onClick = onPrevMonth)
+            MiniArrow(icon = Icons.Rounded.ChevronLeft, onClick = onPrevMonth)
             Text(
-                text = if (statsPeriod == "monthly") {
-                    formatLedgerMonth(statsMonthOffset) + " 🌿"
-                } else {
-                    formatLedgerYear(statsMonthOffset)
-                },
+                text = if (statsPeriod == "monthly") formatLedgerMonth(statsMonthOffset) else formatLedgerYear(statsMonthOffset),
                 color = WarmBrown,
                 fontWeight = FontWeight.ExtraBold,
+                fontSize = 18.sp,
             )
-            MiniArrow(text = ">", onClick = onNextMonth)
+            MiniArrow(icon = Icons.Rounded.ChevronRight, onClick = onNextMonth)
         }
 
         OverviewCard()
@@ -340,7 +367,7 @@ private fun StatsMode(
 
 @Composable
 private fun MiniArrow(
-    text: String,
+    icon: ImageVector,
     onClick: () -> Unit,
 ) {
     Box(
@@ -351,7 +378,7 @@ private fun MiniArrow(
             .clickable { onClick() },
         contentAlignment = Alignment.Center,
     ) {
-        Text(text = text, color = WarmBrown.copy(alpha = 0.7f), fontWeight = FontWeight.Bold)
+        Icon(imageVector = icon, contentDescription = null, tint = WarmBrown.copy(alpha = 0.7f), modifier = Modifier.size(18.dp))
     }
 }
 
@@ -385,8 +412,8 @@ private fun VerticalLine() {
 @Composable
 private fun OverviewItem(title: String, value: String, color: Color) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(text = title, color = WarmBrownMuted, fontWeight = FontWeight.Bold)
-        Text(text = value, color = color, fontWeight = FontWeight.ExtraBold)
+        Text(text = title, color = WarmBrownMuted, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+        Text(text = value, color = color, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
     }
 }
 
@@ -415,8 +442,12 @@ private fun TrendCard(
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(text = "每日趋势 📈", color = WarmBrown, fontWeight = FontWeight.ExtraBold)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(imageVector = Icons.AutoMirrored.Rounded.TrendingUp, contentDescription = null, tint = WarmBrown.copy(alpha = 0.76f), modifier = Modifier.size(16.dp))
+                    Text(text = "每日趋势", color = WarmBrown, fontWeight = FontWeight.ExtraBold, fontSize = 15.sp)
+                }
                 Row(
                     modifier = Modifier
                         .background(Color.White.copy(alpha = 0.5f), RoundedCornerShape(999.dp))
@@ -444,7 +475,6 @@ private fun TrendCard(
                     val height = size.height
                     val stepX = if (selectedValues.size > 1) width / (selectedValues.size - 1) else 0f
 
-                    // grid
                     repeat(5) { i ->
                         val y = height * i / 4f
                         drawLine(
@@ -494,8 +524,12 @@ private fun TrendCard(
                         .background(Color.White.copy(alpha = 0.5f), RoundedCornerShape(999.dp))
                         .padding(3.dp),
                 ) {
-                    ChartTypeChip(text = "柱状图", selected = chartType == "bar") { onChartTypeChange("bar") }
-                    ChartTypeChip(text = "折线图", selected = chartType == "line") { onChartTypeChange("line") }
+                    ChartTypeChip(text = "柱状图", icon = Icons.Rounded.BarChart, selected = chartType == "bar") {
+                        onChartTypeChange("bar")
+                    }
+                    ChartTypeChip(text = "折线图", icon = Icons.AutoMirrored.Rounded.ShowChart, selected = chartType == "line") {
+                        onChartTypeChange("line")
+                    }
                 }
             }
         }
@@ -521,6 +555,7 @@ private fun StatChip(
             text = text,
             color = if (selected) Color.White else WarmBrown.copy(alpha = 0.5f),
             fontWeight = FontWeight.Bold,
+            fontSize = 11.sp,
         )
     }
 }
@@ -528,22 +563,32 @@ private fun StatChip(
 @Composable
 private fun ChartTypeChip(
     text: String,
+    icon: ImageVector,
     selected: Boolean,
     onClick: () -> Unit,
 ) {
-    Box(
+    Row(
         modifier = Modifier
             .background(
                 color = if (selected) PeachIncome.copy(alpha = 0.35f) else Color.Transparent,
                 shape = RoundedCornerShape(999.dp),
             )
             .clickable { onClick() }
-            .padding(horizontal = 12.dp, vertical = 5.dp),
+            .padding(horizontal = 10.dp, vertical = 5.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = if (selected) WarmBrown else WarmBrown.copy(alpha = 0.45f),
+            modifier = Modifier.size(13.dp),
+        )
         Text(
             text = text,
             color = if (selected) WarmBrown else WarmBrown.copy(alpha = 0.45f),
             fontWeight = FontWeight.Bold,
+            fontSize = 11.sp,
         )
     }
 }
@@ -557,8 +602,14 @@ private fun DonutCard() {
             .padding(14.dp),
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Row(modifier = Modifier.fillMaxWidth()) {
-                Text(text = "分类排行榜 🍰", color = WarmBrown, fontWeight = FontWeight.ExtraBold)
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Rounded.PieChart,
+                    contentDescription = null,
+                    tint = WarmBrown.copy(alpha = 0.76f),
+                    modifier = Modifier.size(16.dp),
+                )
+                Text(text = "分类排行榜", color = WarmBrown, fontWeight = FontWeight.ExtraBold, fontSize = 15.sp)
             }
 
             Box(contentAlignment = Alignment.Center) {
@@ -601,8 +652,8 @@ private fun DonutCard() {
                 }
 
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(text = "总支出", color = WarmBrownMuted, fontWeight = FontWeight.Bold)
-                    Text(text = "4798.25", color = WarmBrown, fontWeight = FontWeight.ExtraBold)
+                    Text(text = "总支出", color = WarmBrownMuted, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    Text(text = "4798.25", color = WarmBrown, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp)
                 }
             }
         }
@@ -632,13 +683,13 @@ private fun RankingCard() {
                                 .background(Color.White.copy(alpha = 0.7f), RoundedCornerShape(14.dp)),
                             contentAlignment = Alignment.Center,
                         ) {
-                            Text(text = item.icon)
+                            Icon(imageVector = item.icon, contentDescription = item.name, tint = WarmBrown, modifier = Modifier.size(18.dp))
                         }
-                        Text(text = item.name, color = WarmBrown, fontWeight = FontWeight.Bold)
+                        Text(text = item.name, color = WarmBrown, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     }
                     Column(horizontalAlignment = Alignment.End) {
-                        Text(text = "¥${item.amount}", color = WarmBrown, fontWeight = FontWeight.ExtraBold)
-                        Text(text = "${item.percent}%", color = WarmBrownMuted, fontWeight = FontWeight.Bold)
+                        Text(text = "¥${item.amount}", color = WarmBrown, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp)
+                        Text(text = "${item.percent}%", color = WarmBrownMuted, fontWeight = FontWeight.Bold, fontSize = 10.sp)
                     }
                 }
 
@@ -687,6 +738,7 @@ private fun SegmentedToggle(
                 text = leftText,
                 color = if (leftSelected) WarmBrown else WarmBrown.copy(alpha = 0.56f),
                 fontWeight = FontWeight.Bold,
+                fontSize = 12.sp,
             )
         }
         Box(
@@ -702,6 +754,7 @@ private fun SegmentedToggle(
                 text = rightText,
                 color = if (leftSelected) WarmBrown.copy(alpha = 0.56f) else WarmBrown,
                 fontWeight = FontWeight.Bold,
+                fontSize = 12.sp,
             )
         }
     }

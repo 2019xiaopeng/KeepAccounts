@@ -15,6 +15,19 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.HelpOutline
+import androidx.compose.material.icons.automirrored.rounded.MenuBook
+import androidx.compose.material.icons.rounded.AccountCircle
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Category
+import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.DeleteSweep
+import androidx.compose.material.icons.rounded.ImportExport
+import androidx.compose.material.icons.rounded.Palette
+import androidx.compose.material.icons.rounded.Psychology
+import androidx.compose.material.icons.rounded.SmartToy
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -25,8 +38,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.qcb.keepaccounts.ui.components.glassCard
 import com.qcb.keepaccounts.ui.navigation.KeepAccountsDestination
 import com.qcb.keepaccounts.ui.theme.MintGreen
@@ -37,7 +52,7 @@ data class AIPersona(
     val id: String,
     val name: String,
     val tag: String,
-    val icon: String,
+    val icon: ImageVector,
     val desc: String,
     val gradient: Brush,
 )
@@ -47,23 +62,23 @@ private val aiPersonas = listOf(
         id = "nanami",
         name = "Nanami",
         tag = "治愈系管家",
-        icon = "🌸",
+        icon = Icons.Rounded.AutoAwesome,
         desc = "温柔体贴，情绪价值拉满",
         gradient = Brush.linearGradient(listOf(Color(0xFFA8E6CF), Color(0xFFBBF7D0))),
     ),
     AIPersona(
         id = "yuki",
         name = "Yuki",
-        tag = "高冷御姐",
-        icon = "❄️",
+        tag = "理性分析",
+        icon = Icons.Rounded.Psychology,
         desc = "理性分析，严格控制预算",
         gradient = Brush.linearGradient(listOf(Color(0xFFA1C4FD), Color(0xFFC2E9FB))),
     ),
     AIPersona(
         id = "kuro",
         name = "Kuro",
-        tag = "傲娇毒舌",
-        icon = "🐈‍⬛",
+        tag = "毒舌监督",
+        icon = Icons.Rounded.SmartToy,
         desc = "嘴硬心软，花钱会被吐槽",
         gradient = Brush.linearGradient(listOf(Color(0xFFD4A5A5), Color(0xFFFFB6B9))),
     ),
@@ -82,7 +97,7 @@ fun ProfileScreen(
             .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(text = "我的", color = WarmBrown, fontWeight = FontWeight.ExtraBold)
+        Text(text = "我的", color = WarmBrown, fontWeight = FontWeight.ExtraBold, fontSize = 22.sp)
 
         ProfileHeroCard(
             activePersona = activePersona,
@@ -92,8 +107,8 @@ fun ProfileScreen(
         MenuGroup(
             title = "资产与分类",
             items = listOf(
-                MenuEntry("📁", "分类管理", "支持换色与图标修改", null, KeepAccountsDestination.CATEGORY_MANAGEMENT),
-                MenuEntry("📒", "账本基础设置", null, null, KeepAccountsDestination.LEDGER_SETTINGS),
+                MenuEntry(Icons.Rounded.Category, "分类管理", "支持换色与图标修改", null, KeepAccountsDestination.CATEGORY_MANAGEMENT),
+                MenuEntry(Icons.AutoMirrored.Rounded.MenuBook, "账本基础设置", null, null, KeepAccountsDestination.LEDGER_SETTINGS),
             ),
             onNavigate = onNavigateToOption,
         )
@@ -101,8 +116,8 @@ fun ProfileScreen(
         MenuGroup(
             title = "数据安全与清理",
             items = listOf(
-                MenuEntry("💾", "账单导入与导出", "纯本地 CSV/JSON 文件交换", null, KeepAccountsDestination.IMPORT_EXPORT),
-                MenuEntry("🗑️", "清除缓存", null, "14.2 MB", KeepAccountsDestination.CLEAR_CACHE),
+                MenuEntry(Icons.Rounded.ImportExport, "账单导入与导出", "纯本地 CSV/JSON 文件交换", null, KeepAccountsDestination.IMPORT_EXPORT),
+                MenuEntry(Icons.Rounded.DeleteSweep, "清除缓存", null, "14.2 MB", KeepAccountsDestination.CLEAR_CACHE),
             ),
             onNavigate = onNavigateToOption,
         )
@@ -110,8 +125,8 @@ fun ProfileScreen(
         MenuGroup(
             title = "个性化与反馈",
             items = listOf(
-                MenuEntry("🎨", "主题与外观", null, "水彩薄荷绿", KeepAccountsDestination.THEME_APPEARANCE, true),
-                MenuEntry("💡", "帮助与反馈中心", null, null, KeepAccountsDestination.HELP_FEEDBACK),
+                MenuEntry(Icons.Rounded.Palette, "主题与外观", null, "水彩薄荷绿", KeepAccountsDestination.THEME_APPEARANCE, true),
+                MenuEntry(Icons.AutoMirrored.Rounded.HelpOutline, "帮助与反馈中心", null, null, KeepAccountsDestination.HELP_FEEDBACK),
             ),
             onNavigate = onNavigateToOption,
         )
@@ -141,11 +156,16 @@ private fun ProfileHeroCard(
                         .glassCard(shape = RoundedCornerShape(22.dp), glowColor = MintGreen.copy(alpha = 0.26f)),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text(text = "🧑‍💻")
+                    Icon(
+                        imageVector = Icons.Rounded.AccountCircle,
+                        contentDescription = "profile",
+                        tint = WarmBrown,
+                        modifier = Modifier.size(34.dp),
+                    )
                 }
-                Column {
-                    Text(text = "记账达人", color = WarmBrown, fontWeight = FontWeight.ExtraBold)
-                    Text(text = "已坚持记账 128 天 ✨", color = WarmBrownMuted, fontWeight = FontWeight.Bold)
+                Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                    Text(text = "记账达人", color = WarmBrown, fontWeight = FontWeight.ExtraBold, fontSize = 17.sp)
+                    Text(text = "已坚持记账 128 天", color = WarmBrownMuted, fontWeight = FontWeight.Bold, fontSize = 11.sp)
                 }
             }
 
@@ -170,13 +190,13 @@ private fun ProfileHeroCard(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(text = "AI 专属管家", color = WarmBrown.copy(alpha = 0.82f), fontWeight = FontWeight.Bold)
+                    Text(text = "AI 专属管家", color = WarmBrown.copy(alpha = 0.82f), fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     Box(
                         modifier = Modifier
                             .background(Color(0x33A8E6CF), RoundedCornerShape(8.dp))
                             .padding(horizontal = 6.dp, vertical = 2.dp),
                     ) {
-                        Text(text = "PRO", color = Color(0xFF22C55E), fontWeight = FontWeight.ExtraBold)
+                        Text(text = "PRO", color = Color(0xFF22C55E), fontWeight = FontWeight.ExtraBold, fontSize = 9.sp)
                     }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -204,7 +224,7 @@ private fun ProfileHeroCard(
                         modifier = Modifier
                             .fillParentMaxWidth(0.86f)
                             .background(
-                                color = if (selected) Color.White.copy(alpha = 0.9f) else Color.White.copy(alpha = 0.4f),
+                                color = if (selected) Color.White.copy(alpha = 0.9f) else Color.White.copy(alpha = 0.42f),
                                 shape = RoundedCornerShape(24.dp),
                             )
                             .clickable { onSelectPersona(index) }
@@ -218,18 +238,24 @@ private fun ProfileHeroCard(
                                     .background(persona.gradient, RoundedCornerShape(999.dp)),
                                 contentAlignment = Alignment.Center,
                             ) {
-                                Text(text = persona.icon)
+                                Icon(
+                                    imageVector = persona.icon,
+                                    contentDescription = persona.name,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(20.dp),
+                                )
                             }
                             Column {
-                                Text(text = persona.name, color = WarmBrown, fontWeight = FontWeight.Bold)
+                                Text(text = persona.name, color = WarmBrown, fontWeight = FontWeight.Bold, fontSize = 15.sp)
                                 Text(
                                     text = persona.tag,
                                     color = WarmBrown.copy(alpha = 0.65f),
                                     fontWeight = FontWeight.Bold,
+                                    fontSize = 10.sp,
                                 )
                             }
                         }
-                        Text(text = persona.desc, color = WarmBrownMuted, fontWeight = FontWeight.Medium)
+                        Text(text = persona.desc, color = WarmBrownMuted, fontWeight = FontWeight.Medium, fontSize = 12.sp)
                     }
                 }
             }
@@ -238,7 +264,7 @@ private fun ProfileHeroCard(
 }
 
 private data class MenuEntry(
-    val icon: String,
+    val icon: ImageVector,
     val title: String,
     val subtitle: String?,
     val value: String?,
@@ -253,7 +279,7 @@ private fun MenuGroup(
     onNavigate: (String) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(text = title, color = WarmBrown.copy(alpha = 0.6f), fontWeight = FontWeight.Bold)
+        Text(text = title, color = WarmBrown.copy(alpha = 0.6f), fontWeight = FontWeight.Bold, fontSize = 13.sp)
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -289,12 +315,12 @@ private fun MenuRow(item: MenuEntry, onClick: () -> Unit) {
                     ),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(text = item.icon)
+                Icon(imageVector = item.icon, contentDescription = item.title, tint = WarmBrown, modifier = Modifier.size(18.dp))
             }
             Column {
-                Text(text = item.title, color = WarmBrown, fontWeight = FontWeight.Bold)
+                Text(text = item.title, color = WarmBrown, fontWeight = FontWeight.Bold, fontSize = 15.sp)
                 if (item.subtitle != null) {
-                    Text(text = item.subtitle, color = WarmBrownMuted, fontWeight = FontWeight.Medium)
+                    Text(text = item.subtitle, color = WarmBrownMuted, fontWeight = FontWeight.Medium, fontSize = 11.sp)
                 }
             }
         }
@@ -305,9 +331,15 @@ private fun MenuRow(item: MenuEntry, onClick: () -> Unit) {
                     text = item.value,
                     color = if (item.highlightValue) MintGreen else WarmBrown.copy(alpha = 0.45f),
                     fontWeight = FontWeight.Bold,
+                    fontSize = 12.sp,
                 )
             }
-            Text(text = "›", color = WarmBrown.copy(alpha = 0.35f), fontWeight = FontWeight.ExtraBold)
+            Icon(
+                imageVector = Icons.Rounded.ChevronRight,
+                contentDescription = "next",
+                tint = WarmBrown.copy(alpha = 0.35f),
+                modifier = Modifier.size(17.dp),
+            )
         }
     }
 }

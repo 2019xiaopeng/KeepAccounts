@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -84,7 +85,12 @@ fun BottomNavigationBar(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
             ) {
-                Text(text = item.icon)
+                Icon(
+                    imageVector = item.icon,
+                    contentDescription = item.label,
+                    modifier = Modifier.size(22.dp),
+                    tint = if (selected) MintGreen else WarmBrown.copy(alpha = 0.68f),
+                )
                 Text(
                     text = item.label,
                     color = if (selected) MintGreen else WarmBrown.copy(alpha = 0.75f),
