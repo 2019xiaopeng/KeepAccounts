@@ -67,6 +67,11 @@ dependencies {
     implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
     implementation("com.squareup.okhttp3:okhttp-sse:4.12.0")
 
+    // UI enhancement libs
+    implementation("com.patrykandpatrick.vico:compose-m3:1.13.1")
+    implementation("com.airbnb.android:lottie-compose:6.3.0")
+    implementation("com.google.accompanist:accompanist-systemuicontroller:0.34.0")
+
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

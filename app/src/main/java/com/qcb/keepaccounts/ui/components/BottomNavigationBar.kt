@@ -1,7 +1,6 @@
 package com.qcb.keepaccounts.ui.components
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -16,7 +15,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -24,6 +22,9 @@ import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.currentBackStackEntryAsState
 import com.qcb.keepaccounts.ui.navigation.BottomNavItem
+import com.qcb.keepaccounts.ui.theme.MintGreen
+import com.qcb.keepaccounts.ui.theme.WarmBrown
+import com.qcb.keepaccounts.ui.theme.WarmBrownMuted
 
 @Composable
 fun BottomNavigationBar(
@@ -38,28 +39,15 @@ fun BottomNavigationBar(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 20.dp, vertical = 12.dp)
-            .shadow(
-                elevation = 14.dp,
-                shape = RoundedCornerShape(28.dp),
-                ambientColor = Color(0x40A8E6CF),
-                spotColor = Color(0x40A8E6CF),
-            )
-            .background(
-                color = Color(0xFFEFF9F3).copy(alpha = 0.92f),
-                shape = RoundedCornerShape(28.dp),
-            )
-            .border(
-                width = 1.dp,
-                color = Color.White.copy(alpha = 0.8f),
-                shape = RoundedCornerShape(28.dp),
-            )
+            .glassCard(shape = RoundedCornerShape(28.dp), glowColor = MintGreen.copy(alpha = 0.34f))
+            .background(color = Color.Transparent)
             .padding(horizontal = 8.dp, vertical = 10.dp),
         horizontalArrangement = Arrangement.SpaceEvenly,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         items.forEach { item ->
             val selected = currentRoute == item.route
-            val tint = if (selected) Color(0xFF5C544D) else Color(0xFF8F8A84)
+            val tint = if (selected) WarmBrown else WarmBrownMuted
             val textStyle = if (selected) FontWeight.ExtraBold else FontWeight.Medium
 
             Column(

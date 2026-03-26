@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -19,6 +20,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.google.accompanist.systemuicontroller.rememberSystemUiController
 import com.qcb.keepaccounts.ui.components.BottomNavigationBar
 import com.qcb.keepaccounts.ui.navigation.KeepAccountsDestination
 import com.qcb.keepaccounts.ui.screens.ChatScreen
@@ -44,6 +46,15 @@ class MainActivity : ComponentActivity() {
 fun KeepAccountsApp() {
     val navController = rememberNavController()
     val appContainer = (LocalContext.current.applicationContext as KeepAccountsApplication).container
+    val mainViewModel: MainViewModel = viewModel(
+        factory = MainViewModel.provideFactory(appContainer.transactionRepository),
+    )
+    val systemUiController = rememberSystemUiController()
+
+    SideEffect {
+        systemUiController.setStatusBarColor(color = Color.Transparent, darkIcons = true)
+        systemUiController.setNavigationBarColor(color = Color.Transparent, darkIcons = true)
+    }
 
     Surface(modifier = Modifier.fillMaxSize()) {
         Box(
@@ -77,13 +88,10 @@ fun KeepAccountsApp() {
                         .padding(innerPadding),
                 ) {
                     composable(KeepAccountsDestination.HOME) {
-                        val mainViewModel: MainViewModel = viewModel(
-                            factory = MainViewModel.provideFactory(appContainer.transactionRepository),
-                        )
                         HomeScreen(viewModel = mainViewModel)
                     }
                     composable(KeepAccountsDestination.CHAT) { ChatScreen() }
-                    composable(KeepAccountsDestination.LEDGER) { LedgerScreen() }
+                    composable(KeepAccountsDestination.LEDGER) { LedgerScreen(viewModel = mainViewModel) }
                     composable(KeepAccountsDestination.PROFILE) { ProfileScreen() }
                 }
             }
