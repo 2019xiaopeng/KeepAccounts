@@ -14,6 +14,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -24,6 +26,7 @@ import com.qcb.keepaccounts.ui.screens.HomeScreen
 import com.qcb.keepaccounts.ui.screens.LedgerScreen
 import com.qcb.keepaccounts.ui.screens.ProfileScreen
 import com.qcb.keepaccounts.ui.theme.KeepAccountsTheme
+import com.qcb.keepaccounts.ui.viewmodel.MainViewModel
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -40,6 +43,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun KeepAccountsApp() {
     val navController = rememberNavController()
+    val appContainer = (LocalContext.current.applicationContext as KeepAccountsApplication).container
 
     Surface(modifier = Modifier.fillMaxSize()) {
         Box(
@@ -72,7 +76,12 @@ fun KeepAccountsApp() {
                         .fillMaxSize()
                         .padding(innerPadding),
                 ) {
-                    composable(KeepAccountsDestination.HOME) { HomeScreen() }
+                    composable(KeepAccountsDestination.HOME) {
+                        val mainViewModel: MainViewModel = viewModel(
+                            factory = MainViewModel.provideFactory(appContainer.transactionRepository),
+                        )
+                        HomeScreen(viewModel = mainViewModel)
+                    }
                     composable(KeepAccountsDestination.CHAT) { ChatScreen() }
                     composable(KeepAccountsDestination.LEDGER) { LedgerScreen() }
                     composable(KeepAccountsDestination.PROFILE) { ProfileScreen() }
