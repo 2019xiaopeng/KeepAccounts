@@ -34,4 +34,8 @@
 *   依赖注入：`Hilt` (推荐) 或简单的单例 Factory 依赖注入。
 *   导航：`androidx.navigation:navigation-compose`。
 
+## 5. Sprint 级交付流程（永久生效）
+1. **ADR 记录要求**：遇到重大技术选型（如 DI 方案、状态管理方案、网络分层策略）时，必须在 `docs/adr/` 下新增编号文档（如 `001-state-and-di-strategy.md`），简要写清“为何选 A 而非 B”。
+2. **阶段提交要求**：完成一个已被用户认可的 Sprint 或重大修改后，必须执行 `git add .` 与语义清晰的 Commit；在网络可达时优先同步 `git push` 到远程仓库。
+
 *当你阅读完这段后，如果没有任何特殊开发请求，请以简短、热情的语言告知用户：“我已经准备好了，请问要从 Room 实体类的建立开始，还是建立底部的 Compose 导航栏呢？”*
