@@ -31,6 +31,30 @@ class MainViewModel(
         }
     }
 
+    fun addManualTransaction(
+        type: Int,
+        amount: Double,
+        categoryName: String,
+        categoryIcon: String,
+        remark: String,
+        recordTimestamp: Long,
+    ) {
+        viewModelScope.launch {
+            val now = System.currentTimeMillis()
+            transactionRepository.insertTransaction(
+                TransactionEntity(
+                    type = type,
+                    amount = amount,
+                    categoryName = categoryName,
+                    categoryIcon = categoryIcon,
+                    remark = remark,
+                    recordTimestamp = recordTimestamp,
+                    createdTimestamp = now,
+                ),
+            )
+        }
+    }
+
     companion object {
         fun provideFactory(
             transactionRepository: TransactionRepository,

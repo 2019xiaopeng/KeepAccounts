@@ -81,6 +81,9 @@ fun LedgerScreen(
 ) {
     var viewMode by remember { mutableStateOf("stats") }
     var statsPeriod by remember { mutableStateOf("monthly") }
+    var statsMonthOffset by remember { mutableIntStateOf(0) }
+    var trendMetric by remember { mutableStateOf("expense") }
+    var chartType by remember { mutableStateOf("line") }
     var selectedDate by remember { mutableIntStateOf(15) }
 
     val calendarData = remember {
@@ -128,6 +131,13 @@ fun LedgerScreen(
                     StatsMode(
                         statsPeriod = statsPeriod,
                         onStatsPeriodChange = { statsPeriod = it },
+                        statsMonthOffset = statsMonthOffset,
+                        onPrevMonth = { statsMonthOffset -= 1 },
+                        onNextMonth = { statsMonthOffset += 1 },
+                        trendMetric = trendMetric,
+                        onTrendMetricChange = { trendMetric = it },
+                        chartType = chartType,
+                        onChartTypeChange = { chartType = it },
                     )
                 }
             }
@@ -281,6 +291,13 @@ private fun DailyItem(
 private fun StatsMode(
     statsPeriod: String,
     onStatsPeriodChange: (String) -> Unit,
+    statsMonthOffset: Int,
+    onPrevMonth: () -> Unit,
+    onNextMonth: () -> Unit,
+    trendMetric: String,
+    onTrendMetricChange: (String) -> Unit,
+    chartType: String,
+    onChartTypeChange: (String) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         SegmentedToggle(
@@ -296,26 +313,42 @@ private fun StatsMode(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            MiniArrow("<")
-            Text(text = "2026年 3月 🌿", color = WarmBrown, fontWeight = FontWeight.ExtraBold)
-            MiniArrow(">")
+            MiniArrow(text = "<", onClick = onPrevMonth)
+            Text(
+                text = if (statsPeriod == "monthly") {
+                    formatLedgerMonth(statsMonthOffset) + " 🌿"
+                } else {
+                    formatLedgerYear(statsMonthOffset)
+                },
+                color = WarmBrown,
+                fontWeight = FontWeight.ExtraBold,
+            )
+            MiniArrow(text = ">", onClick = onNextMonth)
         }
 
         OverviewCard()
-        TrendCard()
+        TrendCard(
+            trendMetric = trendMetric,
+            onTrendMetricChange = onTrendMetricChange,
+            chartType = chartType,
+            onChartTypeChange = onChartTypeChange,
+        )
         DonutCard()
         RankingCard()
     }
 }
 
 @Composable
-private fun MiniArrow(text: String) {
+private fun MiniArrow(
+    text: String,
+    onClick: () -> Unit,
+) {
     Box(
         modifier = Modifier
             .size(30.dp)
             .glassCard(shape = RoundedCornerShape(999.dp), glowColor = MintGreen.copy(alpha = 0.1f))
             .background(Color.White.copy(alpha = 0.65f), CircleShape)
-            .clickable { },
+            .clickable { onClick() },
         contentAlignment = Alignment.Center,
     ) {
         Text(text = text, color = WarmBrown.copy(alpha = 0.7f), fontWeight = FontWeight.Bold)
@@ -358,9 +391,18 @@ private fun OverviewItem(title: String, value: String, color: Color) {
 }
 
 @Composable
-private fun TrendCard() {
+private fun TrendCard(
+    trendMetric: String,
+    onTrendMetricChange: (String) -> Unit,
+    chartType: String,
+    onChartTypeChange: (String) -> Unit,
+) {
     val chartValues = remember {
-        listOf(100f, 105f, 95f, 60f, 60f, 10f, 85f, 88f, 90f, 50f, 70f, 85f, 60f, 60f)
+        mapOf(
+            "expense" to listOf(100f, 105f, 95f, 60f, 60f, 10f, 85f, 88f, 90f, 50f, 70f, 85f, 60f, 60f),
+            "income" to listOf(42f, 58f, 65f, 55f, 86f, 92f, 73f, 66f, 80f, 88f, 74f, 64f, 70f, 96f),
+            "balance" to listOf(48f, 54f, 42f, 38f, 62f, 76f, 50f, 42f, 45f, 38f, 56f, 41f, 47f, 60f),
+        )
     }
 
     Box(
@@ -381,9 +423,9 @@ private fun TrendCard() {
                         .padding(2.dp),
                     horizontalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
-                    StatChip("支出", true)
-                    StatChip("收入", false)
-                    StatChip("结余", false)
+                    StatChip("支出", trendMetric == "expense") { onTrendMetricChange("expense") }
+                    StatChip("收入", trendMetric == "income") { onTrendMetricChange("income") }
+                    StatChip("结余", trendMetric == "balance") { onTrendMetricChange("balance") }
                 }
             }
 
@@ -395,11 +437,12 @@ private fun TrendCard() {
                     .padding(8.dp),
             ) {
                 Canvas(modifier = Modifier.fillMaxSize()) {
+                    val selectedValues = chartValues[trendMetric].orEmpty()
                     val maxY = 110f
                     val minY = 0f
                     val width = size.width
                     val height = size.height
-                    val stepX = if (chartValues.size > 1) width / (chartValues.size - 1) else 0f
+                    val stepX = if (selectedValues.size > 1) width / (selectedValues.size - 1) else 0f
 
                     // grid
                     repeat(5) { i ->
@@ -412,19 +455,47 @@ private fun TrendCard() {
                         )
                     }
 
-                    val path = Path()
-                    chartValues.forEachIndexed { index, value ->
-                        val x = stepX * index
-                        val yRatio = (value - minY) / (maxY - minY)
-                        val y = height - yRatio * height
-                        if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
-                    }
+                    if (chartType == "line") {
+                        val path = Path()
+                        selectedValues.forEachIndexed { index, value ->
+                            val x = stepX * index
+                            val yRatio = (value - minY) / (maxY - minY)
+                            val y = height - yRatio * height
+                            if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                        }
 
-                    drawPath(
-                        path = path,
-                        brush = Brush.horizontalGradient(listOf(WatermelonRed, WatermelonPink)),
-                        style = Stroke(width = 4f, cap = StrokeCap.Round),
-                    )
+                        drawPath(
+                            path = path,
+                            brush = Brush.horizontalGradient(listOf(WatermelonRed, WatermelonPink)),
+                            style = Stroke(width = 4f, cap = StrokeCap.Round),
+                        )
+                    } else {
+                        val barWidth = (width / selectedValues.size.coerceAtLeast(1)) * 0.5f
+                        selectedValues.forEachIndexed { index, value ->
+                            val yRatio = (value - minY) / (maxY - minY)
+                            val barHeight = yRatio * height
+                            val left = index * stepX - barWidth / 2f
+                            drawRect(
+                                color = MintGreen.copy(alpha = 0.85f),
+                                topLeft = Offset(left.coerceAtLeast(0f), height - barHeight),
+                                size = Size(barWidth, barHeight),
+                            )
+                        }
+                    }
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center,
+            ) {
+                Row(
+                    modifier = Modifier
+                        .background(Color.White.copy(alpha = 0.5f), RoundedCornerShape(999.dp))
+                        .padding(3.dp),
+                ) {
+                    ChartTypeChip(text = "柱状图", selected = chartType == "bar") { onChartTypeChange("bar") }
+                    ChartTypeChip(text = "折线图", selected = chartType == "line") { onChartTypeChange("line") }
                 }
             }
         }
@@ -432,18 +503,46 @@ private fun TrendCard() {
 }
 
 @Composable
-private fun StatChip(text: String, selected: Boolean) {
+private fun StatChip(
+    text: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
     Box(
         modifier = Modifier
             .background(
                 color = if (selected) PeachIncome else Color.Transparent,
                 shape = RoundedCornerShape(999.dp),
             )
+            .clickable { onClick() }
             .padding(horizontal = 10.dp, vertical = 4.dp),
     ) {
         Text(
             text = text,
             color = if (selected) Color.White else WarmBrown.copy(alpha = 0.5f),
+            fontWeight = FontWeight.Bold,
+        )
+    }
+}
+
+@Composable
+private fun ChartTypeChip(
+    text: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .background(
+                color = if (selected) PeachIncome.copy(alpha = 0.35f) else Color.Transparent,
+                shape = RoundedCornerShape(999.dp),
+            )
+            .clickable { onClick() }
+            .padding(horizontal = 12.dp, vertical = 5.dp),
+    ) {
+        Text(
+            text = text,
+            color = if (selected) WarmBrown else WarmBrown.copy(alpha = 0.45f),
             fontWeight = FontWeight.Bold,
         )
     }
@@ -606,4 +705,21 @@ private fun SegmentedToggle(
             )
         }
     }
+}
+
+private fun formatLedgerMonth(offset: Int): String {
+    val calendar = java.util.Calendar.getInstance().apply {
+        add(java.util.Calendar.MONTH, offset)
+    }
+    val year = calendar.get(java.util.Calendar.YEAR)
+    val month = calendar.get(java.util.Calendar.MONTH) + 1
+    return "${year}年 ${month}月"
+}
+
+private fun formatLedgerYear(offset: Int): String {
+    val calendar = java.util.Calendar.getInstance().apply {
+        add(java.util.Calendar.YEAR, offset)
+    }
+    val year = calendar.get(java.util.Calendar.YEAR)
+    return "${year}年"
 }

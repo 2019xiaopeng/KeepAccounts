@@ -89,6 +89,8 @@ fun ImportExportScreen(onBack: () -> Unit) {
 @Composable
 fun CacheCleanupScreen(onBack: () -> Unit) {
     var clearThumb by remember { mutableStateOf(false) }
+    var cacheSize by remember { mutableStateOf("14.2 MB") }
+    var statusText by remember { mutableStateOf("包含缩略图、图表快照和日志片段") }
 
     LazyColumn(
         modifier = Modifier
@@ -108,8 +110,8 @@ fun CacheCleanupScreen(onBack: () -> Unit) {
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text(text = "当前缓存占用", color = WarmBrownMuted, fontWeight = FontWeight.Bold)
-                Text(text = "14.2 MB", color = WarmBrown, fontWeight = FontWeight.ExtraBold)
-                Text(text = "包含缩略图、图表快照和日志片段", color = WarmBrownMuted)
+                Text(text = cacheSize, color = WarmBrown, fontWeight = FontWeight.ExtraBold)
+                Text(text = statusText, color = WarmBrownMuted)
             }
         }
 
@@ -138,7 +140,10 @@ fun CacheCleanupScreen(onBack: () -> Unit) {
                         brush = Brush.linearGradient(listOf(Color(0xFFFFE7E9), Color(0xFFFFF2F4))),
                         shape = RoundedCornerShape(24.dp),
                     )
-                    .clickable { }
+                    .clickable {
+                        cacheSize = if (clearThumb) "4.1 MB" else "0.0 MB"
+                        statusText = "缓存已清理完成，可继续正常使用"
+                    }
                     .padding(vertical = 12.dp),
                 horizontalArrangement = Arrangement.Center,
             ) {
@@ -151,6 +156,7 @@ fun CacheCleanupScreen(onBack: () -> Unit) {
 @Composable
 fun ThemeAppearanceScreen(onBack: () -> Unit) {
     val palettes = listOf("水彩薄荷绿", "杏桃奶油", "浅海蓝")
+    var selectedTheme by remember { mutableStateOf("水彩薄荷绿") }
 
     LazyColumn(
         modifier = Modifier
@@ -166,6 +172,7 @@ fun ThemeAppearanceScreen(onBack: () -> Unit) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .glassCard(shape = RoundedCornerShape(24.dp), glowColor = MintGreen.copy(alpha = 0.16f))
+                    .clickable { selectedTheme = name }
                     .padding(12.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
@@ -178,7 +185,11 @@ fun ThemeAppearanceScreen(onBack: () -> Unit) {
                     }
                     Text(text = name, color = WarmBrown, fontWeight = FontWeight.Bold)
                 }
-                Text(text = "应用", color = WarmBrownMuted, fontWeight = FontWeight.Bold)
+                Text(
+                    text = if (selectedTheme == name) "已应用" else "应用",
+                    color = if (selectedTheme == name) MintGreen else WarmBrownMuted,
+                    fontWeight = FontWeight.Bold,
+                )
             }
         }
     }
@@ -215,6 +226,8 @@ private fun OptionPageScaffold(
     rows: List<OptionRowData>,
     onBack: () -> Unit,
 ) {
+    var clickedTitle by remember { mutableStateOf<String?>(null) }
+
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -224,7 +237,26 @@ private fun OptionPageScaffold(
     ) {
         item { OptionHeader(title = title, subtitle = subtitle, onBack = onBack) }
         items(rows) { row ->
-            OptionRow(row)
+            OptionRow(
+                data = row,
+                onClick = { clickedTitle = row.title },
+            )
+        }
+        if (clickedTitle != null) {
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .glassCard(shape = RoundedCornerShape(20.dp), glowColor = MintGreen.copy(alpha = 0.12f))
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                ) {
+                    Text(
+                        text = "已打开：${clickedTitle ?: ""}",
+                        color = WarmBrownMuted,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
         }
     }
 }
@@ -258,11 +290,15 @@ private fun OptionHeader(
 }
 
 @Composable
-private fun OptionRow(data: OptionRowData) {
+private fun OptionRow(
+    data: OptionRowData,
+    onClick: () -> Unit,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .glassCard(shape = RoundedCornerShape(24.dp), glowColor = MintGreen.copy(alpha = 0.15f))
+            .clickable { onClick() }
             .padding(horizontal = 12.dp, vertical = 10.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,

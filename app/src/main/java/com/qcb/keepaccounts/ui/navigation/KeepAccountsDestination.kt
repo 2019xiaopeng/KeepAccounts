@@ -11,6 +11,7 @@ object KeepAccountsDestination {
     const val CHAT = "chat"
     const val LEDGER = "ledger"
     const val PROFILE = "profile"
+    const val MANUAL_ENTRY = "manual_entry"
 
     const val CATEGORY_MANAGEMENT = "category_management"
     const val LEDGER_SETTINGS = "ledger_settings"

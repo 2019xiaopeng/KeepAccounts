@@ -7,6 +7,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,7 +25,15 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -38,8 +47,9 @@ import com.qcb.keepaccounts.ui.theme.MintGreen
 import com.qcb.keepaccounts.ui.theme.WarmBrown
 import com.qcb.keepaccounts.ui.theme.WarmBrownMuted
 import com.qcb.keepaccounts.ui.theme.WatermelonRed
+import kotlinx.coroutines.delay
 
-data class DemoMessage(
+private data class DemoMessage(
     val id: Long,
     val role: String,
     val text: String,
@@ -49,7 +59,7 @@ data class DemoMessage(
     val receiptRemark: String = "",
 )
 
-private val chatMessages = listOf(
+private val initialChatMessages = listOf(
     DemoMessage(id = 1, role = "user", text = "牛肉粉丝汤 22"),
     DemoMessage(id = 2, role = "ai", text = "已经帮你记在账上了"),
     DemoMessage(id = 3, role = "ai", text = "喝点热汤对肠胃很好，慢点喝别烫到"),
@@ -66,7 +76,25 @@ private val chatMessages = listOf(
 )
 
 @Composable
-fun ChatScreen(modifier: Modifier = Modifier) {
+fun ChatScreen(
+    modifier: Modifier = Modifier,
+    initialInput: String? = null,
+    onConsumedInitialInput: () -> Unit = {},
+    onBack: (() -> Unit)? = null,
+) {
+    val messages = remember { mutableStateListOf<DemoMessage>().apply { addAll(initialChatMessages) } }
+    var inputText by remember { mutableStateOf("") }
+    var isTyping by remember { mutableStateOf(false) }
+    var topTip by remember { mutableStateOf("") }
+
+    LaunchedEffect(initialInput) {
+        if (!initialInput.isNullOrBlank() && inputText.isBlank()) {
+            inputText = initialInput
+            topTip = "已从首页带入 AI 记账输入"
+            onConsumedInitialInput()
+        }
+    }
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -95,19 +123,43 @@ fun ChatScreen(modifier: Modifier = Modifier) {
         )
 
         Column(modifier = Modifier.fillMaxSize()) {
-            ChatHeader()
+            ChatHeader(onBack = onBack)
+
+            if (topTip.isNotBlank()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 8.dp)
+                        .background(Color.White.copy(alpha = 0.16f), RoundedCornerShape(999.dp))
+                        .padding(horizontal = 12.dp, vertical = 5.dp),
+                ) {
+                    Text(text = topTip, color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            }
 
             LazyColumn(
                 modifier = Modifier.weight(1f),
                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                items(chatMessages, key = { it.id }) { message ->
-                    MessageRow(message = message)
+                items(messages, key = { it.id }) { message ->
+                    MessageRow(
+                        message = message,
+                        onDelete = {
+                            messages.removeAll { it.id == message.id }
+                            topTip = "已删除这条回执"
+                        },
+                        onEdit = {
+                            inputText = "${message.receiptRemark} ${message.receiptAmount}".trim()
+                            topTip = "已填充到输入框，可继续修改后发送"
+                        },
+                    )
                 }
 
-                item {
-                    TypingRow()
+                if (isTyping) {
+                    item {
+                        TypingRow()
+                    }
                 }
 
                 item { Spacer(modifier = Modifier.height(92.dp)) }
@@ -118,12 +170,61 @@ fun ChatScreen(modifier: Modifier = Modifier) {
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth(),
+            input = inputText,
+            onInputChange = { inputText = it },
+            onSend = {
+                val userText = inputText.trim()
+                if (userText.isEmpty() || isTyping) return@InputBar
+
+                inputText = ""
+                messages.add(
+                    DemoMessage(
+                        id = System.currentTimeMillis(),
+                        role = "user",
+                        text = userText,
+                    ),
+                )
+                isTyping = true
+            },
         )
+    }
+
+    LaunchedEffect(isTyping) {
+        if (!isTyping) return@LaunchedEffect
+
+        delay(700)
+        val latestUser = messages.lastOrNull { it.role == "user" }?.text.orEmpty()
+        val amount = parseAmount(latestUser)
+        val aiReply = if (amount != null) {
+            DemoMessage(
+                id = System.currentTimeMillis() + 1,
+                role = "ai",
+                text = "收到啦，已经帮你记下这笔账。今天也要照顾好自己 🌿",
+                isReceipt = true,
+                receiptCategory = "餐饮",
+                receiptAmount = amount,
+                receiptRemark = latestUser,
+            )
+        } else {
+            DemoMessage(
+                id = System.currentTimeMillis() + 1,
+                role = "ai",
+                text = "我在呢，你可以直接说“午饭 26”这种格式，我会自动记账。",
+            )
+        }
+        messages.add(aiReply)
+        topTip = if (amount != null) "已识别金额并生成回执" else topTip
+        isTyping = false
     }
 }
 
+private fun parseAmount(text: String): String? {
+    val regex = Regex("(\\d+(?:\\.\\d{1,2})?)")
+    return regex.find(text)?.groupValues?.get(1)
+}
+
 @Composable
-private fun ChatHeader() {
+private fun ChatHeader(onBack: (() -> Unit)?) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -132,7 +233,12 @@ private fun ChatHeader() {
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(text = "←", color = Color.White, fontWeight = FontWeight.Bold)
+        Text(
+            text = "←",
+            color = Color.White,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.clickable { onBack?.invoke() },
+        )
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(text = "Nanami🌊", color = Color.White, fontWeight = FontWeight.ExtraBold)
             Text(text = "今天 16:51", color = Color.White.copy(alpha = 0.6f))
@@ -142,7 +248,11 @@ private fun ChatHeader() {
 }
 
 @Composable
-private fun MessageRow(message: DemoMessage) {
+private fun MessageRow(
+    message: DemoMessage,
+    onDelete: () -> Unit,
+    onEdit: () -> Unit,
+) {
     val isUser = message.role == "user"
     val bubbleShape = if (isUser) {
         RoundedCornerShape(topStart = 20.dp, topEnd = 4.dp, bottomStart = 20.dp, bottomEnd = 20.dp)
@@ -180,7 +290,11 @@ private fun MessageRow(message: DemoMessage) {
             }
 
             if (message.isReceipt) {
-                ReceiptCard(message)
+                ReceiptCard(
+                    message = message,
+                    onDelete = onDelete,
+                    onEdit = onEdit,
+                )
             }
         }
 
@@ -200,7 +314,11 @@ private fun MessageRow(message: DemoMessage) {
 }
 
 @Composable
-private fun ReceiptCard(message: DemoMessage) {
+private fun ReceiptCard(
+    message: DemoMessage,
+    onDelete: () -> Unit,
+    onEdit: () -> Unit,
+) {
     Column(
         modifier = Modifier
             .padding(top = 8.dp)
@@ -224,6 +342,7 @@ private fun ReceiptCard(message: DemoMessage) {
                     .weight(1f)
                     .clip(RoundedCornerShape(999.dp))
                     .background(Color(0xFFF3F4F6))
+                    .clickable { onEdit() }
                     .padding(vertical = 8.dp),
                 contentAlignment = Alignment.Center,
             ) {
@@ -234,6 +353,7 @@ private fun ReceiptCard(message: DemoMessage) {
                     .weight(1f)
                     .clip(RoundedCornerShape(999.dp))
                     .background(Color(0xFFFFF0F0))
+                    .clickable { onDelete() }
                     .padding(vertical = 8.dp),
                 contentAlignment = Alignment.Center,
             ) {
@@ -334,7 +454,12 @@ private fun Dot(alpha: Float) {
 }
 
 @Composable
-private fun InputBar(modifier: Modifier = Modifier) {
+private fun InputBar(
+    modifier: Modifier = Modifier,
+    input: String,
+    onInputChange: (String) -> Unit,
+    onSend: () -> Unit,
+) {
     Row(
         modifier = modifier
             .background(Color.White.copy(alpha = 0.9f))
@@ -343,21 +468,28 @@ private fun InputBar(modifier: Modifier = Modifier) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(text = "🎤")
-        Box(
+        TextField(
+            value = input,
+            onValueChange = onInputChange,
+            placeholder = { Text(text = "发送消息给 Nanami🌊...", color = WarmBrownMuted) },
+            colors = TextFieldDefaults.colors(
+                focusedContainerColor = Color(0xFFF3F4F6),
+                unfocusedContainerColor = Color(0xFFF3F4F6),
+                focusedIndicatorColor = Color.Transparent,
+                unfocusedIndicatorColor = Color.Transparent,
+            ),
+            singleLine = true,
             modifier = Modifier
                 .weight(1f)
-                .clip(RoundedCornerShape(999.dp))
-                .background(Color(0xFFF3F4F6))
-                .padding(horizontal = 12.dp, vertical = 9.dp),
-        ) {
-            Text(text = "发送消息给 Nanami🌊...", color = WarmBrownMuted)
-        }
+                .clip(RoundedCornerShape(999.dp)),
+        )
         Text(text = "🖼️", color = WarmBrown.copy(alpha = 0.4f))
         Box(
             modifier = Modifier
                 .size(36.dp)
                 .clip(CircleShape)
-                .background(brush = Brush.linearGradient(listOf(MintGreen, Color(0xFF88D4B4)))),
+                .background(brush = Brush.linearGradient(listOf(MintGreen, Color(0xFF88D4B4))))
+                .clickable { onSend() },
             contentAlignment = Alignment.Center,
         ) {
             Text(text = "➤", color = Color.White)

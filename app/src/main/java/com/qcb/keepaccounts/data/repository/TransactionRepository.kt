@@ -11,6 +11,10 @@ class TransactionRepository(
     fun observeTransactions(): Flow<List<TransactionEntity>> =
         transactionDao.observeAllTransactions()
 
+    suspend fun insertTransaction(transaction: TransactionEntity): Long {
+        return transactionDao.insertTransaction(transaction)
+    }
+
     suspend fun seedInitialTransactionsIfNeeded() {
         if (transactionDao.countTransactions() > 0) return
 

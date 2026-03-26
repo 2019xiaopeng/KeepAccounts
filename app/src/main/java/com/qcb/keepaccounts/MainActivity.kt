@@ -13,6 +13,9 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -31,6 +34,7 @@ import com.qcb.keepaccounts.ui.screens.HomeScreen
 import com.qcb.keepaccounts.ui.screens.ImportExportScreen
 import com.qcb.keepaccounts.ui.screens.LedgerSettingsScreen
 import com.qcb.keepaccounts.ui.screens.LedgerScreen
+import com.qcb.keepaccounts.ui.screens.ManualEntryScreen
 import com.qcb.keepaccounts.ui.screens.CacheCleanupScreen
 import com.qcb.keepaccounts.ui.screens.CategoryManagementScreen
 import com.qcb.keepaccounts.ui.screens.ProfileScreen
@@ -55,6 +59,7 @@ fun KeepAccountsApp() {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
+    var chatInitialInput by remember { mutableStateOf<String?>(null) }
     val appContainer = (LocalContext.current.applicationContext as KeepAccountsApplication).container
     val mainViewModel: MainViewModel = viewModel(
         factory = MainViewModel.provideFactory(appContainer.transactionRepository),
@@ -100,12 +105,36 @@ fun KeepAccountsApp() {
                         .padding(innerPadding),
                 ) {
                     composable(KeepAccountsDestination.HOME) {
-                        HomeScreen(viewModel = mainViewModel)
+                        HomeScreen(
+                            viewModel = mainViewModel,
+                            onAiRecordClick = {
+                                chatInitialInput = "午饭 26"
+                                navController.navigate(KeepAccountsDestination.CHAT)
+                            },
+                            onManualRecordClick = {
+                                navController.navigate(KeepAccountsDestination.MANUAL_ENTRY)
+                            },
+                            onViewAllClick = {
+                                navController.navigate(KeepAccountsDestination.LEDGER)
+                            },
+                        )
                     }
-                    composable(KeepAccountsDestination.CHAT) { ChatScreen() }
+                    composable(KeepAccountsDestination.CHAT) {
+                        ChatScreen(
+                            initialInput = chatInitialInput,
+                            onConsumedInitialInput = { chatInitialInput = null },
+                            onBack = { navController.popBackStack() },
+                        )
+                    }
                     composable(KeepAccountsDestination.LEDGER) { LedgerScreen(viewModel = mainViewModel) }
                     composable(KeepAccountsDestination.PROFILE) {
                         ProfileScreen(onNavigateToOption = { route -> navController.navigate(route) })
+                    }
+                    composable(KeepAccountsDestination.MANUAL_ENTRY) {
+                        ManualEntryScreen(
+                            viewModel = mainViewModel,
+                            onBack = { navController.popBackStack() },
+                        )
                     }
 
                     composable(KeepAccountsDestination.CATEGORY_MANAGEMENT) {
