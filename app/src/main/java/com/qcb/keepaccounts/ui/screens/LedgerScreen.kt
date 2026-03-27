@@ -204,16 +204,18 @@ fun LedgerScreen(
         item {
             Row(
                 modifier = Modifier
+                    .fillMaxWidth()
                     .background(Color.White.copy(alpha = 0.4f), RoundedCornerShape(999.dp))
                     .glassCard(shape = RoundedCornerShape(999.dp), backgroundColor = Color.White.copy(alpha = 0.56f))
                     .padding(4.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                horizontalArrangement = Arrangement.Center,
             ) {
                 TopToggle(
                     selected = viewMode == LedgerViewMode.CALENDAR,
                     iconText = "📅",
                     text = "日历记账",
                 ) { viewMode = LedgerViewMode.CALENDAR }
+                Spacer(modifier = Modifier.width(4.dp))
                 TopToggle(
                     selected = viewMode == LedgerViewMode.STATS,
                     iconText = "📊",
@@ -305,7 +307,7 @@ fun LedgerScreen(
             }
         }
 
-        item { Spacer(modifier = Modifier.height(92.dp)) }
+        item { Spacer(modifier = Modifier.height(8.dp)) }
     }
 }
 
@@ -374,42 +376,44 @@ private fun CalendarPanel(
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 week.forEach { cell ->
                     if (cell.day == null) {
-                        Spacer(modifier = Modifier.width(42.dp))
+                        Spacer(modifier = Modifier.width(40.dp))
                     } else {
                         val selected = cell.day == selectedDay
                         Column(
                             modifier = Modifier
-                                .width(42.dp)
-                                .background(
-                                    color = if (selected) Color(0xFFF8A85C) else Color.Transparent,
-                                    shape = CircleShape,
-                                )
+                                .width(40.dp)
                                 .clickable { onSelectDay(cell.day) }
-                                .padding(vertical = 3.dp),
+                                .padding(vertical = 2.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
                         ) {
-                            Text(
-                                text = cell.day.toString(),
-                                color = if (selected) Color.White else WarmBrown,
-                                fontWeight = FontWeight.ExtraBold,
-                                fontSize = 15.sp,
-                            )
-                            if (!selected) {
+                            Box(
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .background(
+                                        color = if (selected) Color(0xFFF8A85C) else Color.Transparent,
+                                        shape = CircleShape,
+                                    ),
+                                contentAlignment = Alignment.Center,
+                            ) {
                                 Text(
-                                    text = if (cell.expense > 0) "-${trimNumber(cell.expense)}" else "",
-                                    color = WatermelonRed,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 10.sp,
+                                    text = cell.day.toString(),
+                                    color = if (selected) Color.White else WarmBrown,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 15.sp,
                                 )
-                                Text(
-                                    text = if (cell.income > 0) "+${trimNumber(cell.income)}" else "",
-                                    color = Color(0xFF37A56B),
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 10.sp,
-                                )
-                            } else {
-                                Spacer(modifier = Modifier.height(22.dp))
                             }
+                            Text(
+                                text = if (cell.expense > 0) "-${trimNumber(cell.expense)}" else "",
+                                color = WatermelonRed,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 9.sp,
+                            )
+                            Text(
+                                text = if (cell.income > 0) "+${trimNumber(cell.income)}" else "",
+                                color = Color(0xFF37A56B),
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 9.sp,
+                            )
                         }
                     }
                 }
@@ -588,16 +592,18 @@ private fun StatsPanel(
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Row(
             modifier = Modifier
+                .fillMaxWidth()
                 .background(Color.White.copy(alpha = 0.4f), RoundedCornerShape(999.dp))
                 .glassCard(shape = RoundedCornerShape(999.dp), backgroundColor = Color.White.copy(alpha = 0.7f))
                 .padding(4.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            horizontalArrangement = Arrangement.Center,
         ) {
             TopToggle(
                 selected = statsPeriod == StatsPeriod.MONTH,
                 iconText = "",
                 text = "月度",
             ) { onStatsPeriodChange(StatsPeriod.MONTH) }
+            Spacer(modifier = Modifier.width(4.dp))
             TopToggle(
                 selected = statsPeriod == StatsPeriod.YEAR,
                 iconText = "",
