@@ -3,7 +3,6 @@ package com.qcb.keepaccounts.ui.components
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -24,6 +23,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.currentBackStackEntryAsState
@@ -45,8 +45,11 @@ fun BottomNavigationBar(
             .fillMaxWidth()
             .height(94.dp)
             .padding(horizontal = 12.dp, vertical = 8.dp)
-            .background(Color.White.copy(alpha = 0.96f), RoundedCornerShape(28.dp))
-            .border(1.dp, Color.White.copy(alpha = 0.96f), RoundedCornerShape(28.dp))
+            .glassCard(
+                shape = RoundedCornerShape(28.dp),
+                backgroundColor = Color.White.copy(alpha = 0.5f),
+                glowColor = MintGreen.copy(alpha = 0.2f),
+            )
             .padding(horizontal = 10.dp, vertical = 6.dp),
         horizontalArrangement = Arrangement.SpaceAround,
         verticalAlignment = Alignment.CenterVertically,
@@ -72,7 +75,7 @@ fun BottomNavigationBar(
                         translationY = offsetY,
                     )
                     .background(
-                        color = if (selected) MintGreen.copy(alpha = 0.17f) else Color.Transparent,
+                        color = if (selected) MintGreen.copy(alpha = 0.2f) else Color.Transparent,
                         shape = RoundedCornerShape(16.dp),
                     )
                     .clickable {
@@ -109,6 +112,7 @@ fun BottomNavigationBar(
                     text = item.label,
                     color = if (selected) Color(0xFF53C3B8) else WarmBrown.copy(alpha = 0.75f),
                     fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                    fontSize = 15.sp,
                 )
             }
         }

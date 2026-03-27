@@ -21,13 +21,13 @@ data class ThemePalette(
 fun paletteForTheme(theme: AppThemePreset): ThemePalette {
     return when (theme) {
         AppThemePreset.MINT -> ThemePalette(
-            primary = Color(0xFFA8E6CF),
-            primaryDark = Color(0xFF95DCB4),
-            primaryLight = Color(0xFFF0FDF4),
-            background = Color(0xFFE8F0EB),
-            backgroundLight = Color(0xFFE0F2E9),
-            secondary = Color(0xFFF3D2C1),
-            secondaryDark = Color(0xFFF6B98D),
+            primary = Color(0xFF9BE7D8),
+            primaryDark = Color(0xFF7FD6C6),
+            primaryLight = Color(0xFFF3FFFB),
+            background = Color(0xFFEAF8F4),
+            backgroundLight = Color(0xFFF6FFFC),
+            secondary = Color(0xFFEFF3FF),
+            secondaryDark = Color(0xFFBED5FF),
         )
 
         AppThemePreset.PINK -> ThemePalette(

@@ -6,6 +6,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.qcb.keepaccounts.ui.theme.GlassBorder
@@ -20,12 +21,26 @@ fun Modifier.glassCard(
 ): Modifier {
     return this
         .shadow(
-            elevation = 12.dp,
+            elevation = 18.dp,
             shape = shape,
             ambientColor = glowColor,
             spotColor = glowColor,
         )
         .clip(shape)
-        .background(color = backgroundColor, shape = shape)
-        .border(width = 1.dp, color = borderColor, shape = shape)
+        .background(
+            brush = Brush.verticalGradient(
+                colors = listOf(
+                    Color.White.copy(alpha = 0.86f),
+                    backgroundColor,
+                    Color.White.copy(alpha = 0.58f),
+                ),
+            ),
+            shape = shape,
+        )
+        .border(width = 1.dp, color = borderColor.copy(alpha = 0.9f), shape = shape)
+        .border(
+            width = 0.6.dp,
+            color = Color.White.copy(alpha = 0.55f),
+            shape = shape,
+        )
 }

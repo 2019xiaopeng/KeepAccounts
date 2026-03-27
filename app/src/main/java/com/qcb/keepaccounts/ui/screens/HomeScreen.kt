@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -102,8 +103,9 @@ fun HomeScreen(
 
     LazyColumn(
         modifier = modifier
-            .fillMaxSize(),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 112.dp),
+            .fillMaxSize()
+            .statusBarsPadding(),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 112.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         item {
@@ -189,13 +191,13 @@ private fun HomeHeader(
                 text = "$assistantName🌊营业中 ✨",
                 color = Color(0xFF2B211E),
                 fontWeight = FontWeight.ExtraBold,
-                fontSize = 22.sp,
+                fontSize = 33.sp,
             )
             Text(
                 text = "劳动最光荣 💼",
                 color = WarmBrown.copy(alpha = 0.62f),
                 fontWeight = FontWeight.Bold,
-                fontSize = 14.sp,
+                fontSize = 16.sp,
             )
         }
 
@@ -211,7 +213,7 @@ private fun HomeHeader(
                 imageVector = Icons.Rounded.Search,
                 contentDescription = "search-page",
                 tint = Color(0xFF3B3531),
-                modifier = Modifier.size(25.dp),
+                modifier = Modifier.size(24.dp),
             )
         }
     }
@@ -280,7 +282,7 @@ private fun BudgetCard(transactions: List<TransactionEntity>) {
         )
 
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(text = "本月预算 🎯", color = Color(0xFF2B211E), fontWeight = FontWeight.ExtraBold, fontSize = 33.sp / 2)
+            Text(text = "本月预算 🎯", color = Color(0xFF2B211E), fontWeight = FontWeight.ExtraBold, fontSize = 17.sp)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -297,13 +299,13 @@ private fun BudgetCard(transactions: List<TransactionEntity>) {
                     text = "¥${money(monthExpense)}",
                     color = WatermelonPink,
                     fontWeight = FontWeight.ExtraBold,
-                    fontSize = 18.sp,
+                    fontSize = 16.sp,
                 )
                 Text(
                     text = "¥${money(remain)}",
                     color = WatermelonRed,
                     fontWeight = FontWeight.ExtraBold,
-                    fontSize = 18.sp,
+                    fontSize = 16.sp,
                 )
             }
 
@@ -404,7 +406,7 @@ private fun RecentHeader(onViewAllClick: () -> Unit) {
         horizontalArrangement = Arrangement.Start,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(text = "最近动态 🍃", color = Color(0xFF2B211E), fontWeight = FontWeight.ExtraBold, fontSize = 34.sp / 2)
+        Text(text = "最近动态 🍃", color = Color(0xFF2B211E), fontWeight = FontWeight.ExtraBold, fontSize = 17.sp)
     }
 }
 
@@ -431,8 +433,8 @@ private fun DaySectionCard(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(text = section.title, color = Color(0xFF2B211E), fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
-            Text(text = section.summary, color = WatermelonRed, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+            Text(text = section.title, color = Color(0xFF2B211E), fontWeight = FontWeight.ExtraBold, fontSize = 15.sp)
+            Text(text = section.summary, color = WatermelonRed, fontWeight = FontWeight.Bold, fontSize = 14.sp)
         }
 
         Box(
