@@ -17,8 +17,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -26,17 +29,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.rounded.Notes
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.AttachMoney
 import androidx.compose.material.icons.rounded.Category
-import androidx.compose.material.icons.rounded.Delete
-import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.Mic
-import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.Schedule
-import androidx.compose.material.icons.rounded.SmartToy
 import androidx.compose.material.icons.rounded.Today
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -53,13 +52,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
+import com.qcb.keepaccounts.ui.components.glassCard
 import com.qcb.keepaccounts.ui.model.AiAssistantConfig
 import com.qcb.keepaccounts.ui.model.ChatBackgroundPreset
 import com.qcb.keepaccounts.ui.model.ManualEntryPrefill
@@ -121,19 +121,17 @@ fun ChatScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(
-                brush = chatBackgroundBrush(aiConfig.chatBackground),
-            ),
+            .background(brush = chatBackgroundBrush(aiConfig.chatBackground)),
     ) {
         Box(
             modifier = Modifier
                 .matchParentSize()
                 .background(
-                    brush = Brush.verticalGradient(
+                    brush = Brush.linearGradient(
                         colors = listOf(
-                            Color.Transparent,
-                            Color(0x701A365D),
-                            Color(0xC01A365D),
+                            MintGreen.copy(alpha = 0.12f),
+                            Color.White.copy(alpha = 0.45f),
+                            Color(0xFFEFF8F6).copy(alpha = 0.86f),
                         ),
                     ),
                 ),
@@ -150,26 +148,30 @@ fun ChatScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 8.dp)
-                        .background(Color.White.copy(alpha = 0.16f), RoundedCornerShape(999.dp))
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .glassCard(
+                            shape = RoundedCornerShape(999.dp),
+                            backgroundColor = Color.White.copy(alpha = 0.38f),
+                            glowColor = MintGreen.copy(alpha = 0.18f),
+                        )
                         .padding(horizontal = 12.dp, vertical = 6.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Icon(
-                        imageVector = Icons.Rounded.SmartToy,
+                        imageVector = Icons.Rounded.MoreHoriz,
                         contentDescription = "tip",
-                        tint = Color.White.copy(alpha = 0.9f),
+                        tint = WarmBrown.copy(alpha = 0.72f),
                         modifier = Modifier.size(14.dp),
                     )
-                    Text(text = topTip, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    Text(text = topTip, color = WarmBrown.copy(alpha = 0.85f), fontWeight = FontWeight.Bold, fontSize = 12.sp)
                 }
             }
 
             LazyColumn(
                 modifier = Modifier.weight(1f),
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 items(messages, key = { it.id }) { message ->
                     MessageRow(
@@ -198,14 +200,16 @@ fun ChatScreen(
                     item { TypingRow(assistantAvatar = aiConfig.avatar) }
                 }
 
-                item { Spacer(modifier = Modifier.height(92.dp)) }
+                item { Spacer(modifier = Modifier.height(112.dp)) }
             }
         }
 
         InputBar(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .fillMaxWidth(),
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .imePadding(),
             input = inputText,
             onInputChange = { inputText = it },
             assistantName = aiConfig.name,
@@ -258,27 +262,27 @@ fun ChatScreen(
 private fun chatBackgroundBrush(preset: ChatBackgroundPreset): Brush {
     val colors = when (preset) {
         ChatBackgroundPreset.NONE -> listOf(
-            Color(0xFF1B3A5F),
-            Color(0xFF1A3353),
-            Color(0xFF172C46),
+            Color(0xFFF6FFFC),
+            Color(0xFFEAF8F4),
+            Color(0xFFE0F3EE),
         )
 
         ChatBackgroundPreset.OCEAN -> listOf(
-            Color(0xFF1C4E80),
-            Color(0xFF1F6AA5),
-            Color(0xFF1B3B6B),
+            Color(0xFFEFF7FF),
+            Color(0xFFD7ECFF),
+            Color(0xFFCFE5FF),
         )
 
         ChatBackgroundPreset.FOREST -> listOf(
-            Color(0xFF1F4D3A),
-            Color(0xFF2E6B4A),
-            Color(0xFF1E3D2F),
+            Color(0xFFF2FFF8),
+            Color(0xFFDCF5E7),
+            Color(0xFFCDECD8),
         )
 
         ChatBackgroundPreset.SUNSET -> listOf(
-            Color(0xFF6B2E56),
-            Color(0xFFB84A62),
-            Color(0xFFF08A5D),
+            Color(0xFFFFF4EF),
+            Color(0xFFFFE6DA),
+            Color(0xFFFFD7CC),
         )
     }
     return Brush.verticalGradient(colors = colors)
@@ -298,29 +302,56 @@ private fun ChatHeader(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color.White.copy(alpha = 0.10f))
-            .padding(horizontal = 12.dp, vertical = 12.dp),
+            .statusBarsPadding()
+            .glassCard(
+                shape = RoundedCornerShape(bottomStart = 18.dp, bottomEnd = 18.dp, topStart = 0.dp, topEnd = 0.dp),
+                backgroundColor = Color.White.copy(alpha = 0.40f),
+                glowColor = MintGreen.copy(alpha = 0.16f),
+            )
+            .padding(horizontal = 14.dp, vertical = 10.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(
-            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-            contentDescription = "back",
-            tint = Color.White,
+        Box(
             modifier = Modifier
-                .size(22.dp)
+                .size(34.dp)
+                .clip(CircleShape)
+                .background(Color.White.copy(alpha = 0.78f))
                 .clickable { onBack?.invoke() },
-        )
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(text = assistantName, color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
-            Text(text = "今天 16:51", color = Color.White.copy(alpha = 0.62f), fontSize = 10.sp)
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                contentDescription = "back",
+                tint = WarmBrown,
+                modifier = Modifier.size(20.dp),
+            )
         }
-        AvatarTextBubble(
-            text = assistantAvatar,
-            background = Color.White.copy(alpha = 0.22f),
-            textColor = Color.White,
-            modifier = Modifier.size(26.dp),
-        )
+
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                text = "$assistantName${if (assistantAvatar.startsWith("http")) "" else assistantAvatar}",
+                color = WarmBrown,
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 16.sp,
+            )
+            Text(text = "今天 16:51", color = WarmBrown.copy(alpha = 0.62f), fontSize = 10.sp)
+        }
+
+        Box(
+            modifier = Modifier
+                .size(34.dp)
+                .clip(CircleShape)
+                .background(Color.White.copy(alpha = 0.78f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.MoreHoriz,
+                contentDescription = "more",
+                tint = WarmBrown,
+                modifier = Modifier.size(20.dp),
+            )
+        }
     }
 }
 
@@ -345,10 +376,8 @@ private fun MessageRow(
         verticalAlignment = Alignment.Top,
     ) {
         if (!isUser) {
-            AvatarTextBubble(
-                text = assistantAvatar,
-                background = Color(0xFF2D5C92),
-                textColor = Color.White,
+            AssistantAvatarBubble(
+                assistantAvatar = assistantAvatar,
                 modifier = Modifier.padding(end = 8.dp),
             )
         }
@@ -356,12 +385,11 @@ private fun MessageRow(
         Column(horizontalAlignment = if (isUser) Alignment.End else Alignment.Start) {
             Box(
                 modifier = Modifier
-                    .shadow(6.dp, bubbleShape)
                     .clip(bubbleShape)
-                    .background(if (isUser) MintGreen else Color.White)
+                    .background(if (isUser) MintGreen.copy(alpha = 0.86f) else Color.White.copy(alpha = 0.98f))
                     .padding(horizontal = 14.dp, vertical = 10.dp),
             ) {
-                Text(text = message.text, color = WarmBrown, fontWeight = FontWeight.Medium, fontSize = 14.sp)
+                Text(text = message.text, color = WarmBrown, fontWeight = FontWeight.Medium, fontSize = 14.sp, lineHeight = 20.sp)
             }
 
             if (message.isReceipt) {
@@ -374,10 +402,8 @@ private fun MessageRow(
         }
 
         if (isUser) {
-            AvatarTextBubble(
-                text = userName.take(1).ifBlank { "我" },
-                background = Color(0xFFF3D2C1),
-                textColor = WarmBrown.copy(alpha = 0.9f),
+            UserAvatarBubble(
+                name = userName,
                 modifier = Modifier.padding(start = 8.dp),
             )
         }
@@ -385,43 +411,44 @@ private fun MessageRow(
 }
 
 @Composable
-private fun AvatarTextBubble(
-    text: String,
-    background: Color,
-    textColor: Color,
+private fun AssistantAvatarBubble(
+    assistantAvatar: String,
     modifier: Modifier = Modifier,
 ) {
     Box(
         modifier = modifier
-            .size(36.dp)
+            .size(40.dp)
             .clip(CircleShape)
-            .background(background),
+            .background(brush = Brush.linearGradient(listOf(MintGreen, Color(0xFF88D4B4)))),
         contentAlignment = Alignment.Center,
     ) {
-        Text(
-            text = text,
-            color = textColor,
-            fontWeight = FontWeight.ExtraBold,
-            fontSize = 14.sp,
-        )
+        if (assistantAvatar.startsWith("http://") || assistantAvatar.startsWith("https://")) {
+            AsyncImage(
+                model = assistantAvatar,
+                contentDescription = "assistant-avatar",
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(CircleShape),
+            )
+        } else {
+            Text(text = assistantAvatar, color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
+        }
     }
 }
 
 @Composable
-private fun AvatarBubble(
-    icon: ImageVector,
-    background: Color,
-    tint: Color,
+private fun UserAvatarBubble(
+    name: String,
     modifier: Modifier = Modifier,
 ) {
     Box(
         modifier = modifier
-            .size(36.dp)
+            .size(40.dp)
             .clip(CircleShape)
-            .background(background),
+            .background(Color(0xFFF3D2C1)),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(imageVector = icon, contentDescription = null, tint = tint, modifier = Modifier.size(18.dp))
+        Text(text = name.take(1).ifBlank { "我" }, color = WarmBrown.copy(alpha = 0.9f), fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
     }
 }
 
@@ -435,21 +462,27 @@ private fun ReceiptCard(
         modifier = Modifier
             .padding(top = 8.dp)
             .widthIn(max = 264.dp)
-            .clip(RoundedCornerShape(24.dp))
-            .background(Color.White.copy(alpha = 0.95f))
+            .glassCard(
+                shape = RoundedCornerShape(24.dp),
+                backgroundColor = Color.White.copy(alpha = 0.80f),
+                glowColor = MintGreen.copy(alpha = 0.18f),
+            )
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(imageVector = Icons.AutoMirrored.Rounded.Notes, contentDescription = null, tint = MintGreen, modifier = Modifier.size(16.dp))
-            Text(text = "已记账成功", color = MintGreen, fontWeight = FontWeight.ExtraBold, fontSize = 13.sp)
-        }
+        Text(
+            text = "🤍 已记账成功 🤍",
+            color = MintGreen,
+            fontWeight = FontWeight.ExtraBold,
+            fontSize = 13.sp,
+            modifier = Modifier.align(Alignment.CenterHorizontally),
+        )
 
-        ReceiptRow(icon = Icons.Rounded.Category, label = "分类", value = message.receiptCategory)
-        ReceiptRow(icon = Icons.Rounded.AttachMoney, label = "金额", value = "-${message.receiptAmount}", valueColor = WatermelonRed)
-        ReceiptRow(icon = Icons.AutoMirrored.Rounded.Notes, label = "备注", value = message.receiptRemark)
-        ReceiptRow(icon = Icons.Rounded.Today, label = "日期", value = "2026-03-25")
-        ReceiptRow(icon = Icons.Rounded.Schedule, label = "记录时间", value = "今天 14:08")
+        ReceiptRow(icon = Icons.Rounded.Category, label = "📁 分类", value = message.receiptCategory)
+        ReceiptRow(icon = Icons.Rounded.AttachMoney, label = "💰 金额", value = "-${message.receiptAmount}", valueColor = WatermelonRed)
+        ReceiptRow(icon = Icons.Rounded.MoreHoriz, label = "📝 备注", value = message.receiptRemark)
+        ReceiptRow(icon = Icons.Rounded.Today, label = "📅 日期", value = "2026-03-25")
+        ReceiptRow(icon = Icons.Rounded.Schedule, label = "🕒 记录时间", value = "今天 14:08")
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             Row(
@@ -462,14 +495,7 @@ private fun ReceiptCard(
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(
-                    imageVector = Icons.Rounded.Edit,
-                    contentDescription = "edit",
-                    tint = WarmBrown,
-                    modifier = Modifier.size(14.dp),
-                )
-                Spacer(modifier = Modifier.size(4.dp))
-                Text(text = "修改", color = WarmBrown, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                Text(text = "✏️ 修改", color = WarmBrown, fontWeight = FontWeight.Bold, fontSize = 12.sp)
             }
             Row(
                 modifier = Modifier
@@ -481,14 +507,7 @@ private fun ReceiptCard(
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(
-                    imageVector = Icons.Rounded.Delete,
-                    contentDescription = "delete",
-                    tint = WatermelonRed,
-                    modifier = Modifier.size(14.dp),
-                )
-                Spacer(modifier = Modifier.size(4.dp))
-                Text(text = "删除", color = WatermelonRed, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                Text(text = "🗑️ 删除", color = WatermelonRed, fontWeight = FontWeight.Bold, fontSize = 12.sp)
             }
         }
     }
@@ -506,8 +525,8 @@ private fun ReceiptRow(
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                tint = WarmBrownMuted,
-                modifier = Modifier.size(13.dp),
+                tint = WarmBrownMuted.copy(alpha = 0.6f),
+                modifier = Modifier.size(12.dp),
             )
             Text(text = label, color = WarmBrownMuted, fontWeight = FontWeight.Medium, fontSize = 12.sp)
         }
@@ -522,17 +541,15 @@ private fun TypingRow(assistantAvatar: String) {
         horizontalArrangement = Arrangement.Start,
         verticalAlignment = Alignment.Top,
     ) {
-        AvatarTextBubble(
-            text = assistantAvatar,
-            background = Color(0xFF2D5C92),
-            textColor = Color.White,
+        AssistantAvatarBubble(
+            assistantAvatar = assistantAvatar,
             modifier = Modifier.padding(end = 8.dp),
         )
 
         Box(
             modifier = Modifier
                 .clip(RoundedCornerShape(topStart = 4.dp, topEnd = 20.dp, bottomStart = 20.dp, bottomEnd = 20.dp))
-                .background(Color.White)
+                .background(Color.White.copy(alpha = 0.98f))
                 .padding(horizontal = 14.dp, vertical = 10.dp),
         ) {
             JumpingDots()
@@ -599,7 +616,12 @@ private fun InputBar(
 ) {
     Row(
         modifier = modifier
-            .background(Color.White.copy(alpha = 0.9f))
+            .padding(horizontal = 10.dp, vertical = 8.dp)
+            .glassCard(
+                shape = RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp, bottomStart = 18.dp, bottomEnd = 18.dp),
+                backgroundColor = Color.White.copy(alpha = 0.74f),
+                glowColor = MintGreen.copy(alpha = 0.18f),
+            )
             .padding(horizontal = 10.dp, vertical = 10.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -608,34 +630,39 @@ private fun InputBar(
             imageVector = Icons.Rounded.Mic,
             contentDescription = "mic",
             tint = WarmBrown.copy(alpha = 0.45f),
-            modifier = Modifier.size(20.dp),
+            modifier = Modifier.size(22.dp),
         )
-        TextField(
-            value = input,
-            onValueChange = onInputChange,
-            placeholder = {
-                Text(text = "发送消息给 $assistantName...", color = WarmBrownMuted, fontSize = 13.sp)
-            },
-            colors = TextFieldDefaults.colors(
-                focusedContainerColor = Color(0xFFF3F4F6),
-                unfocusedContainerColor = Color(0xFFF3F4F6),
-                focusedIndicatorColor = Color.Transparent,
-                unfocusedIndicatorColor = Color.Transparent,
-            ),
-            singleLine = true,
-            modifier = Modifier
-                .weight(1f)
-                .clip(RoundedCornerShape(999.dp)),
-        )
-        Icon(
-            imageVector = Icons.Rounded.Image,
-            contentDescription = "image",
-            tint = WarmBrown.copy(alpha = 0.4f),
-            modifier = Modifier.size(18.dp),
-        )
+        Box(modifier = Modifier.weight(1f)) {
+            TextField(
+                value = input,
+                onValueChange = onInputChange,
+                placeholder = {
+                    Text(text = "发送消息给 $assistantName...", color = WarmBrownMuted, fontSize = 13.sp)
+                },
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = Color(0xFFF3F4F6),
+                    unfocusedContainerColor = Color(0xFFF3F4F6),
+                    focusedIndicatorColor = Color.Transparent,
+                    unfocusedIndicatorColor = Color.Transparent,
+                ),
+                singleLine = true,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(999.dp)),
+            )
+            Icon(
+                imageVector = Icons.Rounded.Image,
+                contentDescription = "image",
+                tint = WarmBrown.copy(alpha = 0.4f),
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .padding(end = 12.dp)
+                    .size(18.dp),
+            )
+        }
         Box(
             modifier = Modifier
-                .size(36.dp)
+                .size(40.dp)
                 .clip(CircleShape)
                 .background(brush = Brush.linearGradient(listOf(MintGreen, Color(0xFF88D4B4))))
                 .clickable { onSend() },
@@ -645,7 +672,7 @@ private fun InputBar(
                 imageVector = Icons.AutoMirrored.Rounded.Send,
                 contentDescription = "send",
                 tint = Color.White,
-                modifier = Modifier.size(18.dp),
+                modifier = Modifier.size(20.dp),
             )
         }
     }

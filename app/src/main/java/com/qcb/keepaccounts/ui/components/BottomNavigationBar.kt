@@ -43,14 +43,14 @@ fun BottomNavigationBar(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .height(94.dp)
-            .padding(horizontal = 12.dp, vertical = 8.dp)
+            .height(82.dp)
+            .padding(horizontal = 18.dp, vertical = 10.dp)
             .glassCard(
-                shape = RoundedCornerShape(28.dp),
-                backgroundColor = Color.White.copy(alpha = 0.5f),
-                glowColor = MintGreen.copy(alpha = 0.2f),
+                shape = RoundedCornerShape(24.dp),
+                backgroundColor = Color.White.copy(alpha = 0.46f),
+                glowColor = MintGreen.copy(alpha = 0.25f),
             )
-            .padding(horizontal = 10.dp, vertical = 6.dp),
+            .padding(horizontal = 10.dp, vertical = 4.dp),
         horizontalArrangement = Arrangement.SpaceAround,
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -88,13 +88,13 @@ fun BottomNavigationBar(
                             restoreState = true
                         }
                     }
-                    .padding(horizontal = 10.dp, vertical = 7.dp),
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
             ) {
                 androidx.compose.foundation.layout.Box(
                     modifier = Modifier
-                        .size(32.dp)
+                        .size(26.dp)
                         .background(
                             color = if (selected) MintGreen.copy(alpha = 0.22f) else Color.Transparent,
                             shape = CircleShape,
@@ -104,7 +104,7 @@ fun BottomNavigationBar(
                     Icon(
                         imageVector = item.icon,
                         contentDescription = item.label,
-                        modifier = Modifier.size(22.dp),
+                        modifier = Modifier.size(17.dp),
                         tint = if (selected) Color(0xFF53C3B8) else Color(0xFF7D7C7A),
                     )
                 }
@@ -112,7 +112,7 @@ fun BottomNavigationBar(
                     text = item.label,
                     color = if (selected) Color(0xFF53C3B8) else WarmBrown.copy(alpha = 0.75f),
                     fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                    fontSize = 15.sp,
+                    fontSize = 12.sp,
                 )
             }
         }
