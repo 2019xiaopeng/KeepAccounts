@@ -1,5 +1,12 @@
 package com.qcb.keepaccounts.ui.screens
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -17,6 +24,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -65,6 +73,7 @@ import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import kotlin.math.max
+import kotlin.random.Random
 
 private data class DayCell(
     val day: Int?,
@@ -84,6 +93,16 @@ private enum class LedgerViewMode { CALENDAR, STATS }
 private enum class StatsPeriod { MONTH, YEAR }
 private enum class TrendMetric { EXPENSE, INCOME, BALANCE }
 private enum class RankType { EXPENSE, INCOME }
+private enum class RecordSortMode { TIME, AMOUNT }
+
+private data class MockRecord(
+    val id: Int,
+    val category: String,
+    val remark: String,
+    val amount: Double,
+    val timestamp: Long,
+    val isIncome: Boolean,
+)
 
 @Composable
 fun LedgerScreen(
@@ -97,6 +116,8 @@ fun LedgerScreen(
     var statsPeriod by rememberSaveable { mutableStateOf(StatsPeriod.MONTH) }
     var trendMetric by rememberSaveable { mutableStateOf(TrendMetric.EXPENSE) }
     var rankType by rememberSaveable { mutableStateOf(RankType.EXPENSE) }
+    var recordSortMode by rememberSaveable { mutableStateOf(RecordSortMode.TIME) }
+    var currentPage by rememberSaveable { mutableIntStateOf(0) }
     var selectedDay by rememberSaveable { mutableIntStateOf(Calendar.getInstance().get(Calendar.DAY_OF_MONTH)) }
     var expandedRecordId by rememberSaveable { mutableLongStateOf(-1L) }
     var confirmDeleteId by rememberSaveable { mutableLongStateOf(-1L) }
@@ -186,6 +207,22 @@ fun LedgerScreen(
         }
     }
 
+    val mockRecords = remember {
+        buildMockRecords()
+    }
+    val sortedMockRecords = remember(mockRecords, recordSortMode) {
+        when (recordSortMode) {
+            RecordSortMode.TIME -> mockRecords.sortedByDescending { it.timestamp }
+            RecordSortMode.AMOUNT -> mockRecords.sortedByDescending { it.amount }
+        }
+    }
+    val pageSize = 10
+    val totalPages = remember(sortedMockRecords) { (sortedMockRecords.size + pageSize - 1) / pageSize }
+    val safePage = currentPage.coerceIn(0, (totalPages - 1).coerceAtLeast(0))
+    val pageRecords = remember(sortedMockRecords, safePage) {
+        sortedMockRecords.drop(safePage * pageSize).take(pageSize)
+    }
+
     LazyColumn(
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 8.dp),
@@ -227,92 +264,125 @@ fun LedgerScreen(
             }
         }
 
-        if (viewMode == LedgerViewMode.CALENDAR) {
-            item {
-                CalendarPeriodHeader(
-                    year = year,
-                    month = month,
-                    onPrev = {
-                        currentDate.add(Calendar.MONTH, -1)
-                        dateVersion += 1
-                        selectedDay = 1
-                    },
-                    onNext = {
-                        currentDate.add(Calendar.MONTH, 1)
-                        dateVersion += 1
-                        selectedDay = 1
-                    },
-                )
-            }
-
-            item {
-                CalendarPanel(
-                    cells = calendarCells,
-                    selectedDay = selectedDay,
-                    onSelectDay = { selectedDay = it },
-                )
-            }
-
-            item {
-                DailyRecordsCard(
-                    month = month + 1,
-                    day = selectedDay,
-                    records = dayRecords,
-                    expandedRecordId = expandedRecordId,
-                    confirmDeleteId = confirmDeleteId,
-                    onToggleExpand = { id ->
-                        if (expandedRecordId == id) {
-                            expandedRecordId = -1L
-                            confirmDeleteId = -1L
-                        } else {
-                            expandedRecordId = id
-                            confirmDeleteId = -1L
-                        }
-                    },
-                    onEdit = { tx ->
-                        val isIncome = tx.type == 1
-                        onEditRecord(
-                            ManualEntryPrefill(
-                                type = if (isIncome) "income" else "expense",
-                                category = tx.categoryName,
-                                desc = tx.remark,
-                                amount = String.format(Locale.CHINA, "%.2f", tx.amount),
-                            ),
+        item {
+            AnimatedContent(
+                targetState = viewMode.ordinal,
+                transitionSpec = {
+                    slideInHorizontally(
+                        initialOffsetX = { fullWidth -> if (targetState > initialState) fullWidth else -fullWidth },
+                        animationSpec = tween(300),
+                    ) + fadeIn(tween(300)) togetherWith
+                        slideOutHorizontally(
+                            targetOffsetX = { fullWidth -> if (targetState > initialState) -fullWidth else fullWidth },
+                            animationSpec = tween(300),
+                        ) + fadeOut(tween(300))
+                },
+                label = "ledgerModeSwitch",
+            ) { modeIndex ->
+                if (modeIndex == LedgerViewMode.CALENDAR.ordinal) {
+                    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                        CalendarPeriodHeader(
+                            year = year,
+                            month = month,
+                            onPrev = {
+                                currentDate.add(Calendar.MONTH, -1)
+                                dateVersion += 1
+                                selectedDay = 1
+                            },
+                            onNext = {
+                                currentDate.add(Calendar.MONTH, 1)
+                                dateVersion += 1
+                                selectedDay = 1
+                            },
                         )
-                    },
-                    onDelete = { id -> onDeleteRecord(id) },
-                    onBeginDelete = { id -> confirmDeleteId = id },
-                    onCancelDelete = { confirmDeleteId = -1L },
-                )
+
+                        CalendarPanel(
+                            cells = calendarCells,
+                            selectedDay = selectedDay,
+                            onSelectDay = { selectedDay = it },
+                        )
+
+                        DailyRecordsCard(
+                            month = month + 1,
+                            day = selectedDay,
+                            records = dayRecords,
+                            expandedRecordId = expandedRecordId,
+                            confirmDeleteId = confirmDeleteId,
+                            onToggleExpand = { id ->
+                                if (expandedRecordId == id) {
+                                    expandedRecordId = -1L
+                                    confirmDeleteId = -1L
+                                } else {
+                                    expandedRecordId = id
+                                    confirmDeleteId = -1L
+                                }
+                            },
+                            onEdit = { tx ->
+                                val isIncome = tx.type == 1
+                                onEditRecord(
+                                    ManualEntryPrefill(
+                                        type = if (isIncome) "income" else "expense",
+                                        category = tx.categoryName,
+                                        desc = tx.remark,
+                                        amount = String.format(Locale.CHINA, "%.2f", tx.amount),
+                                    ),
+                                )
+                            },
+                            onDelete = { id -> onDeleteRecord(id) },
+                            onBeginDelete = { id -> confirmDeleteId = id },
+                            onCancelDelete = { confirmDeleteId = -1L },
+                        )
+                    }
+                } else {
+                    StatsPanel(
+                        statsPeriod = statsPeriod,
+                        onStatsPeriodChange = {
+                            statsPeriod = it
+                            currentPage = 0
+                        },
+                        year = year,
+                        month = month,
+                        onPrev = {
+                            if (statsPeriod == StatsPeriod.MONTH) currentDate.add(Calendar.MONTH, -1) else currentDate.add(Calendar.YEAR, -1)
+                            dateVersion += 1
+                        },
+                        onNext = {
+                            if (statsPeriod == StatsPeriod.MONTH) currentDate.add(Calendar.MONTH, 1) else currentDate.add(Calendar.YEAR, 1)
+                            dateVersion += 1
+                        },
+                        totalExpense = totalExpense,
+                        totalIncome = totalIncome,
+                        totalBalance = totalBalance,
+                        trendMetric = trendMetric,
+                        onTrendMetricChange = { trendMetric = it },
+                        trendPoints = trendPoints,
+                        xLabels = trendXAxisLabels,
+                        categoryExpense = categoryExpense,
+                        rankType = rankType,
+                        onRankTypeChange = { rankType = it },
+                        rankList = rankList,
+                    )
+                }
             }
-        } else {
-            item {
-                StatsPanel(
-                    statsPeriod = statsPeriod,
-                    onStatsPeriodChange = { statsPeriod = it },
-                    year = year,
-                    month = month,
-                    onPrev = {
-                        if (statsPeriod == StatsPeriod.MONTH) currentDate.add(Calendar.MONTH, -1) else currentDate.add(Calendar.YEAR, -1)
-                        dateVersion += 1
-                    },
-                    onNext = {
-                        if (statsPeriod == StatsPeriod.MONTH) currentDate.add(Calendar.MONTH, 1) else currentDate.add(Calendar.YEAR, 1)
-                        dateVersion += 1
-                    },
-                    totalExpense = totalExpense,
-                    totalIncome = totalIncome,
-                    totalBalance = totalBalance,
-                    trendMetric = trendMetric,
-                    onTrendMetricChange = { trendMetric = it },
-                    trendPoints = trendPoints,
-                    xLabels = trendXAxisLabels,
-                    categoryExpense = categoryExpense,
-                    rankType = rankType,
-                    onRankTypeChange = { rankType = it },
-                    rankList = rankList,
-                )
-            }
+        }
+
+        item {
+            MockRecordPagerSection(
+                sortMode = recordSortMode,
+                onSortModeChange = {
+                    recordSortMode = it
+                    currentPage = 0
+                },
+                records = pageRecords,
+                page = safePage,
+                totalPages = totalPages,
+                onPrevPage = {
+                    if (safePage > 0) currentPage = safePage - 1
+                },
+                onNextPage = {
+                    if (safePage < totalPages - 1) currentPage = safePage + 1
+                },
+            )
         }
 
     }
@@ -388,50 +458,67 @@ private fun CalendarPanel(
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 week.forEach { cell ->
                     if (cell.day == null) {
-                        Spacer(modifier = Modifier.width(30.dp))
+                        Spacer(
+                            modifier = Modifier
+                                .width(38.dp)
+                                .height(54.dp),
+                        )
                     } else {
                         val selected = cell.day == selectedDay
-                        Column(
-                            modifier = Modifier
-                                .width(30.dp)
-                                .clickable { onSelectDay(cell.day) }
-                                .padding(vertical = 0.dp),
-                            verticalArrangement = Arrangement.spacedBy(0.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(20.dp)
-                                    .background(
-                                        color = if (selected) Color(0xFFF8A85C) else Color.Transparent,
-                                        shape = CircleShape,
-                                    ),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Text(
-                                    text = cell.day.toString(),
-                                    color = if (selected) Color.White else WarmBrown,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    fontSize = 11.sp,
-                                )
-                            }
-                            Text(
-                                text = if (cell.expense > 0) "-${trimNumber(cell.expense)}" else "",
-                                color = WatermelonRed,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 9.sp,
-                            )
-                            Text(
-                                text = if (cell.income > 0) "+${trimNumber(cell.income)}" else "",
-                                color = MintGreen,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 9.sp,
-                            )
-                        }
+                        DayCellView(
+                            cell = cell,
+                            selected = selected,
+                            onClick = { onSelectDay(cell.day) },
+                        )
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun DayCellView(
+    cell: DayCell,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .width(38.dp)
+            .height(54.dp)
+            .clickable { onClick() },
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(24.dp)
+                .background(
+                    color = if (selected) Color(0xFFF8A85C) else Color.Transparent,
+                    shape = CircleShape,
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = cell.day.toString(),
+                color = if (selected) Color.White else WarmBrown,
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 16.sp,
+            )
+        }
+        Text(
+            text = if (cell.expense > 0) "-${trimNumber(cell.expense)}" else "",
+            color = WatermelonRed,
+            fontWeight = FontWeight.Bold,
+            fontSize = 10.sp,
+        )
+        Text(
+            text = if (cell.income > 0) "+${trimNumber(cell.income)}" else "",
+            color = MintGreen,
+            fontWeight = FontWeight.Bold,
+            fontSize = 10.sp,
+        )
     }
 }
 
@@ -638,127 +725,191 @@ private fun StatsPanel(
 
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             ArrowButton(icon = Icons.Rounded.ChevronLeft, onClick = onPrev)
-            Text(
-                text = if (statsPeriod == StatsPeriod.MONTH) "${year}年 ${month + 1}月 🍃" else "${year}年 🍃",
-                color = WarmBrown,
-                fontWeight = FontWeight.ExtraBold,
-                fontSize = 40.sp / 2,
-            )
+            AnimatedContent(
+                targetState = statsPeriod.ordinal,
+                transitionSpec = {
+                    slideInHorizontally(
+                        initialOffsetX = { fullWidth -> if (targetState > initialState) fullWidth else -fullWidth },
+                        animationSpec = tween(300),
+                    ) + fadeIn(tween(300)) togetherWith
+                        slideOutHorizontally(
+                            targetOffsetX = { fullWidth -> if (targetState > initialState) -fullWidth else fullWidth },
+                            animationSpec = tween(300),
+                        ) + fadeOut(tween(300))
+                },
+                label = "statsPeriodTitle",
+            ) { periodIndex ->
+                Text(
+                    text = if (periodIndex == StatsPeriod.MONTH.ordinal) "${year}年 ${month + 1}月 🍃" else "${year}年 🍃",
+                    color = WarmBrown,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 20.sp,
+                )
+            }
             ArrowButton(icon = Icons.Rounded.ChevronRight, onClick = onNext)
         }
 
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .glassCard(shape = RoundedCornerShape(24.dp), backgroundColor = Color.White.copy(alpha = 0.8f))
-                .padding(horizontal = 10.dp, vertical = 14.dp),
-            horizontalArrangement = Arrangement.SpaceEvenly,
+        AnimatedContent(
+            targetState = statsPeriod.ordinal,
+            transitionSpec = {
+                slideInHorizontally(
+                    initialOffsetX = { fullWidth -> if (targetState > initialState) fullWidth else -fullWidth },
+                    animationSpec = tween(300),
+                ) + fadeIn(tween(300)) togetherWith
+                    slideOutHorizontally(
+                        targetOffsetX = { fullWidth -> if (targetState > initialState) -fullWidth else fullWidth },
+                        animationSpec = tween(300),
+                    ) + fadeOut(tween(300))
+            },
+            label = "statsBodySwitch",
         ) {
-            StatsItem("总支出", money(totalExpense), WatermelonRed)
-            DividerV()
-            StatsItem("总收入", money(totalIncome), PeachIncome)
-            DividerV()
-            StatsItem("结余", money(totalBalance), WarmBrown)
-        }
-
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .glassCard(shape = RoundedCornerShape(30.dp), backgroundColor = Color.White.copy(alpha = 0.78f))
-                .padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(imageVector = Icons.AutoMirrored.Rounded.ShowChart, contentDescription = null, tint = WarmBrown.copy(alpha = 0.74f), modifier = Modifier.size(16.dp))
-                    Text(text = "每日趋势 📈", color = WarmBrown, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
-                }
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 Row(
-                    modifier = Modifier
-                        .background(Color(0xFFF3F4F6), RoundedCornerShape(999.dp))
-                        .padding(2.dp),
-                ) {
-                    MetricChip("支出", trendMetric == TrendMetric.EXPENSE) { onTrendMetricChange(TrendMetric.EXPENSE) }
-                    MetricChip("收入", trendMetric == TrendMetric.INCOME) { onTrendMetricChange(TrendMetric.INCOME) }
-                    MetricChip("结余", trendMetric == TrendMetric.BALANCE) { onTrendMetricChange(TrendMetric.BALANCE) }
-                }
-            }
-            LineChart(points = trendPoints, metric = trendMetric, xLabels = xLabels)
-        }
-
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .glassCard(shape = RoundedCornerShape(30.dp), backgroundColor = Color.White.copy(alpha = 0.78f))
-                .padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(imageVector = Icons.Rounded.PieChart, contentDescription = null, tint = WarmBrown.copy(alpha = 0.72f), modifier = Modifier.size(16.dp))
-                Text(text = "分类排行榜 🍰", color = WarmBrown, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
-            }
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-                DonutChart(categoryExpense = categoryExpense, totalExpense = totalExpense)
-            }
-            categoryExpense.forEach { item ->
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(34.dp)
-                                .background(Color.White, CircleShape),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(imageVector = item.icon, contentDescription = item.name, tint = WarmBrown, modifier = Modifier.size(16.dp))
-                        }
-                        Text(text = item.name, color = WarmBrown, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                        Text(text = "${item.percent}%", color = WarmBrownMuted, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                    }
-                    Text(text = "¥ ${money(item.amount)}", color = WarmBrown, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp)
-                }
-                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(6.dp)
-                        .background(Color(0xFFF3F4F6), RoundedCornerShape(999.dp)),
+                        .glassCard(shape = RoundedCornerShape(24.dp), backgroundColor = Color.White.copy(alpha = 0.8f))
+                        .padding(horizontal = 10.dp, vertical = 14.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth(item.percent / 100f)
-                            .height(6.dp)
-                            .background(item.color, RoundedCornerShape(999.dp)),
-                    )
+                    StatsItem("总支出", money(totalExpense), WatermelonRed)
+                    DividerV()
+                    StatsItem("总收入", money(totalIncome), PeachIncome)
+                    DividerV()
+                    StatsItem("结余", money(totalBalance), WarmBrown)
                 }
-            }
-        }
 
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .glassCard(shape = RoundedCornerShape(28.dp), backgroundColor = Color.White.copy(alpha = 0.76f))
-                .padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text(text = "明细排行榜 🏆", color = WarmBrown, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
-                Row(
+                Column(
                     modifier = Modifier
-                        .background(Color(0xFFF3F4F6), RoundedCornerShape(999.dp))
-                        .padding(2.dp),
+                        .fillMaxWidth()
+                        .glassCard(shape = RoundedCornerShape(30.dp), backgroundColor = Color.White.copy(alpha = 0.78f))
+                        .padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    MetricChip("支出", rankType == RankType.EXPENSE) { onRankTypeChange(RankType.EXPENSE) }
-                    MetricChip("收入", rankType == RankType.INCOME) { onRankTypeChange(RankType.INCOME) }
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(imageVector = Icons.AutoMirrored.Rounded.ShowChart, contentDescription = null, tint = WarmBrown.copy(alpha = 0.74f), modifier = Modifier.size(16.dp))
+                            Text(text = "每日趋势 📈", color = WarmBrown, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
+                        }
+                        Row(
+                            modifier = Modifier
+                                .background(Color(0xFFF3F4F6), RoundedCornerShape(999.dp))
+                                .padding(2.dp),
+                        ) {
+                            MetricChip("支出", trendMetric == TrendMetric.EXPENSE) { onTrendMetricChange(TrendMetric.EXPENSE) }
+                            MetricChip("收入", trendMetric == TrendMetric.INCOME) { onTrendMetricChange(TrendMetric.INCOME) }
+                            MetricChip("结余", trendMetric == TrendMetric.BALANCE) { onTrendMetricChange(TrendMetric.BALANCE) }
+                        }
+                    }
+                    AnimatedContent(
+                        targetState = trendMetric.ordinal,
+                        transitionSpec = {
+                            slideInHorizontally(
+                                initialOffsetX = { fullWidth -> if (targetState > initialState) fullWidth else -fullWidth },
+                                animationSpec = tween(300),
+                            ) + fadeIn(tween(300)) togetherWith
+                                slideOutHorizontally(
+                                    targetOffsetX = { fullWidth -> if (targetState > initialState) -fullWidth else fullWidth },
+                                    animationSpec = tween(300),
+                                ) + fadeOut(tween(300))
+                        },
+                        label = "trendMetricSwitch",
+                    ) {
+                        LineChart(points = trendPoints, metric = trendMetric, xLabels = xLabels)
+                    }
                 }
-            }
-            rankList.forEach {
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text(text = it.name, color = WarmBrown, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                    Text(
-                        text = (if (rankType == RankType.EXPENSE) "-¥ " else "+¥ ") + money(it.amount),
-                        color = if (rankType == RankType.EXPENSE) WatermelonRed else MintGreen,
-                        fontWeight = FontWeight.ExtraBold,
-                        fontSize = 15.sp,
-                    )
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .glassCard(shape = RoundedCornerShape(30.dp), backgroundColor = Color.White.copy(alpha = 0.78f))
+                        .padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(imageVector = Icons.Rounded.PieChart, contentDescription = null, tint = WarmBrown.copy(alpha = 0.72f), modifier = Modifier.size(16.dp))
+                        Text(text = "分类排行榜 🍰", color = WarmBrown, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
+                    }
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                        DonutChart(categoryExpense = categoryExpense, totalExpense = totalExpense)
+                    }
+                    categoryExpense.forEach { item ->
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(34.dp)
+                                        .background(Color.White, CircleShape),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Icon(imageVector = item.icon, contentDescription = item.name, tint = WarmBrown, modifier = Modifier.size(16.dp))
+                                }
+                                Text(text = item.name, color = WarmBrown, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                Text(text = "${item.percent}%", color = WarmBrownMuted, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            }
+                            Text(text = "¥ ${money(item.amount)}", color = WarmBrown, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp)
+                        }
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(6.dp)
+                                .background(Color(0xFFF3F4F6), RoundedCornerShape(999.dp)),
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth(item.percent / 100f)
+                                    .height(6.dp)
+                                    .background(item.color, RoundedCornerShape(999.dp)),
+                            )
+                        }
+                    }
+                }
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .glassCard(shape = RoundedCornerShape(28.dp), backgroundColor = Color.White.copy(alpha = 0.76f))
+                        .padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        Text(text = "明细排行榜 🏆", color = WarmBrown, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
+                        Row(
+                            modifier = Modifier
+                                .background(Color(0xFFF3F4F6), RoundedCornerShape(999.dp))
+                                .padding(2.dp),
+                        ) {
+                            MetricChip("支出", rankType == RankType.EXPENSE) { onRankTypeChange(RankType.EXPENSE) }
+                            MetricChip("收入", rankType == RankType.INCOME) { onRankTypeChange(RankType.INCOME) }
+                        }
+                    }
+                    AnimatedContent(
+                        targetState = rankType.ordinal,
+                        transitionSpec = {
+                            slideInHorizontally(
+                                initialOffsetX = { fullWidth -> if (targetState > initialState) fullWidth else -fullWidth },
+                                animationSpec = tween(300),
+                            ) + fadeIn(tween(300)) togetherWith
+                                slideOutHorizontally(
+                                    targetOffsetX = { fullWidth -> if (targetState > initialState) -fullWidth else fullWidth },
+                                    animationSpec = tween(300),
+                                ) + fadeOut(tween(300))
+                        },
+                        label = "rankTypeSwitch",
+                    ) { rankIndex ->
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            rankList.forEach {
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                    Text(text = it.name, color = WarmBrown, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                    Text(
+                                        text = (if (rankIndex == RankType.EXPENSE.ordinal) "-¥ " else "+¥ ") + money(it.amount),
+                                        color = if (rankIndex == RankType.EXPENSE.ordinal) WatermelonRed else MintGreen,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        fontSize = 15.sp,
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -914,6 +1065,162 @@ private fun DonutChart(categoryExpense: List<CategoryStat>, totalExpense: Double
             Text(text = money(totalExpense), color = WarmBrown, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp)
         }
     }
+}
+
+@Composable
+private fun MockRecordPagerSection(
+    sortMode: RecordSortMode,
+    onSortModeChange: (RecordSortMode) -> Unit,
+    records: List<MockRecord>,
+    page: Int,
+    totalPages: Int,
+    onPrevPage: () -> Unit,
+    onNextPage: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .glassCard(shape = RoundedCornerShape(28.dp), backgroundColor = Color.White.copy(alpha = 0.78f))
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Text(text = "账本明细", color = WarmBrown, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
+
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            SortChip(
+                text = "按时间排序",
+                selected = sortMode == RecordSortMode.TIME,
+                onClick = { onSortModeChange(RecordSortMode.TIME) },
+            )
+            SortChip(
+                text = "按金额排序",
+                selected = sortMode == RecordSortMode.AMOUNT,
+                onClick = { onSortModeChange(RecordSortMode.AMOUNT) },
+            )
+        }
+
+        AnimatedContent(
+            targetState = page,
+            transitionSpec = {
+                slideInHorizontally(
+                    initialOffsetX = { fullWidth -> if (targetState > initialState) fullWidth else -fullWidth },
+                    animationSpec = tween(300),
+                ) + fadeIn(tween(300)) togetherWith
+                    slideOutHorizontally(
+                        targetOffsetX = { fullWidth -> if (targetState > initialState) -fullWidth else fullWidth },
+                        animationSpec = tween(300),
+                    ) + fadeOut(tween(300))
+            },
+            label = "mockPageSwitch",
+        ) {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(380.dp)
+                    .background(Color.White.copy(alpha = 0.65f), RoundedCornerShape(18.dp))
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                items(records, key = { record -> record.id }) { record ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color.White.copy(alpha = 0.86f), RoundedCornerShape(14.dp))
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(text = record.category, color = WarmBrown, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text(text = "${record.remark} · ${formatDate(record.timestamp)}", color = WarmBrownMuted, fontSize = 11.sp)
+                        }
+                        Text(
+                            text = (if (record.isIncome) "+¥ " else "-¥ ") + money(record.amount),
+                            color = if (record.isIncome) MintGreen else WatermelonRed,
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 14.sp,
+                        )
+                    }
+                }
+            }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            PaginationButton(text = "上一页", enabled = page > 0, onClick = onPrevPage)
+            Text(
+                text = "${page + 1} / ${totalPages.coerceAtLeast(1)}",
+                color = WarmBrown,
+                fontWeight = FontWeight.Bold,
+                fontSize = 13.sp,
+            )
+            PaginationButton(text = "下一页", enabled = page < totalPages - 1, onClick = onNextPage)
+        }
+    }
+}
+
+@Composable
+private fun SortChip(text: String, selected: Boolean, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .background(
+                color = if (selected) MintGreen.copy(alpha = 0.24f) else Color.White.copy(alpha = 0.72f),
+                shape = RoundedCornerShape(999.dp),
+            )
+            .clickable { onClick() }
+            .padding(horizontal = 12.dp, vertical = 7.dp),
+    ) {
+        Text(
+            text = text,
+            color = if (selected) WarmBrown else WarmBrown.copy(alpha = 0.6f),
+            fontWeight = FontWeight.Bold,
+            fontSize = 12.sp,
+        )
+    }
+}
+
+@Composable
+private fun PaginationButton(text: String, enabled: Boolean, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .background(
+                color = if (enabled) Color.White.copy(alpha = 0.9f) else Color(0xFFE5E7EB),
+                shape = RoundedCornerShape(999.dp),
+            )
+            .clickable(enabled = enabled) { onClick() }
+            .padding(horizontal = 12.dp, vertical = 7.dp),
+    ) {
+        Text(
+            text = text,
+            color = if (enabled) WarmBrown else WarmBrownMuted,
+            fontWeight = FontWeight.Bold,
+            fontSize = 12.sp,
+        )
+    }
+}
+
+private fun buildMockRecords(): List<MockRecord> {
+    val now = System.currentTimeMillis()
+    val categories = listOf("餐饮美食", "交通出行", "购物消费", "居家生活", "娱乐休闲", "医疗健康")
+    return List(50) { index ->
+        val amount = Random(index + 9).nextDouble(18.0, 580.0)
+        val isIncome = index % 7 == 0
+        MockRecord(
+            id = index + 1,
+            category = categories[index % categories.size],
+            remark = if (isIncome) "模拟收入${index + 1}" else "模拟支出${index + 1}",
+            amount = amount,
+            timestamp = now - index * 6L * 60L * 60L * 1000L,
+            isIncome = isIncome,
+        )
+    }
+}
+
+private fun formatDate(timestamp: Long): String {
+    return SimpleDateFormat("MM-dd HH:mm", Locale.CHINA).format(Date(timestamp))
 }
 
 private fun metricValue(list: List<TransactionEntity>, metric: TrendMetric): Double {

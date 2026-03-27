@@ -24,23 +24,17 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.navigation.NavGraph.Companion.findStartDestination
-import androidx.navigation.NavHostController
-import androidx.navigation.compose.currentBackStackEntryAsState
 import com.qcb.keepaccounts.ui.navigation.BottomNavItem
-import com.qcb.keepaccounts.ui.theme.MintGreen
 import com.qcb.keepaccounts.ui.theme.WarmBrown
 
 @Composable
 fun BottomNavigationBar(
-    navController: NavHostController,
     items: List<BottomNavItem>,
+    selectedIndex: Int,
+    onTabSelected: (Int) -> Unit,
     activeColor: Color,
     modifier: Modifier = Modifier,
 ) {
-    val backStackEntry by navController.currentBackStackEntryAsState()
-    val currentRoute = backStackEntry?.destination?.route
-
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -55,8 +49,8 @@ fun BottomNavigationBar(
         horizontalArrangement = Arrangement.SpaceAround,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        items.forEach { item ->
-            val selected = currentRoute == item.route
+        items.forEachIndexed { index, item ->
+            val selected = selectedIndex == index
             val scale by animateFloatAsState(
                 targetValue = if (selected) 1.04f else 1f,
                 animationSpec = spring(dampingRatio = 0.7f, stiffness = 400f),
@@ -81,13 +75,7 @@ fun BottomNavigationBar(
                     )
                     .clickable {
                         if (selected) return@clickable
-                        navController.navigate(item.route) {
-                            popUpTo(navController.graph.findStartDestination().id) {
-                                saveState = true
-                            }
-                            launchSingleTop = true
-                            restoreState = true
-                        }
+                        onTabSelected(index)
                     }
                     .padding(horizontal = 10.dp, vertical = 6.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,

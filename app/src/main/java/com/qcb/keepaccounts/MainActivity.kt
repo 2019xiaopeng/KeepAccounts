@@ -4,11 +4,12 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerState
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -22,6 +23,7 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -44,11 +46,10 @@ import com.qcb.keepaccounts.ui.components.BottomNavigationBar
 import com.qcb.keepaccounts.ui.model.AiAssistantConfig
 import com.qcb.keepaccounts.ui.model.AppThemePreset
 import com.qcb.keepaccounts.ui.model.ManualEntryPrefill
+import com.qcb.keepaccounts.ui.model.ThemePalette
 import com.qcb.keepaccounts.ui.model.defaultManualCategories
 import com.qcb.keepaccounts.ui.model.paletteForTheme
 import com.qcb.keepaccounts.ui.navigation.KeepAccountsDestination
-import com.qcb.keepaccounts.ui.navigation.edgeSwipeBack
-import com.qcb.keepaccounts.ui.navigation.rememberSwipeTabNavigator
 import com.qcb.keepaccounts.ui.screens.AISettingsScreen
 import com.qcb.keepaccounts.ui.screens.AppSettingsScreen
 import com.qcb.keepaccounts.ui.screens.CacheCleanupScreen
@@ -61,6 +62,9 @@ import com.qcb.keepaccounts.ui.screens.ProfileScreen
 import com.qcb.keepaccounts.ui.screens.SearchScreen
 import com.qcb.keepaccounts.ui.theme.KeepAccountsTheme
 import com.qcb.keepaccounts.ui.viewmodel.MainViewModel
+import kotlinx.coroutines.launch
+
+private const val MAIN_TABS_ROUTE = "main_tabs"
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -79,6 +83,8 @@ fun KeepAccountsApp() {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
+    val isOnMainTabs = currentRoute == MAIN_TABS_ROUTE
+    val coroutineScope = rememberCoroutineScope()
 
     var chatInitialInput by remember { mutableStateOf<String?>(null) }
     var manualEntryPrefill by remember { mutableStateOf<ManualEntryPrefill?>(null) }
@@ -101,24 +107,35 @@ fun KeepAccountsApp() {
             .groupingBy { tx -> tx.categoryName.ifBlank { "其他" } }
             .eachCount()
     }
-    val bottomRoutes = remember {
-        listOf(
-            KeepAccountsDestination.HOME,
-            KeepAccountsDestination.CHAT,
-            KeepAccountsDestination.LEDGER,
-            KeepAccountsDestination.PROFILE,
-        )
+    val pagerState = rememberPagerState(
+        initialPage = 0,
+        pageCount = { KeepAccountsDestination.bottomNavItems.size },
+    )
+
+    fun animateToTab(index: Int) {
+        if (index < 0 || index >= KeepAccountsDestination.bottomNavItems.size) return
+        coroutineScope.launch {
+            pagerState.animateScrollToPage(
+                page = index,
+                animationSpec = tween(
+                    durationMillis = 450,
+                    easing = FastOutSlowInEasing,
+                ),
+            )
+        }
     }
 
-    fun tabIndex(route: String?): Int = bottomRoutes.indexOf(route)
+    fun animateToTabRoute(route: String) {
+        val index = KeepAccountsDestination.bottomNavItems.indexOfFirst { it.route == route }
+        if (index >= 0) animateToTab(index)
+    }
 
-    fun navigateToBottomTab(route: String) {
+    fun navigateToSubPage(route: String) {
         navController.navigate(route) {
-            popUpTo(navController.graph.findStartDestination().id) {
+            popUpTo(MAIN_TABS_ROUTE) {
                 saveState = true
             }
             launchSingleTop = true
-            restoreState = true
         }
     }
 
@@ -126,11 +143,6 @@ fun KeepAccountsApp() {
         systemUiController.setStatusBarColor(color = Color.Transparent, darkIcons = true)
         systemUiController.setNavigationBarColor(color = Color.Transparent, darkIcons = true)
     }
-
-    val swipeTabModifier = rememberSwipeTabNavigator(
-        currentRoute = currentRoute,
-        navigateToTab = { route -> navigateToBottomTab(route) },
-    )
 
     Surface(modifier = Modifier.fillMaxSize()) {
         Box(
@@ -179,10 +191,11 @@ fun KeepAccountsApp() {
                 containerColor = Color.Transparent,
                 contentWindowInsets = WindowInsets(0, 0, 0, 0),
                 bottomBar = {
-                    if (KeepAccountsDestination.isBottomNavRoute(currentRoute)) {
+                    if (isOnMainTabs) {
                         BottomNavigationBar(
-                            navController = navController,
                             items = KeepAccountsDestination.bottomNavItems,
+                            selectedIndex = pagerState.currentPage,
+                            onTabSelected = { animateToTab(it) },
                             activeColor = palette.primaryDark,
                             modifier = Modifier.navigationBarsPadding(),
                         )
@@ -191,134 +204,46 @@ fun KeepAccountsApp() {
             ) { innerPadding ->
                 NavHost(
                     navController = navController,
-                    startDestination = KeepAccountsDestination.HOME,
-                    enterTransition = {
-                        val from = tabIndex(initialState.destination.route)
-                        val to = tabIndex(targetState.destination.route)
-                        if (from >= 0 && to >= 0) {
-                            if (to > from) {
-                                slideIntoContainer(
-                                    AnimatedContentTransitionScope.SlideDirection.Left,
-                                    animationSpec = tween(220),
-                                )
-                            } else {
-                                slideIntoContainer(
-                                    AnimatedContentTransitionScope.SlideDirection.Right,
-                                    animationSpec = tween(220),
-                                )
-                            }
-                        } else {
-                            fadeIn(animationSpec = tween(160))
-                        }
-                    },
-                    exitTransition = {
-                        val from = tabIndex(initialState.destination.route)
-                        val to = tabIndex(targetState.destination.route)
-                        if (from >= 0 && to >= 0) {
-                            if (to > from) {
-                                slideOutOfContainer(
-                                    AnimatedContentTransitionScope.SlideDirection.Left,
-                                    animationSpec = tween(220),
-                                )
-                            } else {
-                                slideOutOfContainer(
-                                    AnimatedContentTransitionScope.SlideDirection.Right,
-                                    animationSpec = tween(220),
-                                )
-                            }
-                        } else {
-                            fadeOut(animationSpec = tween(140))
-                        }
-                    },
-                    popEnterTransition = {
-                        slideIntoContainer(
-                            AnimatedContentTransitionScope.SlideDirection.Right,
-                            animationSpec = tween(220),
-                        )
-                    },
-                    popExitTransition = {
-                        slideOutOfContainer(
-                            AnimatedContentTransitionScope.SlideDirection.Right,
-                            animationSpec = tween(220),
-                        )
-                    },
+                    startDestination = MAIN_TABS_ROUTE,
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(innerPadding),
                 ) {
-                    composable(KeepAccountsDestination.HOME) {
-                        HomeScreen(
-                            modifier = swipeTabModifier,
+                    composable(MAIN_TABS_ROUTE) {
+                        MainTabsPager(
+                            pagerState = pagerState,
                             viewModel = mainViewModel,
-                            assistantName = aiConfig.name,
-                            assistantAvatar = aiConfig.avatar,
-                            onSearchClick = { navController.navigate(KeepAccountsDestination.SEARCH) },
-                            onAiRecordClick = {
-                                chatInitialInput = "牛肉粉丝汤 22"
-                                navigateToBottomTab(KeepAccountsDestination.CHAT)
-                            },
-                            onManualRecordClick = {
-                                manualEntryPrefill = null
-                                navController.navigate(KeepAccountsDestination.MANUAL_ENTRY)
-                            },
-                            onViewAllClick = { navigateToBottomTab(KeepAccountsDestination.LEDGER) },
-                            onEditRecord = { prefill ->
-                                manualEntryPrefill = prefill
-                                navController.navigate(KeepAccountsDestination.MANUAL_ENTRY)
-                            },
-                            onDeleteRecord = { id ->
-                                if (id > 0L) mainViewModel.deleteTransaction(id)
-                            },
-                        )
-                    }
-
-                    composable(KeepAccountsDestination.CHAT) {
-                        ChatScreen(
-                            modifier = swipeTabModifier,
-                            aiConfig = aiConfig,
-                            userName = userName,
-                            userAvatarUri = userAvatarUri,
-                            palette = palette,
-                            initialInput = chatInitialInput,
-                            onConsumedInitialInput = { chatInitialInput = null },
-                            onBack = { navController.popBackStack() },
-                            onOpenAiSettings = { navController.navigate(KeepAccountsDestination.AI_SETTINGS) },
-                            onOpenManualEntry = { prefill ->
-                                manualEntryPrefill = prefill
-                                navController.navigate(KeepAccountsDestination.MANUAL_ENTRY)
-                            },
-                        )
-                    }
-
-                    composable(KeepAccountsDestination.LEDGER) {
-                        LedgerScreen(
-                            modifier = swipeTabModifier,
-                            viewModel = mainViewModel,
-                            onEditRecord = { prefill ->
-                                manualEntryPrefill = prefill
-                                navController.navigate(KeepAccountsDestination.MANUAL_ENTRY)
-                            },
-                            onDeleteRecord = { id ->
-                                if (id > 0L) mainViewModel.deleteTransaction(id)
-                            },
-                        )
-                    }
-
-                    composable(KeepAccountsDestination.PROFILE) {
-                        ProfileScreen(
-                            modifier = swipeTabModifier,
                             aiConfig = aiConfig,
                             userName = userName,
                             userAvatarUri = userAvatarUri,
                             theme = appTheme,
-                            highlightColor = palette.primaryDark,
-                            onNavigateToOption = { route -> navController.navigate(route) },
+                            palette = palette,
+                            initialChatInput = chatInitialInput,
+                            onConsumedInitialInput = { chatInitialInput = null },
+                            onSearchClick = { navigateToSubPage(KeepAccountsDestination.SEARCH) },
+                            onManualRecordClick = {
+                                manualEntryPrefill = null
+                                navigateToSubPage(KeepAccountsDestination.MANUAL_ENTRY)
+                            },
+                            onAiRecordClick = {
+                                chatInitialInput = "牛肉粉丝汤 22"
+                                animateToTabRoute(KeepAccountsDestination.CHAT)
+                            },
+                            onViewLedger = { animateToTabRoute(KeepAccountsDestination.LEDGER) },
+                            onEditRecord = { prefill ->
+                                manualEntryPrefill = prefill
+                                navigateToSubPage(KeepAccountsDestination.MANUAL_ENTRY)
+                            },
+                            onDeleteRecord = { id ->
+                                if (id > 0L) mainViewModel.deleteTransaction(id)
+                            },
+                            onOpenAiSettings = { navigateToSubPage(KeepAccountsDestination.AI_SETTINGS) },
+                            onOpenProfileRoute = { route -> navigateToSubPage(route) },
                         )
                     }
 
                     composable(KeepAccountsDestination.MANUAL_ENTRY) {
                         ManualEntryScreen(
-                            modifier = Modifier.edgeSwipeBack { navController.popBackStack() },
                             viewModel = mainViewModel,
                             onBack = { navController.popBackStack() },
                             categories = manualCategories,
@@ -330,19 +255,17 @@ fun KeepAccountsApp() {
 
                     composable(KeepAccountsDestination.SEARCH) {
                         SearchScreen(
-                            modifier = Modifier.edgeSwipeBack { navController.popBackStack() },
                             viewModel = mainViewModel,
                             onBack = { navController.popBackStack() },
                             onOpenManualEntry = { prefill ->
                                 manualEntryPrefill = prefill
-                                navController.navigate(KeepAccountsDestination.MANUAL_ENTRY)
+                                navigateToSubPage(KeepAccountsDestination.MANUAL_ENTRY)
                             },
                         )
                     }
 
                     composable(KeepAccountsDestination.AI_SETTINGS) {
                         AISettingsScreen(
-                            modifier = Modifier.edgeSwipeBack { navController.popBackStack() },
                             config = aiConfig,
                             accentColor = palette.primaryDark,
                             onBack = { navController.popBackStack() },
@@ -365,7 +288,6 @@ fun KeepAccountsApp() {
                             ?: KeepAccountsDestination.SETTINGS_TYPE_HELP
 
                         AppSettingsScreen(
-                            modifier = Modifier.edgeSwipeBack { navController.popBackStack() },
                             type = type,
                             theme = appTheme,
                             userName = userName,
@@ -380,7 +302,6 @@ fun KeepAccountsApp() {
 
                     composable(KeepAccountsDestination.CATEGORY_MANAGEMENT) {
                         CategoryManagementScreen(
-                            modifier = Modifier.edgeSwipeBack { navController.popBackStack() },
                             categories = manualCategories,
                             usedCategoryCount = usedCategoryCount,
                             accentColor = palette.primaryDark,
@@ -401,12 +322,78 @@ fun KeepAccountsApp() {
 
                     composable(KeepAccountsDestination.CLEAR_CACHE) {
                         CacheCleanupScreen(
-                            modifier = Modifier.edgeSwipeBack { navController.popBackStack() },
                             onBack = { navController.popBackStack() },
                         )
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun MainTabsPager(
+    pagerState: PagerState,
+    viewModel: MainViewModel,
+    aiConfig: AiAssistantConfig,
+    userName: String,
+    userAvatarUri: String?,
+    theme: AppThemePreset,
+    palette: ThemePalette,
+    initialChatInput: String?,
+    onConsumedInitialInput: () -> Unit,
+    onSearchClick: () -> Unit,
+    onManualRecordClick: () -> Unit,
+    onAiRecordClick: () -> Unit,
+    onViewLedger: () -> Unit,
+    onEditRecord: (ManualEntryPrefill) -> Unit,
+    onDeleteRecord: (Long) -> Unit,
+    onOpenAiSettings: () -> Unit,
+    onOpenProfileRoute: (String) -> Unit,
+) {
+    HorizontalPager(
+        state = pagerState,
+        modifier = Modifier.fillMaxSize(),
+    ) { page ->
+        when (page) {
+            0 -> HomeScreen(
+                viewModel = viewModel,
+                assistantName = aiConfig.name,
+                assistantAvatar = aiConfig.avatar,
+                onSearchClick = onSearchClick,
+                onAiRecordClick = onAiRecordClick,
+                onManualRecordClick = onManualRecordClick,
+                onViewAllClick = onViewLedger,
+                onEditRecord = onEditRecord,
+                onDeleteRecord = onDeleteRecord,
+            )
+
+            1 -> ChatScreen(
+                aiConfig = aiConfig,
+                userName = userName,
+                userAvatarUri = userAvatarUri,
+                palette = palette,
+                initialInput = initialChatInput,
+                onConsumedInitialInput = onConsumedInitialInput,
+                onBack = {},
+                onOpenAiSettings = onOpenAiSettings,
+                onOpenManualEntry = onEditRecord,
+            )
+
+            2 -> LedgerScreen(
+                viewModel = viewModel,
+                onEditRecord = onEditRecord,
+                onDeleteRecord = onDeleteRecord,
+            )
+
+            else -> ProfileScreen(
+                aiConfig = aiConfig,
+                userName = userName,
+                userAvatarUri = userAvatarUri,
+                theme = theme,
+                highlightColor = palette.primaryDark,
+                onNavigateToOption = onOpenProfileRoute,
+            )
         }
     }
 }
