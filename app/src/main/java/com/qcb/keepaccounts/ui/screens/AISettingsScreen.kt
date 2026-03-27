@@ -1,0 +1,276 @@
+package com.qcb.keepaccounts.ui.screens
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Wallpaper
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.qcb.keepaccounts.ui.components.glassCard
+import com.qcb.keepaccounts.ui.model.AiAssistantConfig
+import com.qcb.keepaccounts.ui.model.AiTone
+import com.qcb.keepaccounts.ui.model.ChatBackgroundPreset
+import com.qcb.keepaccounts.ui.theme.MintGreen
+import com.qcb.keepaccounts.ui.theme.WarmBrown
+import com.qcb.keepaccounts.ui.theme.WarmBrownMuted
+
+private val avatarOptions = listOf("🌊", "🐶", "🐱", "🐰", "🦊", "🐼", "🌸", "✨", "🤖")
+
+@Composable
+fun AISettingsScreen(
+    config: AiAssistantConfig,
+    onBack: () -> Unit,
+    onSave: (AiAssistantConfig) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var name by rememberSaveable { mutableStateOf(config.name) }
+    var avatar by rememberSaveable { mutableStateOf(config.avatar) }
+    var tone by rememberSaveable { mutableStateOf(config.tone) }
+    var background by rememberSaveable { mutableStateOf(config.chatBackground) }
+
+    LazyColumn(
+        modifier = modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 14.dp, top = 12.dp, end = 14.dp, bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        item {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .glassCard(shape = RoundedCornerShape(20.dp), glowColor = MintGreen.copy(alpha = 0.15f))
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "back",
+                    tint = WarmBrown.copy(alpha = 0.72f),
+                    modifier = Modifier
+                        .size(20.dp)
+                        .clickable { onBack() },
+                )
+                Text(text = "AI 专属管家", color = WarmBrown, fontWeight = FontWeight.ExtraBold, fontSize = 17.sp)
+                Box(modifier = Modifier.size(20.dp))
+            }
+        }
+
+        item {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .glassCard(shape = RoundedCornerShape(24.dp), glowColor = MintGreen.copy(alpha = 0.16f))
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text(text = "管家称呼", color = WarmBrown, fontWeight = FontWeight.Bold)
+                TextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    placeholder = { Text("给你的管家起个名字", color = WarmBrownMuted) },
+                    singleLine = true,
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = Color.White.copy(alpha = 0.75f),
+                        unfocusedContainerColor = Color.White.copy(alpha = 0.6f),
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent,
+                    ),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
+
+        item {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .glassCard(shape = RoundedCornerShape(24.dp), glowColor = MintGreen.copy(alpha = 0.16f))
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text(text = "管家形象", color = WarmBrown, fontWeight = FontWeight.Bold)
+                Box(
+                    modifier = Modifier
+                        .size(72.dp)
+                        .background(MintGreen.copy(alpha = 0.25f), RoundedCornerShape(999.dp)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(text = avatar, fontSize = 34.sp)
+                }
+                LazyVerticalGrid(columns = GridCells.Fixed(5), modifier = Modifier.height(130.dp)) {
+                    items(avatarOptions) { item ->
+                        Box(
+                            modifier = Modifier
+                                .padding(4.dp)
+                                .background(
+                                    color = if (avatar == item) Color.White else Color.White.copy(alpha = 0.5f),
+                                    shape = RoundedCornerShape(14.dp),
+                                )
+                                .clickable { avatar = item }
+                                .padding(vertical = 8.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(text = item, fontSize = 22.sp)
+                        }
+                    }
+                }
+            }
+        }
+
+        item {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .glassCard(shape = RoundedCornerShape(24.dp), glowColor = MintGreen.copy(alpha = 0.16f))
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(text = "性格与语气", color = WarmBrown, fontWeight = FontWeight.Bold)
+                ToneRow(
+                    title = "贴心治愈",
+                    desc = "温柔体贴，像朋友一样关心你",
+                    selected = tone == AiTone.HEALING,
+                    onClick = { tone = AiTone.HEALING },
+                )
+                ToneRow(
+                    title = "傲娇毒舌",
+                    desc = "嘴硬心软，偶尔会吐槽你的花销",
+                    selected = tone == AiTone.TSUNDERE,
+                    onClick = { tone = AiTone.TSUNDERE },
+                )
+                ToneRow(
+                    title = "理智管家",
+                    desc = "冷静客观，帮你理性分析每一笔账",
+                    selected = tone == AiTone.RATIONAL,
+                    onClick = { tone = AiTone.RATIONAL },
+                )
+            }
+        }
+
+        item {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .glassCard(shape = RoundedCornerShape(24.dp), glowColor = MintGreen.copy(alpha = 0.16f))
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(imageVector = Icons.Rounded.Wallpaper, contentDescription = null, tint = WarmBrown.copy(alpha = 0.7f), modifier = Modifier.size(16.dp))
+                    Text(text = "对话背景", color = WarmBrown, fontWeight = FontWeight.Bold)
+                }
+                BackgroundChip("默认", selected = background == ChatBackgroundPreset.NONE) { background = ChatBackgroundPreset.NONE }
+                BackgroundChip("海蓝渐变", selected = background == ChatBackgroundPreset.OCEAN) { background = ChatBackgroundPreset.OCEAN }
+                BackgroundChip("森林薄荷", selected = background == ChatBackgroundPreset.FOREST) { background = ChatBackgroundPreset.FOREST }
+                BackgroundChip("晚霞暖色", selected = background == ChatBackgroundPreset.SUNSET) { background = ChatBackgroundPreset.SUNSET }
+            }
+        }
+
+        item {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        brush = Brush.horizontalGradient(listOf(MintGreen, Color(0xFF88D4B4))),
+                        shape = RoundedCornerShape(999.dp),
+                    )
+                    .clickable {
+                        onSave(
+                            AiAssistantConfig(
+                                name = name.ifBlank { "Nanami" },
+                                avatar = avatar,
+                                tone = tone,
+                                chatBackground = background,
+                            ),
+                        )
+                    }
+                    .padding(vertical = 14.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(imageVector = Icons.Rounded.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                Text(text = "保存设置", color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp, modifier = Modifier.padding(start = 6.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun ToneRow(
+    title: String,
+    desc: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                color = if (selected) MintGreen.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.5f),
+                shape = RoundedCornerShape(16.dp),
+            )
+            .clickable { onClick() }
+            .padding(10.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Text(text = title, color = WarmBrown, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+        Text(text = desc, color = WarmBrownMuted, fontSize = 12.sp)
+    }
+}
+
+@Composable
+private fun BackgroundChip(
+    text: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                color = if (selected) Color.White else Color.White.copy(alpha = 0.5f),
+                shape = RoundedCornerShape(14.dp),
+            )
+            .clickable { onClick() }
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+    ) {
+        Text(
+            text = text,
+            color = if (selected) WarmBrown else WarmBrown.copy(alpha = 0.6f),
+            fontWeight = FontWeight.Bold,
+            fontSize = 13.sp,
+        )
+    }
+}

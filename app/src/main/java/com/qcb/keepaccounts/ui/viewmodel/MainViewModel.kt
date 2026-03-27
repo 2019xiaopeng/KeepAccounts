@@ -55,6 +55,12 @@ class MainViewModel(
         }
     }
 
+    fun deleteTransaction(id: Long) {
+        viewModelScope.launch {
+            transactionRepository.deleteTransactionById(id)
+        }
+    }
+
     companion object {
         fun provideFactory(
             transactionRepository: TransactionRepository,

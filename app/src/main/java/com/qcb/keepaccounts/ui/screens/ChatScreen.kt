@@ -34,7 +34,6 @@ import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.Mic
-import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.SmartToy
@@ -61,6 +60,9 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.qcb.keepaccounts.ui.model.AiAssistantConfig
+import com.qcb.keepaccounts.ui.model.ChatBackgroundPreset
+import com.qcb.keepaccounts.ui.model.ManualEntryPrefill
 import com.qcb.keepaccounts.ui.theme.MintGreen
 import com.qcb.keepaccounts.ui.theme.WarmBrown
 import com.qcb.keepaccounts.ui.theme.WarmBrownMuted
@@ -95,10 +97,13 @@ private val initialChatMessages = listOf(
 
 @Composable
 fun ChatScreen(
+    aiConfig: AiAssistantConfig,
+    userName: String,
     modifier: Modifier = Modifier,
     initialInput: String? = null,
     onConsumedInitialInput: () -> Unit = {},
     onBack: (() -> Unit)? = null,
+    onOpenManualEntry: (ManualEntryPrefill) -> Unit = {},
 ) {
     val messages = remember { mutableStateListOf<DemoMessage>().apply { addAll(initialChatMessages) } }
     var inputText by remember { mutableStateOf("") }
@@ -117,13 +122,7 @@ fun ChatScreen(
         modifier = modifier
             .fillMaxSize()
             .background(
-                brush = Brush.verticalGradient(
-                    colors = listOf(
-                        Color(0xFF1B3A5F),
-                        Color(0xFF1A3353),
-                        Color(0xFF172C46),
-                    ),
-                ),
+                brush = chatBackgroundBrush(aiConfig.chatBackground),
             ),
     ) {
         Box(
@@ -141,7 +140,11 @@ fun ChatScreen(
         )
 
         Column(modifier = Modifier.fillMaxSize()) {
-            ChatHeader(onBack = onBack)
+            ChatHeader(
+                onBack = onBack,
+                assistantName = aiConfig.name,
+                assistantAvatar = aiConfig.avatar,
+            )
 
             if (topTip.isNotBlank()) {
                 Row(
@@ -171,19 +174,28 @@ fun ChatScreen(
                 items(messages, key = { it.id }) { message ->
                     MessageRow(
                         message = message,
+                        assistantAvatar = aiConfig.avatar,
+                        userName = userName,
                         onDelete = {
                             messages.removeAll { it.id == message.id }
                             topTip = "已删除这条回执"
                         },
                         onEdit = {
-                            inputText = "${message.receiptRemark} ${message.receiptAmount}".trim()
-                            topTip = "已填充到输入框，可继续修改后发送"
+                            onOpenManualEntry(
+                                ManualEntryPrefill(
+                                    type = "expense",
+                                    category = message.receiptCategory,
+                                    desc = message.receiptRemark,
+                                    amount = message.receiptAmount,
+                                ),
+                            )
+                            topTip = "已跳转到手动记账，可继续修改"
                         },
                     )
                 }
 
                 if (isTyping) {
-                    item { TypingRow() }
+                    item { TypingRow(assistantAvatar = aiConfig.avatar) }
                 }
 
                 item { Spacer(modifier = Modifier.height(92.dp)) }
@@ -196,6 +208,7 @@ fun ChatScreen(
                 .fillMaxWidth(),
             input = inputText,
             onInputChange = { inputText = it },
+            assistantName = aiConfig.name,
             onSend = {
                 val userText = inputText.trim()
                 if (userText.isEmpty() || isTyping) return@InputBar
@@ -242,13 +255,46 @@ fun ChatScreen(
     }
 }
 
+private fun chatBackgroundBrush(preset: ChatBackgroundPreset): Brush {
+    val colors = when (preset) {
+        ChatBackgroundPreset.NONE -> listOf(
+            Color(0xFF1B3A5F),
+            Color(0xFF1A3353),
+            Color(0xFF172C46),
+        )
+
+        ChatBackgroundPreset.OCEAN -> listOf(
+            Color(0xFF1C4E80),
+            Color(0xFF1F6AA5),
+            Color(0xFF1B3B6B),
+        )
+
+        ChatBackgroundPreset.FOREST -> listOf(
+            Color(0xFF1F4D3A),
+            Color(0xFF2E6B4A),
+            Color(0xFF1E3D2F),
+        )
+
+        ChatBackgroundPreset.SUNSET -> listOf(
+            Color(0xFF6B2E56),
+            Color(0xFFB84A62),
+            Color(0xFFF08A5D),
+        )
+    }
+    return Brush.verticalGradient(colors = colors)
+}
+
 private fun parseAmount(text: String): String? {
     val regex = Regex("(\\d+(?:\\.\\d{1,2})?)")
     return regex.find(text)?.groupValues?.get(1)
 }
 
 @Composable
-private fun ChatHeader(onBack: (() -> Unit)?) {
+private fun ChatHeader(
+    onBack: (() -> Unit)?,
+    assistantName: String,
+    assistantAvatar: String,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -266,14 +312,14 @@ private fun ChatHeader(onBack: (() -> Unit)?) {
                 .clickable { onBack?.invoke() },
         )
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(text = "Nanami", color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
+            Text(text = assistantName, color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
             Text(text = "今天 16:51", color = Color.White.copy(alpha = 0.62f), fontSize = 10.sp)
         }
-        Icon(
-            imageVector = Icons.Rounded.MoreHoriz,
-            contentDescription = "more",
-            tint = Color.White,
-            modifier = Modifier.size(22.dp),
+        AvatarTextBubble(
+            text = assistantAvatar,
+            background = Color.White.copy(alpha = 0.22f),
+            textColor = Color.White,
+            modifier = Modifier.size(26.dp),
         )
     }
 }
@@ -281,6 +327,8 @@ private fun ChatHeader(onBack: (() -> Unit)?) {
 @Composable
 private fun MessageRow(
     message: DemoMessage,
+    assistantAvatar: String,
+    userName: String,
     onDelete: () -> Unit,
     onEdit: () -> Unit,
 ) {
@@ -297,10 +345,10 @@ private fun MessageRow(
         verticalAlignment = Alignment.Top,
     ) {
         if (!isUser) {
-            AvatarBubble(
-                icon = Icons.Rounded.SmartToy,
+            AvatarTextBubble(
+                text = assistantAvatar,
                 background = Color(0xFF2D5C92),
-                tint = Color.White,
+                textColor = Color.White,
                 modifier = Modifier.padding(end = 8.dp),
             )
         }
@@ -326,13 +374,36 @@ private fun MessageRow(
         }
 
         if (isUser) {
-            AvatarBubble(
-                icon = Icons.Rounded.Person,
+            AvatarTextBubble(
+                text = userName.take(1).ifBlank { "我" },
                 background = Color(0xFFF3D2C1),
-                tint = WarmBrown.copy(alpha = 0.9f),
+                textColor = WarmBrown.copy(alpha = 0.9f),
                 modifier = Modifier.padding(start = 8.dp),
             )
         }
+    }
+}
+
+@Composable
+private fun AvatarTextBubble(
+    text: String,
+    background: Color,
+    textColor: Color,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .size(36.dp)
+            .clip(CircleShape)
+            .background(background),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = text,
+            color = textColor,
+            fontWeight = FontWeight.ExtraBold,
+            fontSize = 14.sp,
+        )
     }
 }
 
@@ -445,16 +516,16 @@ private fun ReceiptRow(
 }
 
 @Composable
-private fun TypingRow() {
+private fun TypingRow(assistantAvatar: String) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.Start,
         verticalAlignment = Alignment.Top,
     ) {
-        AvatarBubble(
-            icon = Icons.Rounded.SmartToy,
+        AvatarTextBubble(
+            text = assistantAvatar,
             background = Color(0xFF2D5C92),
-            tint = Color.White,
+            textColor = Color.White,
             modifier = Modifier.padding(end = 8.dp),
         )
 
@@ -523,6 +594,7 @@ private fun InputBar(
     modifier: Modifier = Modifier,
     input: String,
     onInputChange: (String) -> Unit,
+    assistantName: String,
     onSend: () -> Unit,
 ) {
     Row(
@@ -541,7 +613,9 @@ private fun InputBar(
         TextField(
             value = input,
             onValueChange = onInputChange,
-            placeholder = { Text(text = "发送消息给 Nanami...", color = WarmBrownMuted, fontSize = 13.sp) },
+            placeholder = {
+                Text(text = "发送消息给 $assistantName...", color = WarmBrownMuted, fontSize = 13.sp)
+            },
             colors = TextFieldDefaults.colors(
                 focusedContainerColor = Color(0xFFF3F4F6),
                 unfocusedContainerColor = Color(0xFFF3F4F6),

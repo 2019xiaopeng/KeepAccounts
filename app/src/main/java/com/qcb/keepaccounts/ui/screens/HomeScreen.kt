@@ -1,6 +1,7 @@
 package com.qcb.keepaccounts.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
@@ -12,7 +13,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -23,24 +23,23 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.ChatBubble
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
-import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -49,12 +48,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil.compose.AsyncImage
 import com.qcb.keepaccounts.data.local.entity.TransactionEntity
 import com.qcb.keepaccounts.ui.components.glassCard
-import com.qcb.keepaccounts.ui.icons.KeepAccountsIcons
 import com.qcb.keepaccounts.ui.icons.resolveCategoryIcon
+import com.qcb.keepaccounts.ui.model.ManualEntryPrefill
 import com.qcb.keepaccounts.ui.theme.MintGreen
-import com.qcb.keepaccounts.ui.theme.MintGreenSoft
 import com.qcb.keepaccounts.ui.theme.WarmBrown
 import com.qcb.keepaccounts.ui.theme.WarmBrownMuted
 import com.qcb.keepaccounts.ui.theme.WatermelonPink
@@ -66,11 +65,13 @@ import java.util.Date
 import java.util.Locale
 
 private data class ActivityRecord(
+    val id: Long,
     val icon: ImageVector,
     val category: String,
     val desc: String,
     val time: String,
     val amount: String,
+    val amountRaw: String,
     val isIncome: Boolean = false,
 )
 
@@ -80,91 +81,43 @@ private data class DaySection(
     val records: List<ActivityRecord>,
 )
 
-private val demoSections = listOf(
-    DaySection(
-        title = "今天 ${todayMMDD()}",
-        summary = "支出 ¥58.50",
-        records = listOf(
-            ActivityRecord(
-                icon = resolveCategoryIcon("餐饮美食"),
-                category = "餐饮美食",
-                desc = "星巴克拿铁",
-                time = "12:30",
-                amount = "-¥ 30.00",
-            ),
-            ActivityRecord(
-                icon = resolveCategoryIcon("交通出行"),
-                category = "交通出行",
-                desc = "滴滴出行",
-                time = "09:15",
-                amount = "-¥ 28.50",
-            ),
-        ),
-    ),
-)
-
 @Composable
 fun HomeScreen(
     viewModel: MainViewModel,
+    assistantName: String,
+    assistantAvatar: String,
+    onSearchClick: () -> Unit,
     onAiRecordClick: () -> Unit,
     onManualRecordClick: () -> Unit,
     onViewAllClick: () -> Unit,
+    onEditRecord: (ManualEntryPrefill) -> Unit,
+    onDeleteRecord: (Long) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var searchExpanded by rememberSaveable { mutableStateOf(false) }
-    var searchQuery by rememberSaveable { mutableStateOf("") }
+    var expandedRecordId by rememberSaveable { mutableLongStateOf(-1L) }
+    var confirmDeleteRecordId by rememberSaveable { mutableLongStateOf(-1L) }
 
     val transactions by viewModel.transactions.collectAsStateWithLifecycle()
-    val sourceSections = remember(transactions) {
-        val mapped = mapTransactionsToSections(transactions)
-        if (mapped.isEmpty()) demoSections else mapped
-    }
-
-    val sections = remember(sourceSections, searchQuery) {
-        if (searchQuery.isBlank()) {
-            sourceSections
-        } else {
-            val key = searchQuery.trim().lowercase(Locale.getDefault())
-            sourceSections.mapNotNull { section ->
-                val filteredRecords = section.records.filter { record ->
-                    record.category.lowercase(Locale.getDefault()).contains(key) ||
-                        record.desc.lowercase(Locale.getDefault()).contains(key) ||
-                        record.time.lowercase(Locale.getDefault()).contains(key)
-                }
-                if (filteredRecords.isNotEmpty()) section.copy(records = filteredRecords) else null
-            }
-        }
-    }
+    val sections = remember(transactions) { mapTransactionsToSections(transactions) }
 
     LazyColumn(
-        modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 102.dp),
+        modifier = modifier
+            .fillMaxSize(),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 112.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         item {
             HomeHeader(
-                searchExpanded = searchExpanded,
-                onToggleSearch = {
-                    searchExpanded = !searchExpanded
-                    if (!searchExpanded) searchQuery = ""
-                },
+                assistantName = assistantName,
+                onOpenSearchPage = onSearchClick,
             )
-        }
-
-        item {
-            AnimatedVisibility(visible = searchExpanded) {
-                SearchBar(
-                    value = searchQuery,
-                    onValueChange = { searchQuery = it },
-                    onClear = { searchQuery = "" },
-                )
-            }
         }
 
         item { BudgetCard(transactions = transactions) }
 
         item {
             ActionButtons(
+                assistantName = assistantName,
                 onAiRecordClick = onAiRecordClick,
                 onManualRecordClick = onManualRecordClick,
             )
@@ -181,7 +134,7 @@ fun HomeScreen(
                         .padding(horizontal = 14.dp, vertical = 12.dp),
                 ) {
                     Text(
-                        text = "没有找到相关账单，试试其他关键词",
+                        text = "暂无账单，去记一笔吧",
                         color = WarmBrownMuted,
                         fontWeight = FontWeight.Bold,
                         fontSize = 13.sp,
@@ -190,7 +143,32 @@ fun HomeScreen(
             }
         } else {
             items(sections) { section ->
-                DaySectionCard(section)
+                DaySectionCard(
+                    section = section,
+                    expandedRecordId = expandedRecordId,
+                    confirmDeleteRecordId = confirmDeleteRecordId,
+                    onToggleExpand = { id ->
+                        if (expandedRecordId == id) {
+                            expandedRecordId = -1L
+                            confirmDeleteRecordId = -1L
+                        } else {
+                            expandedRecordId = id
+                            confirmDeleteRecordId = -1L
+                        }
+                    },
+                    onBeginDelete = { id -> confirmDeleteRecordId = id },
+                    onCancelDelete = { confirmDeleteRecordId = -1L },
+                    onConfirmDelete = { id ->
+                        onDeleteRecord(id)
+                        if (expandedRecordId == id) expandedRecordId = -1L
+                        if (confirmDeleteRecordId == id) confirmDeleteRecordId = -1L
+                    },
+                    onEditRecord = { prefill ->
+                        expandedRecordId = -1L
+                        confirmDeleteRecordId = -1L
+                        onEditRecord(prefill)
+                    },
+                )
             }
         }
     }
@@ -198,102 +176,69 @@ fun HomeScreen(
 
 @Composable
 private fun HomeHeader(
-    searchExpanded: Boolean,
-    onToggleSearch: () -> Unit,
+    assistantName: String,
+    onOpenSearchPage: () -> Unit,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(11.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                modifier = Modifier
-                    .size(46.dp)
-                    .glassCard(shape = CircleShape, glowColor = MintGreen.copy(alpha = 0.24f))
-                    .background(
-                        brush = Brush.radialGradient(
-                            listOf(Color.White.copy(alpha = 0.96f), MintGreenSoft),
-                        ),
-                        shape = CircleShape,
-                    ),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = KeepAccountsIcons.Assistant,
-                    contentDescription = "assistant",
-                    tint = WarmBrown,
-                    modifier = Modifier.size(22.dp),
-                )
-            }
-            Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                Text(text = "Nanami", color = WarmBrown, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
-                Text(text = "营业中", color = WarmBrown.copy(alpha = 0.6f), fontWeight = FontWeight.Medium, fontSize = 12.sp)
-            }
+        Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+            Text(
+                text = "$assistantName🌊营业中 ✨",
+                color = Color(0xFF2B211E),
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 22.sp,
+            )
+            Text(
+                text = "劳动最光荣 💼",
+                color = WarmBrown.copy(alpha = 0.62f),
+                fontWeight = FontWeight.Bold,
+                fontSize = 14.sp,
+            )
         }
 
         Box(
             modifier = Modifier
-                .size(44.dp)
-                .glassCard(shape = CircleShape, glowColor = MintGreen.copy(alpha = 0.14f))
-                .clickable { onToggleSearch() },
+                .size(48.dp)
+                .clip(CircleShape)
+                .background(Color.White.copy(alpha = 0.92f))
+                .clickable { onOpenSearchPage() },
             contentAlignment = Alignment.Center,
         ) {
             Icon(
-                imageVector = if (searchExpanded) Icons.Rounded.Close else Icons.Rounded.Search,
-                contentDescription = "search",
-                tint = WarmBrown.copy(alpha = 0.85f),
-                modifier = Modifier.size(20.dp),
+                imageVector = Icons.Rounded.Search,
+                contentDescription = "search-page",
+                tint = Color(0xFF3B3531),
+                modifier = Modifier.size(25.dp),
             )
         }
     }
 }
 
 @Composable
-private fun SearchBar(
-    value: String,
-    onValueChange: (String) -> Unit,
-    onClear: () -> Unit,
-) {
-    Row(
+private fun AssistantAvatar(assistantAvatar: String) {
+    Box(
         modifier = Modifier
-            .fillMaxWidth()
-            .glassCard(shape = RoundedCornerShape(20.dp), glowColor = MintGreen.copy(alpha = 0.16f))
-            .padding(horizontal = 10.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        Icon(
-            imageVector = Icons.Rounded.Search,
-            contentDescription = "search",
-            tint = WarmBrown.copy(alpha = 0.55f),
-            modifier = Modifier.size(18.dp),
-        )
-        TextField(
-            value = value,
-            onValueChange = onValueChange,
-            modifier = Modifier.weight(1f),
-            placeholder = {
-                Text(text = "搜索账单、备注、分类", color = WarmBrownMuted, fontSize = 13.sp)
-            },
-            colors = TextFieldDefaults.colors(
-                focusedContainerColor = Color.Transparent,
-                unfocusedContainerColor = Color.Transparent,
-                disabledContainerColor = Color.Transparent,
-                focusedIndicatorColor = Color.Transparent,
-                unfocusedIndicatorColor = Color.Transparent,
-                disabledIndicatorColor = Color.Transparent,
+            .size(46.dp)
+            .glassCard(shape = CircleShape, glowColor = MintGreen.copy(alpha = 0.24f))
+            .background(
+                brush = Brush.radialGradient(
+                    listOf(Color.White.copy(alpha = 0.96f), MintGreen.copy(alpha = 0.35f)),
+                ),
+                shape = CircleShape,
             ),
-            singleLine = true,
-        )
-        if (value.isNotBlank()) {
-            Text(
-                text = "清空",
-                color = WarmBrown.copy(alpha = 0.65f),
-                fontWeight = FontWeight.Bold,
-                fontSize = 12.sp,
-                modifier = Modifier.clickable { onClear() },
+        contentAlignment = Alignment.Center,
+    ) {
+        if (assistantAvatar.startsWith("http://") || assistantAvatar.startsWith("https://")) {
+            AsyncImage(
+                model = assistantAvatar,
+                contentDescription = "assistant-avatar",
+                modifier = Modifier.size(38.dp),
             )
+        } else {
+            Text(text = assistantAvatar, fontSize = 22.sp)
         }
     }
 }
@@ -311,15 +256,15 @@ private fun BudgetCard(transactions: List<TransactionEntity>) {
         }.sumOf { it.amount }
     }
 
-    val budgetTotal = 4000.0
+    val budgetTotal = 2000.0
     val usedRatio = (monthExpense / budgetTotal).coerceIn(0.0, 1.0)
-    val remain = (budgetTotal - monthExpense).coerceAtLeast(0.0)
+    val remain = budgetTotal - monthExpense
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .glassCard(shape = RoundedCornerShape(32.dp), glowColor = MintGreen.copy(alpha = 0.24f))
-            .padding(18.dp),
+            .glassCard(shape = RoundedCornerShape(30.dp), glowColor = MintGreen.copy(alpha = 0.2f))
+            .padding(horizontal = 18.dp, vertical = 16.dp),
     ) {
         Box(
             modifier = Modifier
@@ -335,39 +280,38 @@ private fun BudgetCard(transactions: List<TransactionEntity>) {
         )
 
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(text = "本月预算 🎯", color = Color(0xFF2B211E), fontWeight = FontWeight.ExtraBold, fontSize = 33.sp / 2)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Bottom,
             ) {
-                Column {
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = KeepAccountsIcons.Money,
-                            contentDescription = "budget",
-                            tint = WarmBrown.copy(alpha = 0.65f),
-                            modifier = Modifier.size(16.dp),
-                        )
-                        Text(text = "本月预算", color = WarmBrown.copy(alpha = 0.7f), fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                    }
-                    Text(
-                        text = "¥${money(monthExpense)}",
-                        color = WarmBrown,
-                        fontWeight = FontWeight.ExtraBold,
-                        fontSize = 30.sp,
-                    )
-                }
-                Column(horizontalAlignment = Alignment.End) {
-                    Text(text = "剩余", color = WarmBrown.copy(alpha = 0.55f), fontWeight = FontWeight.Medium, fontSize = 12.sp)
-                    Text(text = "¥ ${money(remain)}", color = MintGreen, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                }
+                Text(text = "已用", color = WarmBrown.copy(alpha = 0.6f), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                Text(text = "剩余", color = WarmBrown.copy(alpha = 0.6f), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    text = "¥${money(monthExpense)}",
+                    color = WatermelonPink,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 18.sp,
+                )
+                Text(
+                    text = "¥${money(remain)}",
+                    color = WatermelonRed,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 18.sp,
+                )
             }
 
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(10.dp)
-                    .background(color = Color.White.copy(alpha = 0.65f), shape = RoundedCornerShape(999.dp)),
+                    .height(12.dp)
+                    .background(color = Color.White.copy(alpha = 0.72f), shape = RoundedCornerShape(999.dp)),
             ) {
                 Box(
                     modifier = Modifier
@@ -382,16 +326,16 @@ private fun BudgetCard(transactions: List<TransactionEntity>) {
 
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text(
-                    text = "已用 ${(usedRatio * 100).toInt()}%",
+                    text = "0",
                     color = WarmBrown.copy(alpha = 0.55f),
                     fontWeight = FontWeight.Medium,
-                    fontSize = 11.sp,
+                    fontSize = 12.sp,
                 )
                 Text(
-                    text = "总计 ¥${money(budgetTotal)}",
+                    text = "总预算: ¥${money(budgetTotal)}",
                     color = WarmBrown.copy(alpha = 0.55f),
                     fontWeight = FontWeight.Medium,
-                    fontSize = 11.sp,
+                    fontSize = 12.sp,
                 )
             }
         }
@@ -400,6 +344,7 @@ private fun BudgetCard(transactions: List<TransactionEntity>) {
 
 @Composable
 private fun ActionButtons(
+    assistantName: String,
     onAiRecordClick: () -> Unit,
     onManualRecordClick: () -> Unit,
 ) {
@@ -409,16 +354,14 @@ private fun ActionButtons(
     ) {
         ActionButton(
             modifier = Modifier.weight(1f),
-            icon = Icons.Rounded.ChatBubble,
-            text = "跟 Nanami 记账",
-            brush = Brush.linearGradient(listOf(MintGreen.copy(alpha = 0.9f), MintGreenSoft.copy(alpha = 0.9f))),
+            text = "💬 和${assistantName}聊天",
+            textColor = Color(0xFF58BDB4),
             onClick = onAiRecordClick,
         )
         ActionButton(
             modifier = Modifier.weight(1f),
-            icon = Icons.Rounded.Edit,
-            text = "手动记一笔",
-            brush = Brush.linearGradient(listOf(Color.White.copy(alpha = 0.95f), Color.White.copy(alpha = 0.86f))),
+            text = "✍️ 手动记账",
+            textColor = Color(0xFF2C2320),
             onClick = onManualRecordClick,
         )
     }
@@ -427,9 +370,8 @@ private fun ActionButtons(
 @Composable
 private fun ActionButton(
     modifier: Modifier,
-    icon: ImageVector,
     text: String,
-    brush: Brush,
+    textColor: Color,
     onClick: () -> Unit,
 ) {
     val interaction = remember { MutableInteractionSource() }
@@ -440,116 +382,215 @@ private fun ActionButton(
         label = "actionScale",
     )
 
-    Column(
+    Box(
         modifier = modifier
             .graphicsLayer(scaleX = scale, scaleY = scale)
-            .glassCard(shape = RoundedCornerShape(28.dp), glowColor = MintGreen.copy(alpha = 0.22f))
-            .background(brush = brush, shape = RoundedCornerShape(28.dp))
+            .glassCard(shape = RoundedCornerShape(999.dp), glowColor = MintGreen.copy(alpha = 0.18f))
+            .background(color = Color.White.copy(alpha = 0.95f), shape = RoundedCornerShape(999.dp))
             .clickable(interactionSource = interaction, indication = null) { onClick() }
-            .padding(vertical = 15.dp, horizontal = 10.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+            .padding(vertical = 14.dp, horizontal = 12.dp),
+        contentAlignment = Alignment.Center,
     ) {
-        Icon(imageVector = icon, contentDescription = text, tint = WarmBrown.copy(alpha = 0.92f), modifier = Modifier.size(22.dp))
-        Text(text = text, color = WarmBrown, fontWeight = FontWeight.ExtraBold, fontSize = 12.sp)
+        Text(text = text, color = textColor, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
     }
 }
 
 @Composable
 private fun RecentHeader(onViewAllClick: () -> Unit) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onViewAllClick() },
+        horizontalArrangement = Arrangement.Start,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                imageVector = Icons.Rounded.Schedule,
-                contentDescription = "recent",
-                tint = WarmBrown.copy(alpha = 0.75f),
-                modifier = Modifier.size(17.dp),
-            )
-            Text(text = "最近动态", color = WarmBrown, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
-        }
-        Text(
-            text = "查看全部",
-            color = WarmBrown.copy(alpha = 0.5f),
-            fontWeight = FontWeight.Bold,
-            fontSize = 12.sp,
-            modifier = Modifier.clickable { onViewAllClick() },
-        )
+        Text(text = "最近动态 🍃", color = Color(0xFF2B211E), fontWeight = FontWeight.ExtraBold, fontSize = 34.sp / 2)
     }
 }
 
 @Composable
-private fun DaySectionCard(section: DaySection) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+private fun DaySectionCard(
+    section: DaySection,
+    expandedRecordId: Long,
+    confirmDeleteRecordId: Long,
+    onToggleExpand: (Long) -> Unit,
+    onBeginDelete: (Long) -> Unit,
+    onCancelDelete: () -> Unit,
+    onConfirmDelete: (Long) -> Unit,
+    onEditRecord: (ManualEntryPrefill) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .glassCard(shape = RoundedCornerShape(26.dp), glowColor = MintGreen.copy(alpha = 0.12f))
+            .padding(horizontal = 14.dp, vertical = 14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(
-                modifier = Modifier
-                    .background(Color.White.copy(alpha = 0.55f), shape = RoundedCornerShape(999.dp))
-                    .padding(horizontal = 10.dp, vertical = 4.dp),
-            ) {
-                Text(text = section.title, color = WarmBrown.copy(alpha = 0.65f), fontWeight = FontWeight.Bold, fontSize = 11.sp)
-            }
-            Text(text = section.summary, color = WarmBrown.copy(alpha = 0.55f), fontWeight = FontWeight.Bold, fontSize = 11.sp)
+            Text(text = section.title, color = Color(0xFF2B211E), fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
+            Text(text = section.summary, color = WatermelonRed, fontWeight = FontWeight.Bold, fontSize = 15.sp)
         }
 
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            section.records.forEach { record ->
-                ActivityItem(record)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(Color(0x11000000), RoundedCornerShape(99.dp)),
+        )
+
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            section.records.forEachIndexed { index, record ->
+                ActivityItem(
+                    record = record,
+                    isExpanded = expandedRecordId == record.id,
+                    isConfirmingDelete = confirmDeleteRecordId == record.id,
+                    onToggle = { onToggleExpand(record.id) },
+                    onEdit = {
+                        onEditRecord(
+                            ManualEntryPrefill(
+                                type = if (record.isIncome) "income" else "expense",
+                                category = record.category,
+                                desc = record.desc,
+                                amount = record.amountRaw,
+                            ),
+                        )
+                    },
+                    onDelete = { onBeginDelete(record.id) },
+                    onCancelDelete = onCancelDelete,
+                    onConfirmDelete = { onConfirmDelete(record.id) },
+                )
+                if (index != section.records.lastIndex) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(1.dp)
+                            .background(Color(0x0F000000), RoundedCornerShape(99.dp)),
+                    )
+                }
             }
         }
     }
 }
 
 @Composable
-private fun ActivityItem(record: ActivityRecord) {
+private fun ActivityItem(
+    record: ActivityRecord,
+    isExpanded: Boolean,
+    isConfirmingDelete: Boolean,
+    onToggle: () -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+    onCancelDelete: () -> Unit,
+    onConfirmDelete: () -> Unit,
+) {
     val amountColor = if (record.isIncome) MintGreen else WatermelonRed
 
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .glassCard(shape = RoundedCornerShape(24.dp), glowColor = MintGreen.copy(alpha = 0.11f))
-            .padding(horizontal = 14.dp, vertical = 12.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
+            .animateContentSize()
+            .clickable { onToggle() }
+            .padding(horizontal = 4.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                modifier = Modifier
-                    .size(42.dp)
-                    .glassCard(shape = RoundedCornerShape(15.dp), glowColor = Color.Transparent)
-                    .background(
-                        brush = Brush.linearGradient(listOf(Color.White, Color(0xFFF0FDF4))),
-                        shape = RoundedCornerShape(15.dp),
-                    ),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = record.icon,
-                    contentDescription = record.category,
-                    tint = WarmBrown.copy(alpha = 0.92f),
-                    modifier = Modifier.size(20.dp),
-                )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .background(Color.White.copy(alpha = 0.95f), CircleShape)
+                        .background(
+                            brush = Brush.linearGradient(listOf(Color.White, Color(0xFFF9F9F9))),
+                            shape = CircleShape,
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = record.icon,
+                        contentDescription = record.category,
+                        tint = WarmBrown.copy(alpha = 0.92f),
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+
+                Column {
+                    Text(text = record.category, color = Color(0xFF2B211E), fontWeight = FontWeight.ExtraBold, fontSize = 15.sp)
+                    Text(
+                        text = record.desc,
+                        color = WarmBrownMuted,
+                        fontWeight = FontWeight.Medium,
+                        fontSize = 13.sp,
+                    )
+                }
             }
 
-            Column {
-                Text(text = record.category, color = WarmBrown, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                Text(
-                    text = "${record.desc} · ${record.time}",
-                    color = WarmBrownMuted,
-                    fontWeight = FontWeight.Medium,
-                    fontSize = 11.sp,
-                )
-            }
+            Text(text = record.amount, color = amountColor, fontWeight = FontWeight.ExtraBold, fontSize = 17.sp)
         }
 
-        Text(text = record.amount, color = amountColor, fontWeight = FontWeight.ExtraBold, fontSize = 15.sp)
+        AnimatedVisibility(visible = isExpanded) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (isConfirmingDelete) {
+                    Row(
+                        modifier = Modifier
+                            .background(Color(0xFFFFF0F0), RoundedCornerShape(999.dp))
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(text = "确认删除?", color = WatermelonRed, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                        Icon(
+                            imageVector = Icons.Rounded.Close,
+                            contentDescription = "cancel-delete",
+                            tint = WarmBrown.copy(alpha = 0.65f),
+                            modifier = Modifier
+                                .size(16.dp)
+                                .clickable { onCancelDelete() },
+                        )
+                        Icon(
+                            imageVector = Icons.Rounded.Check,
+                            contentDescription = "confirm-delete",
+                            tint = Color.White,
+                            modifier = Modifier
+                                .size(16.dp)
+                                .background(WatermelonRed, CircleShape)
+                                .clickable { onConfirmDelete() }
+                                .padding(2.dp),
+                        )
+                    }
+                } else {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Rounded.Edit,
+                            contentDescription = "edit",
+                            tint = WarmBrown.copy(alpha = 0.55f),
+                            modifier = Modifier
+                                .size(16.dp)
+                                .clickable { onEdit() },
+                        )
+                        Icon(
+                            imageVector = Icons.Rounded.Delete,
+                            contentDescription = "delete",
+                            tint = WatermelonRed.copy(alpha = 0.85f),
+                            modifier = Modifier
+                                .size(16.dp)
+                                .clickable { onDelete() },
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -582,11 +623,13 @@ private fun mapTransactionsToSections(transactions: List<TransactionEntity>): Li
         val records = list.sortedByDescending { it.recordTimestamp }.map { tx ->
             val isIncome = tx.type == 1
             ActivityRecord(
+                id = tx.id,
                 icon = resolveCategoryIcon(tx.categoryName, tx.remark),
                 category = tx.categoryName,
                 desc = tx.remark,
                 time = timeFormat.format(Date(tx.recordTimestamp)),
                 amount = (if (isIncome) "+¥ " else "-¥ ") + money(tx.amount),
+                amountRaw = String.format(Locale.CHINA, "%.2f", tx.amount),
                 isIncome = isIncome,
             )
         }
@@ -595,10 +638,26 @@ private fun mapTransactionsToSections(transactions: List<TransactionEntity>): Li
     }
 }
 
-private fun money(value: Double): String {
-    return String.format(Locale.CHINA, "%,.2f", value)
+private fun recentDailyExpense(transactions: List<TransactionEntity>, days: Int): List<Float> {
+    val now = Calendar.getInstance()
+    return (days - 1 downTo 0).map { offset ->
+        val day = (now.clone() as Calendar).apply {
+            add(Calendar.DAY_OF_MONTH, -offset)
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+        val start = day.timeInMillis
+        day.add(Calendar.DAY_OF_MONTH, 1)
+        val end = day.timeInMillis
+
+        transactions.filter { tx -> tx.type == 0 && tx.recordTimestamp in start until end }
+            .sumOf { it.amount }
+            .toFloat()
+    }
 }
 
-private fun todayMMDD(): String {
-    return SimpleDateFormat("MM月dd日", Locale.CHINA).format(Date())
+private fun money(value: Double): String {
+    return String.format(Locale.CHINA, "%,.2f", value)
 }

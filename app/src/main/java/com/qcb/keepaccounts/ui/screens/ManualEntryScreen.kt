@@ -12,22 +12,27 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.DateRange
+import androidx.compose.material.icons.rounded.EditNote
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -36,48 +41,56 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.qcb.keepaccounts.ui.components.glassCard
+import com.qcb.keepaccounts.ui.icons.resolveCategoryIcon
+import com.qcb.keepaccounts.ui.model.ManualEntryPrefill
 import com.qcb.keepaccounts.ui.theme.MintGreen
-import com.qcb.keepaccounts.ui.theme.MintGreenSoft
 import com.qcb.keepaccounts.ui.theme.WarmBrown
 import com.qcb.keepaccounts.ui.theme.WarmBrownMuted
 import com.qcb.keepaccounts.ui.theme.WatermelonRed
 import com.qcb.keepaccounts.ui.viewmodel.MainViewModel
 
 private data class CategoryOption(
-    val icon: String,
     val name: String,
 )
 
-private val expenseCategories = listOf(
-    CategoryOption("🍜", "餐饮"),
-    CategoryOption("🚗", "交通"),
-    CategoryOption("🛍️", "购物"),
-    CategoryOption("🏠", "居家"),
-    CategoryOption("🎮", "娱乐"),
-)
-
-private val incomeCategories = listOf(
-    CategoryOption("💰", "工资"),
-    CategoryOption("🎁", "红包"),
-    CategoryOption("🧩", "兼职"),
-    CategoryOption("📈", "理财"),
+private val categories = listOf(
+    CategoryOption("餐饮美食"),
+    CategoryOption("交通出行"),
+    CategoryOption("购物消费"),
+    CategoryOption("居家生活"),
+    CategoryOption("娱乐休闲"),
+    CategoryOption("医疗健康"),
+    CategoryOption("人情交际"),
+    CategoryOption("其他"),
 )
 
 @Composable
 fun ManualEntryScreen(
     viewModel: MainViewModel,
     onBack: () -> Unit,
+    initialData: ManualEntryPrefill? = null,
+    onConsumedInitialData: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    var isExpense by remember { mutableStateOf(true) }
-    var amountInput by remember { mutableStateOf("") }
-    var remarkInput by remember { mutableStateOf("") }
-    var selectedCategory by remember { mutableIntStateOf(0) }
-    var saveTip by remember { mutableStateOf<String?>(null) }
+    var type by rememberSaveable { mutableStateOf("expense") }
+    var amountInput by rememberSaveable { mutableStateOf("") }
+    var remarkInput by rememberSaveable { mutableStateOf("") }
+    var selectedCategory by rememberSaveable { mutableStateOf("餐饮美食") }
+    var saveTip by rememberSaveable { mutableStateOf<String?>(null) }
 
-    val categories = if (isExpense) expenseCategories else incomeCategories
-    if (selectedCategory >= categories.size) selectedCategory = 0
+    LaunchedEffect(initialData) {
+        if (initialData != null) {
+            type = initialData.type
+            amountInput = initialData.amount
+            remarkInput = initialData.desc
+            if (initialData.category.isNotBlank()) {
+                selectedCategory = initialData.category
+            }
+            onConsumedInitialData()
+        }
+    }
 
     LazyColumn(
         modifier = modifier
@@ -101,8 +114,66 @@ fun ManualEntryScreen(
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.clickable { onBack() },
                 )
-                Text(text = "手动记一笔", color = WarmBrown, fontWeight = FontWeight.ExtraBold)
+                Text(text = "手动记一笔", color = WarmBrown, fontWeight = FontWeight.ExtraBold, fontSize = 17.sp)
                 Spacer(modifier = Modifier.width(40.dp))
+            }
+        }
+
+        item {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .glassCard(shape = RoundedCornerShape(30.dp), glowColor = MintGreen.copy(alpha = 0.2f))
+                    .padding(14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    text = "¥",
+                    color = if (type == "expense") WatermelonRed else MintGreen,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 34.sp,
+                )
+                TextField(
+                    value = amountInput,
+                    onValueChange = { amountInput = it.filter { ch -> ch.isDigit() || ch == '.' } },
+                    placeholder = { Text("0.00", color = WarmBrown.copy(alpha = 0.25f), fontSize = 36.sp) },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent,
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent,
+                    ),
+                    textStyle = androidx.compose.ui.text.TextStyle(
+                        color = if (type == "expense") WatermelonRed else MintGreen,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 42.sp,
+                    ),
+                    modifier = Modifier.fillMaxWidth(0.84f),
+                )
+            }
+        }
+
+        item {
+            Row(
+                modifier = Modifier
+                    .background(Color.White.copy(alpha = 0.6f), RoundedCornerShape(999.dp))
+                    .padding(4.dp),
+            ) {
+                ToggleChip(
+                    text = "支出",
+                    selected = type == "expense",
+                    selectedColor = WatermelonRed,
+                    onClick = { type = "expense" },
+                )
+                ToggleChip(
+                    text = "收入",
+                    selected = type == "income",
+                    selectedColor = MintGreen,
+                    onClick = { type = "income" },
+                )
             }
         }
 
@@ -110,69 +181,17 @@ fun ManualEntryScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .glassCard(shape = RoundedCornerShape(30.dp), glowColor = MintGreen.copy(alpha = 0.2f))
-                    .padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                    .glassCard(shape = RoundedCornerShape(28.dp), glowColor = MintGreen.copy(alpha = 0.16f))
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                Text(text = "快速录入 ✍️", color = WarmBrown, fontWeight = FontWeight.ExtraBold)
-
-                Row(
-                    modifier = Modifier
-                        .background(Color.White.copy(alpha = 0.6f), RoundedCornerShape(999.dp))
-                        .padding(4.dp),
-                ) {
-                    ToggleChip(
-                        text = "支出",
-                        selected = isExpense,
-                        onClick = { isExpense = true },
-                    )
-                    ToggleChip(
-                        text = "收入",
-                        selected = !isExpense,
-                        onClick = { isExpense = false },
-                    )
-                }
-
-                OutlinedTextField(
-                    value = amountInput,
-                    onValueChange = { amountInput = it.filter { ch -> ch.isDigit() || ch == '.' } },
-                    label = { Text("金额") },
-                    placeholder = { Text("例如 36.50") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    shape = RoundedCornerShape(18.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = MintGreen,
-                        unfocusedBorderColor = Color.White.copy(alpha = 0.65f),
-                        focusedContainerColor = Color.White.copy(alpha = 0.72f),
-                        unfocusedContainerColor = Color.White.copy(alpha = 0.55f),
-                    ),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-
-                OutlinedTextField(
-                    value = remarkInput,
-                    onValueChange = { remarkInput = it },
-                    label = { Text("备注") },
-                    placeholder = { Text("例如 牛肉粉丝汤") },
-                    singleLine = true,
-                    shape = RoundedCornerShape(18.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = MintGreen,
-                        unfocusedBorderColor = Color.White.copy(alpha = 0.65f),
-                        focusedContainerColor = Color.White.copy(alpha = 0.72f),
-                        unfocusedContainerColor = Color.White.copy(alpha = 0.55f),
-                    ),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-
-                Text(text = "选择分类", color = WarmBrownMuted, fontWeight = FontWeight.Bold)
+                Text(text = "选择分类", color = WarmBrownMuted, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    itemsIndexed(categories) { index, option ->
+                    items(categories) { option ->
                         CategoryChip(
                             option = option,
-                            selected = index == selectedCategory,
-                            onClick = { selectedCategory = index },
+                            selected = selectedCategory == option.name,
+                            onClick = { selectedCategory = option.name },
                         )
                     }
                 }
@@ -180,50 +199,109 @@ fun ManualEntryScreen(
         }
 
         item {
-            Button(
-                onClick = {
-                    val amount = amountInput.toDoubleOrNull()
-                    if (amount == null || amount <= 0.0) {
-                        saveTip = "请输入正确金额"
-                    } else {
-                        val category = categories[selectedCategory]
-                        viewModel.addManualTransaction(
-                            type = if (isExpense) 0 else 1,
-                            amount = amount,
-                            categoryName = category.name,
-                            categoryIcon = category.icon,
-                            remark = remarkInput.ifBlank { if (isExpense) "手动支出" else "手动收入" },
-                            recordTimestamp = System.currentTimeMillis(),
-                        )
-                        saveTip = "已保存，账单已更新"
-                        amountInput = ""
-                        remarkInput = ""
-                    }
-                },
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(52.dp),
-                shape = RoundedCornerShape(999.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
-                contentPadding = PaddingValues(),
+                    .glassCard(shape = RoundedCornerShape(28.dp), glowColor = MintGreen.copy(alpha = 0.16f))
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            brush = Brush.horizontalGradient(
-                                listOf(MintGreen, MintGreenSoft),
-                            ),
-                            shape = RoundedCornerShape(999.dp),
-                        ),
-                    contentAlignment = Alignment.Center,
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(text = "保存这笔账单", color = Color.White, fontWeight = FontWeight.ExtraBold)
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Rounded.DateRange,
+                            contentDescription = null,
+                            tint = WarmBrown.copy(alpha = 0.62f),
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Text(text = "日期", color = WarmBrown, fontWeight = FontWeight.Bold)
+                    }
+                    Text(text = "今天", color = WarmBrownMuted, fontWeight = FontWeight.Bold)
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Rounded.EditNote,
+                            contentDescription = null,
+                            tint = WarmBrown.copy(alpha = 0.62f),
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Text(text = "备注", color = WarmBrown, fontWeight = FontWeight.Bold)
+                    }
+                    TextField(
+                        value = remarkInput,
+                        onValueChange = { remarkInput = it },
+                        placeholder = { Text("写点什么吧...", color = WarmBrown.copy(alpha = 0.35f), fontSize = 13.sp) },
+                        singleLine = true,
+                        colors = TextFieldDefaults.colors(
+                            focusedContainerColor = Color.Transparent,
+                            unfocusedContainerColor = Color.Transparent,
+                            focusedIndicatorColor = Color.Transparent,
+                            unfocusedIndicatorColor = Color.Transparent,
+                        ),
+                        textStyle = androidx.compose.ui.text.TextStyle(
+                            color = WarmBrown,
+                            fontWeight = FontWeight.Medium,
+                            fontSize = 14.sp,
+                        ),
+                        modifier = Modifier.fillMaxWidth(0.65f),
+                    )
                 }
             }
         }
 
-        if (saveTip != null) {
+        item {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        brush = Brush.horizontalGradient(
+                            listOf(if (type == "expense") WatermelonRed else MintGreen, MintGreen),
+                        ),
+                        shape = RoundedCornerShape(999.dp),
+                    )
+                    .clickable {
+                        val amount = amountInput.toDoubleOrNull()
+                        if (amount == null || amount <= 0.0) {
+                            saveTip = "请输入正确金额"
+                        } else {
+                            viewModel.addManualTransaction(
+                                type = if (type == "expense") 0 else 1,
+                                amount = amount,
+                                categoryName = selectedCategory,
+                                categoryIcon = selectedCategory.firstOrNull()?.toString() ?: "",
+                                remark = remarkInput.ifBlank { if (type == "expense") "手动支出" else "手动收入" },
+                                recordTimestamp = System.currentTimeMillis(),
+                            )
+                            saveTip = "已保存，账单已更新"
+                            onBack()
+                        }
+                    }
+                    .padding(vertical = 14.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Check,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(modifier = Modifier.size(6.dp))
+                Text(text = "保存记录", color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
+            }
+        }
+
+        if (saveTip != null && saveTip!!.contains("正确")) {
             item {
                 Box(
                     modifier = Modifier
@@ -231,11 +309,7 @@ fun ManualEntryScreen(
                         .glassCard(shape = RoundedCornerShape(20.dp), glowColor = MintGreen.copy(alpha = 0.12f))
                         .padding(horizontal = 12.dp, vertical = 10.dp),
                 ) {
-                    Text(
-                        text = saveTip ?: "",
-                        color = if (saveTip?.contains("正确") == true) WatermelonRed else WarmBrown,
-                        fontWeight = FontWeight.Bold,
-                    )
+                    Text(text = saveTip ?: "", color = WatermelonRed, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -246,21 +320,23 @@ fun ManualEntryScreen(
 private fun ToggleChip(
     text: String,
     selected: Boolean,
+    selectedColor: Color,
     onClick: () -> Unit,
 ) {
     Box(
         modifier = Modifier
             .background(
-                color = if (selected) Color.White else Color.Transparent,
+                color = if (selected) selectedColor else Color.Transparent,
                 shape = RoundedCornerShape(999.dp),
             )
             .clickable { onClick() }
-            .padding(horizontal = 18.dp, vertical = 8.dp),
+            .padding(horizontal = 20.dp, vertical = 8.dp),
     ) {
         Text(
             text = text,
-            color = if (selected) WarmBrown else WarmBrown.copy(alpha = 0.5f),
+            color = if (selected) Color.White else WarmBrown.copy(alpha = 0.5f),
             fontWeight = FontWeight.Bold,
+            fontSize = 13.sp,
         )
     }
 }
@@ -282,7 +358,12 @@ private fun CategoryChip(
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(text = option.icon)
-        Text(text = option.name, color = WarmBrown, fontWeight = FontWeight.Bold)
+        Icon(
+            imageVector = resolveCategoryIcon(option.name),
+            contentDescription = option.name,
+            tint = WarmBrown,
+            modifier = Modifier.size(16.dp),
+        )
+        Text(text = option.name, color = WarmBrown, fontWeight = FontWeight.Bold, fontSize = 12.sp)
     }
 }

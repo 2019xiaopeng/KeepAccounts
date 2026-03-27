@@ -15,6 +15,10 @@ class TransactionRepository(
         return transactionDao.insertTransaction(transaction)
     }
 
+    suspend fun deleteTransactionById(id: Long) {
+        transactionDao.deleteTransactionById(id)
+    }
+
     suspend fun seedInitialTransactionsIfNeeded() {
         if (transactionDao.countTransactions() > 0) return
 

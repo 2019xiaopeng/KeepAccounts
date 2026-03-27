@@ -30,6 +30,8 @@ import androidx.compose.material.icons.rounded.BarChart
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.ChevronLeft
 import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.PieChart
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -38,6 +40,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -52,8 +55,11 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.qcb.keepaccounts.data.local.entity.TransactionEntity
 import com.qcb.keepaccounts.ui.components.glassCard
 import com.qcb.keepaccounts.ui.icons.resolveCategoryIcon
+import com.qcb.keepaccounts.ui.model.ManualEntryPrefill
 import com.qcb.keepaccounts.ui.theme.MintGreen
 import com.qcb.keepaccounts.ui.theme.PeachIncome
 import com.qcb.keepaccounts.ui.theme.WarmBrown
@@ -61,6 +67,10 @@ import com.qcb.keepaccounts.ui.theme.WarmBrownMuted
 import com.qcb.keepaccounts.ui.theme.WatermelonPink
 import com.qcb.keepaccounts.ui.theme.WatermelonRed
 import com.qcb.keepaccounts.ui.viewmodel.MainViewModel
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Date
+import java.util.Locale
 
 private data class CalendarCell(
     val date: Int,
@@ -88,6 +98,8 @@ private val rankItems = listOf(
 @Composable
 fun LedgerScreen(
     viewModel: MainViewModel,
+    onEditRecord: (ManualEntryPrefill) -> Unit = {},
+    onDeleteRecord: (Long) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     var viewMode by remember { mutableStateOf("stats") }
@@ -96,6 +108,19 @@ fun LedgerScreen(
     var trendMetric by remember { mutableStateOf("expense") }
     var chartType by remember { mutableStateOf("line") }
     var selectedDate by remember { mutableIntStateOf(15) }
+    val transactions by viewModel.transactions.collectAsStateWithLifecycle()
+
+    val selectedDayRecords = remember(transactions, selectedDate) {
+        val now = Calendar.getInstance()
+        val year = now.get(Calendar.YEAR)
+        val month = now.get(Calendar.MONTH)
+        transactions.filter { tx ->
+            val cal = Calendar.getInstance().apply { timeInMillis = tx.recordTimestamp }
+            cal.get(Calendar.YEAR) == year &&
+                cal.get(Calendar.MONTH) == month &&
+                cal.get(Calendar.DAY_OF_MONTH) == selectedDate
+        }.sortedByDescending { it.recordTimestamp }
+    }
 
     val calendarData = remember {
         List(31) { index ->
@@ -135,7 +160,10 @@ fun LedgerScreen(
                     CalendarMode(
                         data = calendarData,
                         selectedDate = selectedDate,
+                        dailyTransactions = selectedDayRecords,
                         onSelectDate = { selectedDate = it },
+                        onEditRecord = onEditRecord,
+                        onDeleteRecord = onDeleteRecord,
                     )
                 } else {
                     StatsMode(
@@ -161,7 +189,10 @@ fun LedgerScreen(
 private fun CalendarMode(
     data: List<CalendarCell>,
     selectedDate: Int,
+    dailyTransactions: List<TransactionEntity>,
     onSelectDate: (Int) -> Unit,
+    onEditRecord: (ManualEntryPrefill) -> Unit,
+    onDeleteRecord: (Long) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Box(
@@ -268,11 +299,39 @@ private fun CalendarMode(
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
                     Text(text = "3月${selectedDate}日 明细", color = WarmBrown, fontWeight = FontWeight.ExtraBold, fontSize = 15.sp)
-                    Text(text = "共 3 笔", color = WarmBrownMuted, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    Text(
+                        text = "共 ${dailyTransactions.size} 笔",
+                        color = WarmBrownMuted,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp,
+                    )
                 }
-                DailyItem(icon = resolveCategoryIcon("餐饮美食"), name = "星巴克", time = "12:30", amount = "-¥30.00")
-                DailyItem(icon = resolveCategoryIcon("交通出行"), name = "打车", time = "09:15", amount = "-¥28.50")
-                DailyItem(icon = resolveCategoryIcon("收入"), name = "稿费", time = "15:00", amount = "+¥120.00", isIncome = true)
+
+                if (dailyTransactions.isEmpty()) {
+                    Text(text = "当日暂无记录", color = WarmBrownMuted, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                } else {
+                    dailyTransactions.forEach { tx ->
+                        val isIncome = tx.type == 1
+                        DailyItem(
+                            icon = resolveCategoryIcon(tx.categoryName, tx.remark),
+                            name = tx.categoryName,
+                            time = formatLedgerTime(tx.recordTimestamp),
+                            amount = (if (isIncome) "+¥" else "-¥") + String.format(Locale.CHINA, "%.2f", tx.amount),
+                            isIncome = isIncome,
+                            onEdit = {
+                                onEditRecord(
+                                    ManualEntryPrefill(
+                                        type = if (isIncome) "income" else "expense",
+                                        category = tx.categoryName,
+                                        desc = tx.remark,
+                                        amount = String.format(Locale.CHINA, "%.2f", tx.amount),
+                                    ),
+                                )
+                            },
+                            onDelete = { onDeleteRecord(tx.id) },
+                        )
+                    }
+                }
             }
         }
     }
@@ -285,7 +344,11 @@ private fun DailyItem(
     time: String,
     amount: String,
     isIncome: Boolean = false,
+    onEdit: () -> Unit = {},
+    onDelete: () -> Unit = {},
 ) {
+    var confirmDelete by rememberSaveable(name, time, amount) { mutableStateOf(false) }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -308,12 +371,64 @@ private fun DailyItem(
                 Text(text = time, color = WarmBrownMuted, fontSize = 11.sp)
             }
         }
-        Text(
-            text = amount,
-            color = if (isIncome) MintGreen else WatermelonRed,
-            fontWeight = FontWeight.ExtraBold,
-            fontSize = 14.sp,
-        )
+
+        Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                text = amount,
+                color = if (isIncome) MintGreen else WatermelonRed,
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 14.sp,
+            )
+            if (confirmDelete) {
+                Row(
+                    modifier = Modifier
+                        .background(Color(0xFFFFF0F0), RoundedCornerShape(999.dp))
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(text = "确认删除?", color = WatermelonRed, fontWeight = FontWeight.Bold, fontSize = 10.sp)
+                    Icon(
+                        imageVector = Icons.Rounded.ChevronLeft,
+                        contentDescription = "cancel-delete",
+                        tint = WarmBrown.copy(alpha = 0.6f),
+                        modifier = Modifier
+                            .size(14.dp)
+                            .clickable { confirmDelete = false },
+                    )
+                    Icon(
+                        imageVector = Icons.Rounded.Delete,
+                        contentDescription = "confirm-delete",
+                        tint = WatermelonRed,
+                        modifier = Modifier
+                            .size(14.dp)
+                            .clickable {
+                                confirmDelete = false
+                                onDelete()
+                            },
+                    )
+                }
+            } else {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Rounded.Edit,
+                        contentDescription = "edit",
+                        tint = WarmBrown.copy(alpha = 0.55f),
+                        modifier = Modifier
+                            .size(15.dp)
+                            .clickable { onEdit() },
+                    )
+                    Icon(
+                        imageVector = Icons.Rounded.Delete,
+                        contentDescription = "delete",
+                        tint = WatermelonRed.copy(alpha = 0.85f),
+                        modifier = Modifier
+                            .size(15.dp)
+                            .clickable { confirmDelete = true },
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -775,4 +890,8 @@ private fun formatLedgerYear(offset: Int): String {
     }
     val year = calendar.get(java.util.Calendar.YEAR)
     return "${year}年"
+}
+
+private fun formatLedgerTime(timestamp: Long): String {
+    return SimpleDateFormat("HH:mm", Locale.CHINA).format(Date(timestamp))
 }
