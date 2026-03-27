@@ -1,10 +1,5 @@
 package com.qcb.keepaccounts.ui.screens
 
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -19,15 +14,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ShowChart
-import androidx.compose.material.icons.automirrored.rounded.TrendingUp
-import androidx.compose.material.icons.rounded.BarChart
-import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.ChevronLeft
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Delete
@@ -38,6 +31,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -64,37 +58,32 @@ import com.qcb.keepaccounts.ui.theme.MintGreen
 import com.qcb.keepaccounts.ui.theme.PeachIncome
 import com.qcb.keepaccounts.ui.theme.WarmBrown
 import com.qcb.keepaccounts.ui.theme.WarmBrownMuted
-import com.qcb.keepaccounts.ui.theme.WatermelonPink
 import com.qcb.keepaccounts.ui.theme.WatermelonRed
 import com.qcb.keepaccounts.ui.viewmodel.MainViewModel
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import kotlin.math.max
 
-private data class CalendarCell(
-    val date: Int,
-    val income: Int,
-    val expense: Int,
+private data class DayCell(
+    val day: Int?,
+    val income: Double = 0.0,
+    val expense: Double = 0.0,
 )
 
-private data class RankItem(
-    val id: Int,
-    val icon: ImageVector,
+private data class CategoryStat(
     val name: String,
-    val amount: Int,
+    val amount: Double,
     val percent: Int,
     val color: Color,
-    val isIncome: Boolean = false,
+    val icon: ImageVector,
 )
 
-private val rankItems = listOf(
-    RankItem(1, resolveCategoryIcon("餐饮美食"), "餐饮美食", 1250, 45, WatermelonRed, isIncome = false),
-    RankItem(2, resolveCategoryIcon("交通出行"), "交通出行", 580, 21, MintGreen, isIncome = true),
-    RankItem(3, resolveCategoryIcon("购物消费"), "购物消费", 450, 16, Color(0xFFFFD3B6), isIncome = false),
-    RankItem(4, resolveCategoryIcon("居家生活"), "居家生活", 320, 12, Color(0xFFDCEDC1), isIncome = false),
-    RankItem(5, resolveCategoryIcon("娱乐休闲"), "娱乐休闲", 180, 6, Color(0xFFFFAAA5), isIncome = false),
-)
+private enum class LedgerViewMode { CALENDAR, STATS }
+private enum class StatsPeriod { MONTH, YEAR }
+private enum class TrendMetric { EXPENSE, INCOME, BALANCE }
+private enum class RankType { EXPENSE, INCOME }
 
 @Composable
 fun LedgerScreen(
@@ -103,722 +92,671 @@ fun LedgerScreen(
     onDeleteRecord: (Long) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    var viewMode by remember { mutableStateOf("stats") }
-    var statsPeriod by remember { mutableStateOf("monthly") }
-    var statsMonthOffset by remember { mutableIntStateOf(0) }
-    var trendMetric by remember { mutableStateOf("expense") }
-    var chartType by remember { mutableStateOf("line") }
-    var selectedDate by remember { mutableIntStateOf(15) }
     val transactions by viewModel.transactions.collectAsStateWithLifecycle()
+    var viewMode by rememberSaveable { mutableStateOf(LedgerViewMode.CALENDAR) }
+    var statsPeriod by rememberSaveable { mutableStateOf(StatsPeriod.MONTH) }
+    var trendMetric by rememberSaveable { mutableStateOf(TrendMetric.EXPENSE) }
+    var rankType by rememberSaveable { mutableStateOf(RankType.EXPENSE) }
+    var selectedDay by rememberSaveable { mutableIntStateOf(Calendar.getInstance().get(Calendar.DAY_OF_MONTH)) }
+    var expandedRecordId by rememberSaveable { mutableLongStateOf(-1L) }
+    var confirmDeleteId by rememberSaveable { mutableLongStateOf(-1L) }
+    val currentDate = remember { Calendar.getInstance() }
+    var dateVersion by rememberSaveable { mutableIntStateOf(0) }
 
-    val selectedDayRecords = remember(transactions, selectedDate) {
-        val now = Calendar.getInstance()
-        val year = now.get(Calendar.YEAR)
-        val month = now.get(Calendar.MONTH)
+    val month = currentDate.get(Calendar.MONTH)
+    val year = currentDate.get(Calendar.YEAR)
+    val daysInMonth = remember(dateVersion) { Calendar.getInstance().apply { set(year, month, 1) }.getActualMaximum(Calendar.DAY_OF_MONTH) }
+    if (selectedDay > daysInMonth) selectedDay = daysInMonth
+
+    val monthTransactions = remember(transactions, year, month) {
         transactions.filter { tx ->
             val cal = Calendar.getInstance().apply { timeInMillis = tx.recordTimestamp }
-            cal.get(Calendar.YEAR) == year &&
-                cal.get(Calendar.MONTH) == month &&
-                cal.get(Calendar.DAY_OF_MONTH) == selectedDate
+            cal.get(Calendar.YEAR) == year && cal.get(Calendar.MONTH) == month
+        }
+    }
+    val yearTransactions = remember(transactions, year) {
+        transactions.filter { tx ->
+            val cal = Calendar.getInstance().apply { timeInMillis = tx.recordTimestamp }
+            cal.get(Calendar.YEAR) == year
+        }
+    }
+
+    val dailyMap = remember(monthTransactions) {
+        monthTransactions.groupBy { Calendar.getInstance().apply { timeInMillis = it.recordTimestamp }.get(Calendar.DAY_OF_MONTH) }
+            .mapValues { (_, list) ->
+                val expense = list.filter { it.type == 0 }.sumOf { it.amount }
+                val income = list.filter { it.type == 1 }.sumOf { it.amount }
+                income to expense
+            }
+    }
+
+    val dayRecords = remember(monthTransactions, selectedDay) {
+        monthTransactions.filter {
+            val cal = Calendar.getInstance().apply { timeInMillis = it.recordTimestamp }
+            cal.get(Calendar.DAY_OF_MONTH) == selectedDay
         }.sortedByDescending { it.recordTimestamp }
     }
 
-    val calendarData = remember {
-        List(31) { index ->
-            val d = index + 1
-            CalendarCell(
-                date = d,
-                income = if (d % 7 == 0 || d % 11 == 0) 80 + d * 3 else 0,
-                expense = if (d % 2 == 0 || d % 5 == 0) 20 + d * 2 else 0,
-            )
+    val calendarCells = remember(dateVersion, dailyMap) {
+        val firstDayCalendar = Calendar.getInstance().apply { set(year, month, 1) }
+        val weekOffset = ((firstDayCalendar.get(Calendar.DAY_OF_WEEK) + 5) % 7)
+        val cells = mutableListOf<DayCell>()
+        repeat(weekOffset) { cells.add(DayCell(day = null)) }
+        for (day in 1..daysInMonth) {
+            val values = dailyMap[day]
+            cells.add(DayCell(day = day, income = values?.first ?: 0.0, expense = values?.second ?: 0.0))
+        }
+        while (cells.size % 7 != 0) cells.add(DayCell(day = null))
+        cells
+    }
+
+    val scopeTransactions = if (statsPeriod == StatsPeriod.MONTH) monthTransactions else yearTransactions
+    val totalExpense = scopeTransactions.filter { it.type == 0 }.sumOf { it.amount }
+    val totalIncome = scopeTransactions.filter { it.type == 1 }.sumOf { it.amount }
+    val totalBalance = totalIncome - totalExpense
+
+    val trendPoints = remember(scopeTransactions, statsPeriod, trendMetric, dateVersion) {
+        if (statsPeriod == StatsPeriod.MONTH) {
+            (1..daysInMonth).map { day ->
+                val list = monthTransactions.filter {
+                    val cal = Calendar.getInstance().apply { timeInMillis = it.recordTimestamp }
+                    cal.get(Calendar.DAY_OF_MONTH) == day
+                }
+                metricValue(list, trendMetric).toFloat()
+            }
+        } else {
+            (0..11).map { m ->
+                val list = yearTransactions.filter {
+                    val cal = Calendar.getInstance().apply { timeInMillis = it.recordTimestamp }
+                    cal.get(Calendar.MONTH) == m
+                }
+                metricValue(list, trendMetric).toFloat()
+            }
+        }
+    }
+
+    val categoryExpense = remember(scopeTransactions) { categoryStats(scopeTransactions.filter { it.type == 0 }) }
+    val categoryIncome = remember(scopeTransactions) { categoryStats(scopeTransactions.filter { it.type == 1 }) }
+    val rankList = if (rankType == RankType.EXPENSE) categoryExpense else categoryIncome
+    val trendXAxisLabels = remember(statsPeriod) {
+        if (statsPeriod == StatsPeriod.MONTH) {
+            listOf("1日", "5日", "10日", "15日", "20日", "25日")
+        } else {
+            listOf("1月", "3月", "5月", "7月", "9月", "11月")
         }
     }
 
     LazyColumn(
         modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 8.dp),
+        contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 8.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         item {
-            SegmentedToggle(
-                leftText = "日历记账",
-                rightText = "统计报表",
-                leftSelected = viewMode == "calendar",
-                onLeftClick = { viewMode = "calendar" },
-                onRightClick = { viewMode = "stats" },
+            Text(
+                text = "账本 📒",
+                color = WarmBrown,
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 22.sp,
+                modifier = Modifier.statusBarsPadding(),
             )
         }
 
         item {
-            AnimatedContent(
-                targetState = viewMode,
-                transitionSpec = {
-                    fadeIn(animationSpec = tween(220)) togetherWith fadeOut(animationSpec = tween(180))
-                },
-                label = "ledgerMode",
-            ) { mode ->
-                if (mode == "calendar") {
-                    CalendarMode(
-                        data = calendarData,
-                        selectedDate = selectedDate,
-                        dailyTransactions = selectedDayRecords,
-                        onSelectDate = { selectedDate = it },
-                        onEditRecord = onEditRecord,
-                        onDeleteRecord = onDeleteRecord,
-                    )
-                } else {
-                    StatsMode(
-                        statsPeriod = statsPeriod,
-                        onStatsPeriodChange = { statsPeriod = it },
-                        statsMonthOffset = statsMonthOffset,
-                        onPrevMonth = { statsMonthOffset -= 1 },
-                        onNextMonth = { statsMonthOffset += 1 },
-                        trendMetric = trendMetric,
-                        onTrendMetricChange = { trendMetric = it },
-                        chartType = chartType,
-                        onChartTypeChange = { chartType = it },
-                    )
-                }
-            }
-        }
-
-    }
-}
-
-@Composable
-private fun CalendarMode(
-    data: List<CalendarCell>,
-    selectedDate: Int,
-    dailyTransactions: List<TransactionEntity>,
-    onSelectDate: (Int) -> Unit,
-    onEditRecord: (ManualEntryPrefill) -> Unit,
-    onDeleteRecord: (Long) -> Unit,
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            MiniArrow(icon = Icons.Rounded.ChevronLeft, onClick = {})
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = Icons.Rounded.CalendarMonth,
-                    contentDescription = null,
-                    tint = WarmBrown.copy(alpha = 0.68f),
-                    modifier = Modifier.size(16.dp),
-                )
-                Text(text = "2026年 3月", color = WarmBrown, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
-            }
-            MiniArrow(icon = Icons.Rounded.ChevronRight, onClick = {})
-        }
-
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .glassCard(shape = RoundedCornerShape(28.dp), glowColor = MintGreen.copy(alpha = 0.2f))
-                .padding(horizontal = 12.dp, vertical = 10.dp),
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    listOf("日", "一", "二", "三", "四", "五", "六").forEach { day ->
-                        Text(text = day, color = WarmBrown.copy(alpha = 0.42f), fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                    }
-                }
-
-                val rows = data.chunked(7)
-                rows.forEach { row ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        row.forEach { cell ->
-                            val selected = selectedDate == cell.date
-                            Column(
-                                modifier = Modifier
-                                    .width(40.dp)
-                                    .background(
-                                        color = if (selected) MintGreen.copy(alpha = 0.22f) else Color.Transparent,
-                                        shape = RoundedCornerShape(14.dp),
-                                    )
-                                    .clickable { onSelectDate(cell.date) }
-                                    .padding(vertical = 3.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(1.dp),
-                            ) {
-                                Text(
-                                    text = cell.date.toString(),
-                                    color = if (selected) WarmBrown else WarmBrown.copy(alpha = 0.8f),
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 13.sp,
-                                )
-                                Text(
-                                    text = if (cell.income > 0) "+${cell.income}" else " ",
-                                    color = MintGreen,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 10.sp,
-                                )
-                                Text(
-                                    text = if (cell.expense > 0) "-${cell.expense}" else " ",
-                                    color = WatermelonRed,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 10.sp,
-                                )
-                            }
-                        }
-                        if (row.size < 7) {
-                            repeat(7 - row.size) {
-                                Spacer(modifier = Modifier.width(40.dp))
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .glassCard(shape = RoundedCornerShape(28.dp), glowColor = MintGreen.copy(alpha = 0.16f))
-                .padding(14.dp),
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Text(text = "3月${selectedDate}日 明细", color = WarmBrown, fontWeight = FontWeight.ExtraBold, fontSize = 15.sp)
-                    Text(
-                        text = "共 ${dailyTransactions.size} 笔",
-                        color = WarmBrownMuted,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 12.sp,
-                    )
-                }
-
-                if (dailyTransactions.isEmpty()) {
-                    Text(text = "当日暂无记录", color = WarmBrownMuted, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                } else {
-                    dailyTransactions.forEach { tx ->
-                        val isIncome = tx.type == 1
-                        DailyItem(
-                            icon = resolveCategoryIcon(tx.categoryName, tx.remark),
-                            name = tx.categoryName,
-                            remark = tx.remark,
-                            time = formatLedgerTime(tx.recordTimestamp),
-                            amount = (if (isIncome) "+¥" else "-¥") + String.format(Locale.CHINA, "%.2f", tx.amount),
-                            isIncome = isIncome,
-                            onEdit = {
-                                onEditRecord(
-                                    ManualEntryPrefill(
-                                        type = if (isIncome) "income" else "expense",
-                                        category = tx.categoryName,
-                                        desc = tx.remark,
-                                        amount = String.format(Locale.CHINA, "%.2f", tx.amount),
-                                    ),
-                                )
-                            },
-                            onDelete = { onDeleteRecord(tx.id) },
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun DailyItem(
-    icon: ImageVector,
-    name: String,
-    remark: String,
-    time: String,
-    amount: String,
-    isIncome: Boolean = false,
-    onEdit: () -> Unit = {},
-    onDelete: () -> Unit = {},
-) {
-    var confirmDelete by rememberSaveable(name, remark, time, amount) { mutableStateOf(false) }
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(Color.White.copy(alpha = 0.45f), RoundedCornerShape(20.dp))
-            .padding(horizontal = 10.dp, vertical = 7.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(
+            Row(
                 modifier = Modifier
-                    .size(36.dp)
-                    .background(Color.White.copy(alpha = 0.8f), RoundedCornerShape(14.dp)),
-                contentAlignment = Alignment.Center,
+                    .fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center,
             ) {
-                Icon(imageVector = icon, contentDescription = name, tint = WarmBrown, modifier = Modifier.size(18.dp))
-            }
-            Column {
-                Text(text = name, color = WarmBrown, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                Text(text = remark.ifBlank { "无备注" }, color = WarmBrownMuted, fontSize = 11.sp)
-                Text(text = time, color = WarmBrownMuted, fontSize = 11.sp)
-            }
-        }
-
-        Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(
-                text = amount,
-                color = if (isIncome) MintGreen else WatermelonRed,
-                fontWeight = FontWeight.ExtraBold,
-                fontSize = 16.sp,
-            )
-            if (confirmDelete) {
                 Row(
                     modifier = Modifier
-                        .background(Color(0xFFFFF0F0), RoundedCornerShape(999.dp))
-                        .padding(horizontal = 6.dp, vertical = 2.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                        .glassCard(shape = RoundedCornerShape(999.dp), backgroundColor = Color.White.copy(alpha = 0.56f))
+                        .padding(horizontal = 6.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    Text(text = "确认删除?", color = WatermelonRed, fontWeight = FontWeight.Bold, fontSize = 10.sp)
-                    Icon(
-                        imageVector = Icons.Rounded.ChevronLeft,
-                        contentDescription = "cancel-delete",
-                        tint = WarmBrown.copy(alpha = 0.6f),
-                        modifier = Modifier
-                            .size(14.dp)
-                            .clickable { confirmDelete = false },
-                    )
-                    Icon(
-                        imageVector = Icons.Rounded.Delete,
-                        contentDescription = "confirm-delete",
-                        tint = WatermelonRed,
-                        modifier = Modifier
-                            .size(14.dp)
-                            .clickable {
-                                confirmDelete = false
-                                onDelete()
-                            },
-                    )
-                }
-            } else {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Rounded.Edit,
-                        contentDescription = "edit",
-                        tint = WarmBrown.copy(alpha = 0.55f),
-                        modifier = Modifier
-                            .size(15.dp)
-                            .clickable { onEdit() },
-                    )
-                    Icon(
-                        imageVector = Icons.Rounded.Delete,
-                        contentDescription = "delete",
-                        tint = WatermelonRed.copy(alpha = 0.85f),
-                        modifier = Modifier
-                            .size(15.dp)
-                            .clickable { confirmDelete = true },
-                    )
+                    TopToggle(
+                        selected = viewMode == LedgerViewMode.CALENDAR,
+                        iconText = "📅",
+                        text = "日历记账",
+                    ) { viewMode = LedgerViewMode.CALENDAR }
+                    TopToggle(
+                        selected = viewMode == LedgerViewMode.STATS,
+                        iconText = "📊",
+                        text = "统计报表",
+                    ) { viewMode = LedgerViewMode.STATS }
                 }
             }
         }
-    }
-}
 
-@Composable
-private fun StatsMode(
-    statsPeriod: String,
-    onStatsPeriodChange: (String) -> Unit,
-    statsMonthOffset: Int,
-    onPrevMonth: () -> Unit,
-    onNextMonth: () -> Unit,
-    trendMetric: String,
-    onTrendMetricChange: (String) -> Unit,
-    chartType: String,
-    onChartTypeChange: (String) -> Unit,
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        SegmentedToggle(
-            leftText = "月度",
-            rightText = "年度",
-            leftSelected = statsPeriod == "monthly",
-            onLeftClick = { onStatsPeriodChange("monthly") },
-            onRightClick = { onStatsPeriodChange("yearly") },
-        )
+        if (viewMode == LedgerViewMode.CALENDAR) {
+            item {
+                CalendarPeriodHeader(
+                    year = year,
+                    month = month,
+                    onPrev = {
+                        currentDate.add(Calendar.MONTH, -1)
+                        dateVersion += 1
+                        selectedDay = 1
+                    },
+                    onNext = {
+                        currentDate.add(Calendar.MONTH, 1)
+                        dateVersion += 1
+                        selectedDay = 1
+                    },
+                )
+            }
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            MiniArrow(icon = Icons.Rounded.ChevronLeft, onClick = onPrevMonth)
-            Text(
-                text = if (statsPeriod == "monthly") formatLedgerMonth(statsMonthOffset) else formatLedgerYear(statsMonthOffset),
-                color = WarmBrown,
-                fontWeight = FontWeight.ExtraBold,
-                fontSize = 18.sp,
-            )
-            MiniArrow(icon = Icons.Rounded.ChevronRight, onClick = onNextMonth)
+            item {
+                CalendarPanel(
+                    cells = calendarCells,
+                    selectedDay = selectedDay,
+                    onSelectDay = { selectedDay = it },
+                )
+            }
+
+            item {
+                DailyRecordsCard(
+                    month = month + 1,
+                    day = selectedDay,
+                    records = dayRecords,
+                    expandedRecordId = expandedRecordId,
+                    confirmDeleteId = confirmDeleteId,
+                    onToggleExpand = { id ->
+                        if (expandedRecordId == id) {
+                            expandedRecordId = -1L
+                            confirmDeleteId = -1L
+                        } else {
+                            expandedRecordId = id
+                            confirmDeleteId = -1L
+                        }
+                    },
+                    onEdit = { tx ->
+                        val isIncome = tx.type == 1
+                        onEditRecord(
+                            ManualEntryPrefill(
+                                type = if (isIncome) "income" else "expense",
+                                category = tx.categoryName,
+                                desc = tx.remark,
+                                amount = String.format(Locale.CHINA, "%.2f", tx.amount),
+                            ),
+                        )
+                    },
+                    onDelete = { id -> onDeleteRecord(id) },
+                    onBeginDelete = { id -> confirmDeleteId = id },
+                    onCancelDelete = { confirmDeleteId = -1L },
+                )
+            }
+        } else {
+            item {
+                StatsPanel(
+                    statsPeriod = statsPeriod,
+                    onStatsPeriodChange = { statsPeriod = it },
+                    year = year,
+                    month = month,
+                    onPrev = {
+                        if (statsPeriod == StatsPeriod.MONTH) currentDate.add(Calendar.MONTH, -1) else currentDate.add(Calendar.YEAR, -1)
+                        dateVersion += 1
+                    },
+                    onNext = {
+                        if (statsPeriod == StatsPeriod.MONTH) currentDate.add(Calendar.MONTH, 1) else currentDate.add(Calendar.YEAR, 1)
+                        dateVersion += 1
+                    },
+                    totalExpense = totalExpense,
+                    totalIncome = totalIncome,
+                    totalBalance = totalBalance,
+                    trendMetric = trendMetric,
+                    onTrendMetricChange = { trendMetric = it },
+                    trendPoints = trendPoints,
+                    xLabels = trendXAxisLabels,
+                    categoryExpense = categoryExpense,
+                    rankType = rankType,
+                    onRankTypeChange = { rankType = it },
+                    rankList = rankList,
+                )
+            }
         }
 
-        OverviewCard()
-        TrendCard(
-            trendMetric = trendMetric,
-            onTrendMetricChange = onTrendMetricChange,
-            chartType = chartType,
-            onChartTypeChange = onChartTypeChange,
-        )
-        DonutCard()
-        RankingCard()
     }
 }
 
 @Composable
-private fun MiniArrow(
-    icon: ImageVector,
+private fun TopToggle(
+    selected: Boolean,
+    iconText: String,
+    text: String,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
-    Box(
-        modifier = Modifier
-            .size(30.dp)
-            .glassCard(shape = RoundedCornerShape(999.dp), glowColor = MintGreen.copy(alpha = 0.1f))
-            .background(Color.White.copy(alpha = 0.65f), CircleShape)
-            .clickable { onClick() },
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(imageVector = icon, contentDescription = null, tint = WarmBrown.copy(alpha = 0.7f), modifier = Modifier.size(18.dp))
-    }
-}
-
-@Composable
-private fun OverviewCard() {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .glassCard(shape = RoundedCornerShape(24.dp), glowColor = MintGreen.copy(alpha = 0.2f))
-            .padding(horizontal = 10.dp, vertical = 14.dp),
-        horizontalArrangement = Arrangement.SpaceEvenly,
+        modifier = modifier
+            .background(
+                color = if (selected) MintGreen.copy(alpha = 0.9f) else Color.Transparent,
+                shape = RoundedCornerShape(999.dp),
+            )
+            .clickable { onClick() }
+            .padding(horizontal = 12.dp, vertical = 7.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        OverviewItem("总支出", "4798.25", WatermelonRed)
-        VerticalLine()
-        OverviewItem("总收入", "11228.59", PeachIncome)
-        VerticalLine()
-        OverviewItem("结余", "6430.34", WarmBrown)
-    }
-}
-
-@Composable
-private fun VerticalLine() {
-    Box(
-        modifier = Modifier
-            .width(1.dp)
-            .height(36.dp)
-            .background(WarmBrown.copy(alpha = 0.12f)),
-    )
-}
-
-@Composable
-private fun OverviewItem(title: String, value: String, color: Color) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(text = title, color = WarmBrownMuted, fontWeight = FontWeight.Bold, fontSize = 11.sp)
-        Text(text = value, color = color, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
-    }
-}
-
-@Composable
-private fun TrendCard(
-    trendMetric: String,
-    onTrendMetricChange: (String) -> Unit,
-    chartType: String,
-    onChartTypeChange: (String) -> Unit,
-) {
-    val chartValues = remember {
-        mapOf(
-            "expense" to listOf(100f, 105f, 95f, 60f, 60f, 10f, 85f, 88f, 90f, 50f, 70f, 85f, 60f, 60f),
-            "income" to listOf(42f, 58f, 65f, 55f, 86f, 92f, 73f, 66f, 80f, 88f, 74f, 64f, 70f, 96f),
-            "balance" to listOf(48f, 54f, 42f, 38f, 62f, 76f, 50f, 42f, 45f, 38f, 56f, 41f, 47f, 60f),
+        if (iconText.isNotBlank()) {
+            Text(text = iconText, fontSize = 12.sp)
+            Spacer(modifier = Modifier.width(4.dp))
+        }
+        Text(
+            text = text,
+            color = if (selected) WarmBrown else WarmBrown.copy(alpha = 0.62f),
+            fontWeight = FontWeight.ExtraBold,
+            fontSize = 12.sp,
         )
     }
+}
 
-    Box(
+@Composable
+private fun CalendarPeriodHeader(
+    year: Int,
+    month: Int,
+    onPrev: () -> Unit,
+    onNext: () -> Unit,
+) {
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+        ArrowButton(icon = Icons.Rounded.ChevronLeft, onClick = onPrev)
+        Text(text = "${year}年 ${month + 1}月", color = WarmBrown, fontWeight = FontWeight.ExtraBold, fontSize = 19.sp)
+        ArrowButton(icon = Icons.Rounded.ChevronRight, onClick = onNext)
+    }
+}
+
+@Composable
+private fun CalendarPanel(
+    cells: List<DayCell>,
+    selectedDay: Int,
+    onSelectDay: (Int) -> Unit,
+) {
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .glassCard(shape = RoundedCornerShape(32.dp), glowColor = MintGreen.copy(alpha = 0.2f))
-            .padding(14.dp),
+            .glassCard(shape = RoundedCornerShape(26.dp), backgroundColor = Color.White.copy(alpha = 0.72f))
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(imageVector = Icons.AutoMirrored.Rounded.TrendingUp, contentDescription = null, tint = WarmBrown.copy(alpha = 0.76f), modifier = Modifier.size(16.dp))
-                    Text(text = "每日趋势", color = WarmBrown, fontWeight = FontWeight.ExtraBold, fontSize = 15.sp)
-                }
-                Row(
-                    modifier = Modifier
-                        .background(Color.White.copy(alpha = 0.5f), RoundedCornerShape(999.dp))
-                        .padding(2.dp),
-                    horizontalArrangement = Arrangement.spacedBy(2.dp),
-                ) {
-                    StatChip("支出", trendMetric == "expense") { onTrendMetricChange("expense") }
-                    StatChip("收入", trendMetric == "income") { onTrendMetricChange("income") }
-                    StatChip("结余", trendMetric == "balance") { onTrendMetricChange("balance") }
-                }
+
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            listOf("一", "二", "三", "四", "五", "六", "日").forEach {
+                Text(text = it, color = WarmBrown.copy(alpha = 0.66f), fontWeight = FontWeight.Bold, fontSize = 13.sp)
             }
+        }
 
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(180.dp)
-                    .background(Color.White.copy(alpha = 0.18f), RoundedCornerShape(18.dp))
-                    .padding(8.dp),
-            ) {
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                    val selectedValues = chartValues[trendMetric].orEmpty()
-                    val maxY = 110f
-                    val minY = 0f
-                    val width = size.width
-                    val height = size.height
-                    val stepX = if (selectedValues.size > 1) width / (selectedValues.size - 1) else 0f
-
-                    repeat(5) { i ->
-                        val y = height * i / 4f
-                        drawLine(
-                            color = WarmBrown.copy(alpha = 0.12f),
-                            start = Offset(0f, y),
-                            end = Offset(width, y),
-                            strokeWidth = 1f,
-                        )
-                    }
-
-                    if (chartType == "line") {
-                        val path = Path()
-                        selectedValues.forEachIndexed { index, value ->
-                            val x = stepX * index
-                            val yRatio = (value - minY) / (maxY - minY)
-                            val y = height - yRatio * height
-                            if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
-                        }
-
-                        drawPath(
-                            path = path,
-                            brush = Brush.horizontalGradient(listOf(WatermelonRed, WatermelonPink)),
-                            style = Stroke(width = 4f, cap = StrokeCap.Round),
-                        )
+        cells.chunked(7).forEach { week ->
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                week.forEach { cell ->
+                    if (cell.day == null) {
+                        Spacer(modifier = Modifier.width(36.dp))
                     } else {
-                        val barWidth = (width / selectedValues.size.coerceAtLeast(1)) * 0.5f
-                        selectedValues.forEachIndexed { index, value ->
-                            val yRatio = (value - minY) / (maxY - minY)
-                            val barHeight = yRatio * height
-                            val left = index * stepX - barWidth / 2f
-                            drawRect(
-                                color = MintGreen.copy(alpha = 0.85f),
-                                topLeft = Offset(left.coerceAtLeast(0f), height - barHeight),
-                                size = Size(barWidth, barHeight),
+                        val selected = cell.day == selectedDay
+                        Column(
+                            modifier = Modifier
+                                .width(36.dp)
+                                .clickable { onSelectDay(cell.day) }
+                                .padding(vertical = 1.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(24.dp)
+                                    .background(
+                                        color = if (selected) Color(0xFFF8A85C) else Color.Transparent,
+                                        shape = CircleShape,
+                                    ),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    text = cell.day.toString(),
+                                    color = if (selected) Color.White else WarmBrown,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 13.sp,
+                                )
+                            }
+                            Text(
+                                text = if (cell.expense > 0) "-${trimNumber(cell.expense)}" else "",
+                                color = WatermelonRed,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 10.sp,
+                            )
+                            Text(
+                                text = if (cell.income > 0) "+${trimNumber(cell.income)}" else "",
+                                color = MintGreen,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 10.sp,
                             )
                         }
                     }
                 }
             }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.Center,
-            ) {
-                Row(
-                    modifier = Modifier
-                        .background(Color.White.copy(alpha = 0.5f), RoundedCornerShape(999.dp))
-                        .padding(3.dp),
-                ) {
-                    ChartTypeChip(text = "柱状图", icon = Icons.Rounded.BarChart, selected = chartType == "bar") {
-                        onChartTypeChange("bar")
-                    }
-                    ChartTypeChip(text = "折线图", icon = Icons.AutoMirrored.Rounded.ShowChart, selected = chartType == "line") {
-                        onChartTypeChange("line")
-                    }
-                }
-            }
         }
     }
 }
 
 @Composable
-private fun StatChip(
-    text: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-) {
+private fun ArrowButton(icon: ImageVector, onClick: () -> Unit) {
     Box(
         modifier = Modifier
-            .background(
-                color = if (selected) PeachIncome else Color.Transparent,
-                shape = RoundedCornerShape(999.dp),
-            )
-            .clickable { onClick() }
-            .padding(horizontal = 10.dp, vertical = 4.dp),
+            .size(32.dp)
+            .background(Color.White.copy(alpha = 0.9f), CircleShape)
+            .clickable { onClick() },
+        contentAlignment = Alignment.Center,
     ) {
-        Text(
-            text = text,
-            color = if (selected) Color.White else WarmBrown.copy(alpha = 0.5f),
-            fontWeight = FontWeight.Bold,
-            fontSize = 11.sp,
-        )
+        Icon(imageVector = icon, contentDescription = null, tint = WarmBrown.copy(alpha = 0.8f), modifier = Modifier.size(18.dp))
     }
 }
 
 @Composable
-private fun ChartTypeChip(
-    text: String,
-    icon: ImageVector,
-    selected: Boolean,
-    onClick: () -> Unit,
+private fun DailyRecordsCard(
+    month: Int,
+    day: Int,
+    records: List<TransactionEntity>,
+    expandedRecordId: Long,
+    confirmDeleteId: Long,
+    onToggleExpand: (Long) -> Unit,
+    onEdit: (TransactionEntity) -> Unit,
+    onDelete: (Long) -> Unit,
+    onBeginDelete: (Long) -> Unit,
+    onCancelDelete: () -> Unit,
 ) {
-    Row(
-        modifier = Modifier
-            .background(
-                color = if (selected) PeachIncome.copy(alpha = 0.35f) else Color.Transparent,
-                shape = RoundedCornerShape(999.dp),
-            )
-            .clickable { onClick() }
-            .padding(horizontal = 10.dp, vertical = 5.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = if (selected) WarmBrown else WarmBrown.copy(alpha = 0.45f),
-            modifier = Modifier.size(13.dp),
-        )
-        Text(
-            text = text,
-            color = if (selected) WarmBrown else WarmBrown.copy(alpha = 0.45f),
-            fontWeight = FontWeight.Bold,
-            fontSize = 11.sp,
-        )
-    }
-}
+    val dayExpense = records.filter { it.type == 0 }.sumOf { it.amount }
+    val dayIncome = records.filter { it.type == 1 }.sumOf { it.amount }
+    val headerAmount = if (dayIncome >= dayExpense) "+¥${money(dayIncome)}" else "-¥${money(dayExpense)}"
+    val headerColor = if (dayIncome >= dayExpense) MintGreen else WatermelonRed
 
-@Composable
-private fun DonutCard() {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .glassCard(shape = RoundedCornerShape(32.dp), glowColor = MintGreen.copy(alpha = 0.18f))
-            .padding(14.dp),
-    ) {
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = Icons.Rounded.PieChart,
-                    contentDescription = null,
-                    tint = WarmBrown.copy(alpha = 0.76f),
-                    modifier = Modifier.size(16.dp),
-                )
-                Text(text = "分类排行榜", color = WarmBrown, fontWeight = FontWeight.ExtraBold, fontSize = 15.sp)
-            }
-
-            Box(contentAlignment = Alignment.Center) {
-                Canvas(modifier = Modifier.size(180.dp)) {
-                    val stroke = Stroke(width = 26f, cap = StrokeCap.Round)
-                    val diameter = size.minDimension
-                    val topLeft = Offset((size.width - diameter) / 2f, (size.height - diameter) / 2f)
-                    val arcSize = Size(diameter, diameter)
-
-                    drawArc(
-                        color = Color(0xFFF0FDF4),
-                        startAngle = -90f,
-                        sweepAngle = 360f,
-                        useCenter = false,
-                        topLeft = topLeft,
-                        size = arcSize,
-                        style = stroke,
-                    )
-
-                    var start = -90f
-                    val parts = listOf(
-                        45f to WatermelonRed,
-                        21f to MintGreen,
-                        16f to Color(0xFFFFD3B6),
-                        12f to Color(0xFFDCEDC1),
-                    )
-                    parts.forEach { (percent, color) ->
-                        val sweep = 360f * percent / 100f
-                        drawArc(
-                            color = color,
-                            startAngle = start,
-                            sweepAngle = sweep,
-                            useCenter = false,
-                            topLeft = topLeft,
-                            size = arcSize,
-                            style = stroke,
-                        )
-                        start += sweep
-                    }
-                }
-
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(text = "总支出", color = WarmBrownMuted, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                    Text(text = "4798.25", color = WarmBrown, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun RankingCard() {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .glassCard(shape = RoundedCornerShape(28.dp), glowColor = MintGreen.copy(alpha = 0.16f))
-            .padding(12.dp),
+            .glassCard(shape = RoundedCornerShape(28.dp), backgroundColor = Color.White.copy(alpha = 0.78f))
+            .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        rankItems.forEach { item ->
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Text(text = "${month}月${day}日 记录", color = WarmBrown, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
+            Text(text = if (records.isEmpty()) "暂无" else headerAmount, color = headerColor, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
+        }
+
+        if (records.isEmpty()) {
+            Text(text = "这一天没有记账记录哦", color = WarmBrownMuted, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+        } else {
+            records.forEach { tx ->
+                val isIncome = tx.type == 1
+                val expanded = expandedRecordId == tx.id
+                val confirming = confirmDeleteId == tx.id
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color.White.copy(alpha = 0.95f), RoundedCornerShape(22.dp))
+                        .clickable { onToggleExpand(tx.id) }
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(9.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(42.dp)
+                                    .background(Color.White, CircleShape),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    imageVector = resolveCategoryIcon(tx.categoryName, tx.remark),
+                                    contentDescription = tx.categoryName,
+                                    tint = WarmBrown,
+                                    modifier = Modifier.size(20.dp),
+                                )
+                            }
+                            Column {
+                                Text(text = tx.categoryName, color = WarmBrown, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
+                                Text(text = formatLedgerTime(tx.recordTimestamp), color = WarmBrownMuted, fontSize = 12.sp)
+                            }
+                        }
+                        Text(
+                            text = (if (isIncome) "+¥ " else "-¥ ") + money(tx.amount),
+                            color = if (isIncome) MintGreen else WatermelonRed,
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 17.sp,
+                        )
+                    }
+
+                    if (tx.remark.isNotBlank()) {
+                        Text(
+                            text = tx.remark,
+                            color = WarmBrownMuted,
+                            fontWeight = FontWeight.Medium,
+                            fontSize = 12.sp,
+                        )
+                    }
+
+                    if (expanded) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                            if (confirming) {
+                                Row(
+                                    modifier = Modifier
+                                        .background(Color(0xFFFFF0F0), RoundedCornerShape(999.dp))
+                                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(text = "确认删除?", color = WatermelonRed, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                    Box(
+                                        modifier = Modifier
+                                            .size(20.dp)
+                                            .background(Color.White, CircleShape)
+                                            .clickable { onCancelDelete() },
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Text(text = "✕", color = WarmBrownMuted, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                    }
+                                    Box(
+                                        modifier = Modifier
+                                            .size(20.dp)
+                                            .background(WatermelonRed, CircleShape)
+                                            .clickable {
+                                                onDelete(tx.id)
+                                                onCancelDelete()
+                                            },
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Text(text = "✓", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                                    }
+                                }
+                            } else {
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Edit,
+                                        contentDescription = "edit",
+                                        tint = WarmBrown.copy(alpha = 0.55f),
+                                        modifier = Modifier
+                                            .size(16.dp)
+                                            .clickable { onEdit(tx) },
+                                    )
+                                    Icon(
+                                        imageVector = Icons.Rounded.Delete,
+                                        contentDescription = "delete",
+                                        tint = WatermelonRed.copy(alpha = 0.85f),
+                                        modifier = Modifier
+                                            .size(16.dp)
+                                            .clickable { onBeginDelete(tx.id) },
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StatsPanel(
+    statsPeriod: StatsPeriod,
+    onStatsPeriodChange: (StatsPeriod) -> Unit,
+    year: Int,
+    month: Int,
+    onPrev: () -> Unit,
+    onNext: () -> Unit,
+    totalExpense: Double,
+    totalIncome: Double,
+    totalBalance: Double,
+    trendMetric: TrendMetric,
+    onTrendMetricChange: (TrendMetric) -> Unit,
+    trendPoints: List<Float>,
+    xLabels: List<String>,
+    categoryExpense: List<CategoryStat>,
+    rankType: RankType,
+    onRankTypeChange: (RankType) -> Unit,
+    rankList: List<CategoryStat>,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center,
+        ) {
+            Row(
+                modifier = Modifier
+                    .glassCard(shape = RoundedCornerShape(999.dp), backgroundColor = Color.White.copy(alpha = 0.7f))
+                    .padding(horizontal = 6.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                TopToggle(
+                    selected = statsPeriod == StatsPeriod.MONTH,
+                    iconText = "",
+                    text = "月度",
+                ) { onStatsPeriodChange(StatsPeriod.MONTH) }
+                TopToggle(
+                    selected = statsPeriod == StatsPeriod.YEAR,
+                    iconText = "",
+                    text = "年度",
+                ) { onStatsPeriodChange(StatsPeriod.YEAR) }
+            }
+        }
+
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            ArrowButton(icon = Icons.Rounded.ChevronLeft, onClick = onPrev)
+            Text(
+                text = if (statsPeriod == StatsPeriod.MONTH) "${year}年 ${month + 1}月 🍃" else "${year}年 🍃",
+                color = WarmBrown,
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 40.sp / 2,
+            )
+            ArrowButton(icon = Icons.Rounded.ChevronRight, onClick = onNext)
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .glassCard(shape = RoundedCornerShape(24.dp), backgroundColor = Color.White.copy(alpha = 0.8f))
+                .padding(horizontal = 10.dp, vertical = 14.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+        ) {
+            StatsItem("总支出", money(totalExpense), WatermelonRed)
+            DividerV()
+            StatsItem("总收入", money(totalIncome), PeachIncome)
+            DividerV()
+            StatsItem("结余", money(totalBalance), WarmBrown)
+        }
+
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .glassCard(shape = RoundedCornerShape(30.dp), backgroundColor = Color.White.copy(alpha = 0.78f))
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(imageVector = Icons.AutoMirrored.Rounded.ShowChart, contentDescription = null, tint = WarmBrown.copy(alpha = 0.74f), modifier = Modifier.size(16.dp))
+                    Text(text = "每日趋势 📈", color = WarmBrown, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
+                }
+                Row(
+                    modifier = Modifier
+                        .background(Color(0xFFF3F4F6), RoundedCornerShape(999.dp))
+                        .padding(2.dp),
+                ) {
+                    MetricChip("支出", trendMetric == TrendMetric.EXPENSE) { onTrendMetricChange(TrendMetric.EXPENSE) }
+                    MetricChip("收入", trendMetric == TrendMetric.INCOME) { onTrendMetricChange(TrendMetric.INCOME) }
+                    MetricChip("结余", trendMetric == TrendMetric.BALANCE) { onTrendMetricChange(TrendMetric.BALANCE) }
+                }
+            }
+            LineChart(points = trendPoints, metric = trendMetric, xLabels = xLabels)
+        }
+
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .glassCard(shape = RoundedCornerShape(30.dp), backgroundColor = Color.White.copy(alpha = 0.78f))
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(imageVector = Icons.Rounded.PieChart, contentDescription = null, tint = WarmBrown.copy(alpha = 0.72f), modifier = Modifier.size(16.dp))
+                Text(text = "分类排行榜 🍰", color = WarmBrown, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
+            }
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                DonutChart(categoryExpense = categoryExpense, totalExpense = totalExpense)
+            }
+            categoryExpense.forEach { item ->
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         Box(
                             modifier = Modifier
-                                .size(36.dp)
-                                .background(Color.White.copy(alpha = 0.7f), RoundedCornerShape(14.dp)),
+                                .size(34.dp)
+                                .background(Color.White, CircleShape),
                             contentAlignment = Alignment.Center,
                         ) {
-                            Icon(imageVector = item.icon, contentDescription = item.name, tint = WarmBrown, modifier = Modifier.size(18.dp))
+                            Icon(imageVector = item.icon, contentDescription = item.name, tint = WarmBrown, modifier = Modifier.size(16.dp))
                         }
                         Text(text = item.name, color = WarmBrown, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Text(text = "${item.percent}%", color = WarmBrownMuted, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                     }
-                    Column(horizontalAlignment = Alignment.End) {
-                        Text(
-                            text = if (item.isIncome) "+¥${item.amount}" else "-¥${item.amount}",
-                            color = if (item.isIncome) MintGreen else WatermelonRed,
-                            fontWeight = FontWeight.ExtraBold,
-                            fontSize = 14.sp,
-                        )
-                        Text(text = "${item.percent}%", color = WarmBrownMuted, fontWeight = FontWeight.Bold, fontSize = 10.sp)
-                    }
+                    Text(text = "¥ ${money(item.amount)}", color = WarmBrown, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp)
                 }
-
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(7.dp)
+                        .height(6.dp)
                         .background(Color(0xFFF3F4F6), RoundedCornerShape(999.dp)),
                 ) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth(item.percent / 100f)
-                            .height(7.dp)
+                            .height(6.dp)
                             .background(item.color, RoundedCornerShape(999.dp)),
+                    )
+                }
+            }
+        }
+
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .glassCard(shape = RoundedCornerShape(28.dp), backgroundColor = Color.White.copy(alpha = 0.76f))
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text(text = "明细排行榜 🏆", color = WarmBrown, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
+                Row(
+                    modifier = Modifier
+                        .background(Color(0xFFF3F4F6), RoundedCornerShape(999.dp))
+                        .padding(2.dp),
+                ) {
+                    MetricChip("支出", rankType == RankType.EXPENSE) { onRankTypeChange(RankType.EXPENSE) }
+                    MetricChip("收入", rankType == RankType.INCOME) { onRankTypeChange(RankType.INCOME) }
+                }
+            }
+            rankList.forEach {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text(text = it.name, color = WarmBrown, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    Text(
+                        text = (if (rankType == RankType.EXPENSE) "-¥ " else "+¥ ") + money(it.amount),
+                        color = if (rankType == RankType.EXPENSE) WatermelonRed else MintGreen,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 15.sp,
                     )
                 }
             }
@@ -827,69 +765,203 @@ private fun RankingCard() {
 }
 
 @Composable
-private fun SegmentedToggle(
-    leftText: String,
-    rightText: String,
-    leftSelected: Boolean,
-    onLeftClick: () -> Unit,
-    onRightClick: () -> Unit,
-) {
-    Row(
+private fun StatsItem(label: String, value: String, color: Color) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(text = label, color = WarmBrownMuted, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+        Text(text = value, color = color, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
+    }
+}
+
+@Composable
+private fun DividerV() {
+    Box(
         modifier = Modifier
-            .background(Color.White.copy(alpha = 0.5f), RoundedCornerShape(999.dp))
-            .padding(3.dp),
-        horizontalArrangement = Arrangement.Center,
+            .width(1.dp)
+            .height(44.dp)
+            .background(WarmBrown.copy(alpha = 0.14f)),
+    )
+}
+
+@Composable
+private fun MetricChip(text: String, selected: Boolean, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .background(
+                color = if (selected) Color(0xFFF4C86A) else Color.Transparent,
+                shape = RoundedCornerShape(999.dp),
+            )
+            .clickable { onClick() }
+            .padding(horizontal = 11.dp, vertical = 5.dp),
     ) {
-        Box(
-            modifier = Modifier
-                .background(
-                    color = if (leftSelected) Color.White else Color.Transparent,
-                    shape = RoundedCornerShape(999.dp),
+        Text(
+            text = text,
+            color = if (selected) WarmBrown else WarmBrown.copy(alpha = 0.56f),
+            fontWeight = FontWeight.ExtraBold,
+            fontSize = 12.sp,
+        )
+    }
+}
+
+@Composable
+private fun LineChart(points: List<Float>, metric: TrendMetric, xLabels: List<String>) {
+    val strokeColor = when (metric) {
+        TrendMetric.EXPENSE -> WatermelonRed
+        TrendMetric.INCOME -> Color(0xFF37A56B)
+        TrendMetric.BALANCE -> Color(0xFF5A6EE0)
+    }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color.White.copy(alpha = 0.4f), RoundedCornerShape(18.dp))
+            .padding(horizontal = 8.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Box(modifier = Modifier.fillMaxWidth().height(164.dp)) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+            repeat(4) { i ->
+                val y = size.height * i / 3f
+                drawLine(
+                    color = WarmBrown.copy(alpha = 0.10f),
+                    start = Offset(0f, y),
+                    end = Offset(size.width, y),
+                    strokeWidth = 1f,
                 )
-                .clickable { onLeftClick() }
-                .padding(horizontal = 12.dp, vertical = 6.dp),
-        ) {
-            Text(
-                text = leftText,
-                color = if (leftSelected) WarmBrown else WarmBrown.copy(alpha = 0.56f),
-                fontWeight = FontWeight.Bold,
-                fontSize = 11.sp,
-            )
+            }
+
+            if (points.isNotEmpty()) {
+                val maxValue = max(points.maxOrNull() ?: 0f, 1f)
+                val stepX = if (points.size > 1) size.width / (points.size - 1) else 0f
+                val linePath = Path()
+                val fillPath = Path()
+
+                points.forEachIndexed { index, value ->
+                    val x = stepX * index
+                    val y = size.height - (value / maxValue) * size.height
+                    if (index == 0) {
+                        linePath.moveTo(x, y)
+                        fillPath.moveTo(x, size.height)
+                        fillPath.lineTo(x, y)
+                    } else {
+                        linePath.lineTo(x, y)
+                        fillPath.lineTo(x, y)
+                    }
+                    if (index == points.lastIndex) {
+                        fillPath.lineTo(x, size.height)
+                        fillPath.close()
+                    }
+                }
+
+                drawPath(
+                    path = fillPath,
+                    brush = Brush.verticalGradient(
+                        colors = listOf(strokeColor.copy(alpha = 0.24f), Color.Transparent),
+                    ),
+                )
+                drawPath(path = linePath, color = strokeColor, style = Stroke(width = 4f, cap = StrokeCap.Round))
+            }
         }
-        Box(
-            modifier = Modifier
-                .background(
-                    color = if (leftSelected) Color.Transparent else Color.White,
-                    shape = RoundedCornerShape(999.dp),
+        }
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            xLabels.forEach { label ->
+                Text(
+                    text = label,
+                    color = WarmBrown.copy(alpha = 0.42f),
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 10.sp,
                 )
-                .clickable { onRightClick() }
-                .padding(horizontal = 12.dp, vertical = 6.dp),
-        ) {
-            Text(
-                text = rightText,
-                color = if (leftSelected) WarmBrown.copy(alpha = 0.56f) else WarmBrown,
-                fontWeight = FontWeight.Bold,
-                fontSize = 11.sp,
-            )
+            }
         }
     }
 }
 
-private fun formatLedgerMonth(offset: Int): String {
-    val calendar = java.util.Calendar.getInstance().apply {
-        add(java.util.Calendar.MONTH, offset)
+@Composable
+private fun DonutChart(categoryExpense: List<CategoryStat>, totalExpense: Double) {
+    Box(contentAlignment = Alignment.Center) {
+        Canvas(modifier = Modifier.size(200.dp)) {
+            val stroke = Stroke(width = 24f, cap = StrokeCap.Round)
+            val diameter = size.minDimension
+            val topLeft = Offset((size.width - diameter) / 2f, (size.height - diameter) / 2f)
+            val arcSize = Size(diameter, diameter)
+
+            drawArc(
+                color = Color(0xFFF0FDF4),
+                startAngle = -90f,
+                sweepAngle = 360f,
+                useCenter = false,
+                topLeft = topLeft,
+                size = arcSize,
+                style = stroke,
+            )
+
+            var startAngle = -90f
+            categoryExpense.forEach {
+                val sweep = 360f * (it.percent / 100f)
+                drawArc(
+                    color = it.color,
+                    startAngle = startAngle,
+                    sweepAngle = sweep,
+                    useCenter = false,
+                    topLeft = topLeft,
+                    size = arcSize,
+                    style = stroke,
+                )
+                startAngle += sweep
+            }
+        }
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(text = "总支出", color = WarmBrownMuted, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+            Text(text = money(totalExpense), color = WarmBrown, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp)
+        }
     }
-    val year = calendar.get(java.util.Calendar.YEAR)
-    val month = calendar.get(java.util.Calendar.MONTH) + 1
-    return "${year}年 ${month}月"
 }
 
-private fun formatLedgerYear(offset: Int): String {
-    val calendar = java.util.Calendar.getInstance().apply {
-        add(java.util.Calendar.YEAR, offset)
+private fun metricValue(list: List<TransactionEntity>, metric: TrendMetric): Double {
+    val expense = list.filter { it.type == 0 }.sumOf { it.amount }
+    val income = list.filter { it.type == 1 }.sumOf { it.amount }
+    return when (metric) {
+        TrendMetric.EXPENSE -> expense
+        TrendMetric.INCOME -> income
+        TrendMetric.BALANCE -> income - expense
+    }.coerceAtLeast(0.0)
+}
+
+private fun categoryStats(list: List<TransactionEntity>): List<CategoryStat> {
+    val grouped = list.groupBy { it.categoryName.ifBlank { "其他" } }
+        .mapValues { (_, txs) -> txs.sumOf { it.amount } }
+        .toList()
+        .sortedByDescending { it.second }
+        .take(10)
+
+    val total = grouped.sumOf { it.second }.coerceAtLeast(0.01)
+    val colors = listOf(
+        Color(0xFF1D2A52),
+        Color(0xFF3D4470),
+        MintGreen,
+        Color(0xFFFFC75F),
+        Color(0xFFFF7F9D),
+        Color(0xFF6A9CFF),
+        Color(0xFF8DD6A5),
+        Color(0xFFFF9F68),
+        Color(0xFF9FA0A6),
+        Color(0xFF6E6F75),
+    )
+
+    return grouped.mapIndexed { index, (name, amount) ->
+        CategoryStat(
+            name = name,
+            amount = amount,
+            percent = ((amount / total) * 100).toInt().coerceIn(0, 100),
+            color = colors[index % colors.size],
+            icon = resolveCategoryIcon(name, ""),
+        )
     }
-    val year = calendar.get(java.util.Calendar.YEAR)
-    return "${year}年"
+}
+
+private fun money(value: Double): String = String.format(Locale.CHINA, "%,.2f", value)
+
+private fun trimNumber(value: Double): String {
+    val text = String.format(Locale.CHINA, "%.2f", value)
+    return text.trimEnd('0').trimEnd('.')
 }
 
 private fun formatLedgerTime(timestamp: Long): String {

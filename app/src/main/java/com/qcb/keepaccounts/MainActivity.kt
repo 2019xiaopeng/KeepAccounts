@@ -152,6 +152,7 @@ fun KeepAccountsApp() {
                         BottomNavigationBar(
                             navController = navController,
                             items = KeepAccountsDestination.bottomNavItems,
+                            activeColor = palette.primaryDark,
                             modifier = Modifier.navigationBarsPadding(),
                         )
                     }
@@ -196,6 +197,7 @@ fun KeepAccountsApp() {
                             initialInput = chatInitialInput,
                             onConsumedInitialInput = { chatInitialInput = null },
                             onBack = { navController.popBackStack() },
+                            onOpenAiSettings = { navController.navigate(KeepAccountsDestination.AI_SETTINGS) },
                             onOpenManualEntry = { prefill ->
                                 manualEntryPrefill = prefill
                                 navController.navigate(KeepAccountsDestination.MANUAL_ENTRY)
@@ -219,8 +221,8 @@ fun KeepAccountsApp() {
                     composable(KeepAccountsDestination.PROFILE) {
                         ProfileScreen(
                             aiConfig = aiConfig,
-                            theme = appTheme,
                             userName = userName,
+                            theme = appTheme,
                             onNavigateToOption = { route -> navController.navigate(route) },
                         )
                     }

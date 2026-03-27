@@ -8,14 +8,6 @@ enum class AppThemePreset {
     BLUE,
 }
 
-fun AppThemePreset.displayName(): String {
-    return when (this) {
-        AppThemePreset.MINT -> "水彩薄荷绿"
-        AppThemePreset.PINK -> "樱花粉红"
-        AppThemePreset.BLUE -> "天空湛蓝"
-    }
-}
-
 data class ThemePalette(
     val primary: Color,
     val primaryDark: Color,

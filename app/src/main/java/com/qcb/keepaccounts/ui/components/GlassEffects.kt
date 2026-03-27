@@ -1,8 +1,5 @@
 package com.qcb.keepaccounts.ui.components
 
-import android.graphics.RenderEffect
-import android.graphics.Shader
-import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -11,8 +8,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asComposeRenderEffect
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 import com.qcb.keepaccounts.ui.theme.GlassBorder
 import com.qcb.keepaccounts.ui.theme.GlassSurface
@@ -31,13 +26,6 @@ fun Modifier.glassCard(
             ambientColor = glowColor,
             spotColor = glowColor,
         )
-        .graphicsLayer {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                renderEffect = RenderEffect
-                    .createBlurEffect(20f, 20f, Shader.TileMode.DECAL)
-                    .asComposeRenderEffect()
-            }
-        }
         .clip(shape)
         .background(
             brush = Brush.verticalGradient(
