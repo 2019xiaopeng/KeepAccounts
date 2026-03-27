@@ -4,6 +4,10 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
@@ -26,6 +30,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -39,8 +44,11 @@ import com.qcb.keepaccounts.ui.components.BottomNavigationBar
 import com.qcb.keepaccounts.ui.model.AiAssistantConfig
 import com.qcb.keepaccounts.ui.model.AppThemePreset
 import com.qcb.keepaccounts.ui.model.ManualEntryPrefill
+import com.qcb.keepaccounts.ui.model.defaultManualCategories
 import com.qcb.keepaccounts.ui.model.paletteForTheme
 import com.qcb.keepaccounts.ui.navigation.KeepAccountsDestination
+import com.qcb.keepaccounts.ui.navigation.edgeSwipeBack
+import com.qcb.keepaccounts.ui.navigation.rememberSwipeTabNavigator
 import com.qcb.keepaccounts.ui.screens.AISettingsScreen
 import com.qcb.keepaccounts.ui.screens.AppSettingsScreen
 import com.qcb.keepaccounts.ui.screens.CacheCleanupScreen
@@ -77,6 +85,8 @@ fun KeepAccountsApp() {
     var appTheme by remember { mutableStateOf(AppThemePreset.MINT) }
     var aiConfig by remember { mutableStateOf(AiAssistantConfig()) }
     var userName by remember { mutableStateOf("主人") }
+    var userAvatarUri by remember { mutableStateOf<String?>(null) }
+    var manualCategories by remember { mutableStateOf(defaultManualCategories) }
 
     val palette = remember(appTheme) { paletteForTheme(appTheme) }
 
@@ -84,7 +94,23 @@ fun KeepAccountsApp() {
     val mainViewModel: MainViewModel = viewModel(
         factory = MainViewModel.provideFactory(appContainer.transactionRepository),
     )
+    val transactions by mainViewModel.transactions.collectAsStateWithLifecycle()
     val systemUiController = rememberSystemUiController()
+    val usedCategoryCount = remember(transactions) {
+        transactions
+            .groupingBy { tx -> tx.categoryName.ifBlank { "其他" } }
+            .eachCount()
+    }
+    val bottomRoutes = remember {
+        listOf(
+            KeepAccountsDestination.HOME,
+            KeepAccountsDestination.CHAT,
+            KeepAccountsDestination.LEDGER,
+            KeepAccountsDestination.PROFILE,
+        )
+    }
+
+    fun tabIndex(route: String?): Int = bottomRoutes.indexOf(route)
 
     fun navigateToBottomTab(route: String) {
         navController.navigate(route) {
@@ -100,6 +126,11 @@ fun KeepAccountsApp() {
         systemUiController.setStatusBarColor(color = Color.Transparent, darkIcons = true)
         systemUiController.setNavigationBarColor(color = Color.Transparent, darkIcons = true)
     }
+
+    val swipeTabModifier = rememberSwipeTabNavigator(
+        currentRoute = currentRoute,
+        navigateToTab = { route -> navigateToBottomTab(route) },
+    )
 
     Surface(modifier = Modifier.fillMaxSize()) {
         Box(
@@ -161,12 +192,63 @@ fun KeepAccountsApp() {
                 NavHost(
                     navController = navController,
                     startDestination = KeepAccountsDestination.HOME,
+                    enterTransition = {
+                        val from = tabIndex(initialState.destination.route)
+                        val to = tabIndex(targetState.destination.route)
+                        if (from >= 0 && to >= 0) {
+                            if (to > from) {
+                                slideIntoContainer(
+                                    AnimatedContentTransitionScope.SlideDirection.Left,
+                                    animationSpec = tween(220),
+                                )
+                            } else {
+                                slideIntoContainer(
+                                    AnimatedContentTransitionScope.SlideDirection.Right,
+                                    animationSpec = tween(220),
+                                )
+                            }
+                        } else {
+                            fadeIn(animationSpec = tween(160))
+                        }
+                    },
+                    exitTransition = {
+                        val from = tabIndex(initialState.destination.route)
+                        val to = tabIndex(targetState.destination.route)
+                        if (from >= 0 && to >= 0) {
+                            if (to > from) {
+                                slideOutOfContainer(
+                                    AnimatedContentTransitionScope.SlideDirection.Left,
+                                    animationSpec = tween(220),
+                                )
+                            } else {
+                                slideOutOfContainer(
+                                    AnimatedContentTransitionScope.SlideDirection.Right,
+                                    animationSpec = tween(220),
+                                )
+                            }
+                        } else {
+                            fadeOut(animationSpec = tween(140))
+                        }
+                    },
+                    popEnterTransition = {
+                        slideIntoContainer(
+                            AnimatedContentTransitionScope.SlideDirection.Right,
+                            animationSpec = tween(220),
+                        )
+                    },
+                    popExitTransition = {
+                        slideOutOfContainer(
+                            AnimatedContentTransitionScope.SlideDirection.Right,
+                            animationSpec = tween(220),
+                        )
+                    },
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(innerPadding),
                 ) {
                     composable(KeepAccountsDestination.HOME) {
                         HomeScreen(
+                            modifier = swipeTabModifier,
                             viewModel = mainViewModel,
                             assistantName = aiConfig.name,
                             assistantAvatar = aiConfig.avatar,
@@ -192,8 +274,11 @@ fun KeepAccountsApp() {
 
                     composable(KeepAccountsDestination.CHAT) {
                         ChatScreen(
+                            modifier = swipeTabModifier,
                             aiConfig = aiConfig,
                             userName = userName,
+                            userAvatarUri = userAvatarUri,
+                            palette = palette,
                             initialInput = chatInitialInput,
                             onConsumedInitialInput = { chatInitialInput = null },
                             onBack = { navController.popBackStack() },
@@ -207,6 +292,7 @@ fun KeepAccountsApp() {
 
                     composable(KeepAccountsDestination.LEDGER) {
                         LedgerScreen(
+                            modifier = swipeTabModifier,
                             viewModel = mainViewModel,
                             onEditRecord = { prefill ->
                                 manualEntryPrefill = prefill
@@ -220,17 +306,23 @@ fun KeepAccountsApp() {
 
                     composable(KeepAccountsDestination.PROFILE) {
                         ProfileScreen(
+                            modifier = swipeTabModifier,
                             aiConfig = aiConfig,
                             userName = userName,
+                            userAvatarUri = userAvatarUri,
                             theme = appTheme,
+                            highlightColor = palette.primaryDark,
                             onNavigateToOption = { route -> navController.navigate(route) },
                         )
                     }
 
                     composable(KeepAccountsDestination.MANUAL_ENTRY) {
                         ManualEntryScreen(
+                            modifier = Modifier.edgeSwipeBack { navController.popBackStack() },
                             viewModel = mainViewModel,
                             onBack = { navController.popBackStack() },
+                            categories = manualCategories,
+                            selectedColor = palette.primaryDark,
                             initialData = manualEntryPrefill,
                             onConsumedInitialData = { manualEntryPrefill = null },
                         )
@@ -238,6 +330,7 @@ fun KeepAccountsApp() {
 
                     composable(KeepAccountsDestination.SEARCH) {
                         SearchScreen(
+                            modifier = Modifier.edgeSwipeBack { navController.popBackStack() },
                             viewModel = mainViewModel,
                             onBack = { navController.popBackStack() },
                             onOpenManualEntry = { prefill ->
@@ -249,7 +342,9 @@ fun KeepAccountsApp() {
 
                     composable(KeepAccountsDestination.AI_SETTINGS) {
                         AISettingsScreen(
+                            modifier = Modifier.edgeSwipeBack { navController.popBackStack() },
                             config = aiConfig,
+                            accentColor = palette.primaryDark,
                             onBack = { navController.popBackStack() },
                             onSave = {
                                 aiConfig = it
@@ -270,21 +365,45 @@ fun KeepAccountsApp() {
                             ?: KeepAccountsDestination.SETTINGS_TYPE_HELP
 
                         AppSettingsScreen(
+                            modifier = Modifier.edgeSwipeBack { navController.popBackStack() },
                             type = type,
                             theme = appTheme,
                             userName = userName,
+                            userAvatarUri = userAvatarUri,
+                            accentColor = palette.primaryDark,
                             onBack = { navController.popBackStack() },
                             onThemeChange = { appTheme = it },
                             onUserNameChange = { userName = it },
+                            onUserAvatarChange = { userAvatarUri = it },
                         )
                     }
 
                     composable(KeepAccountsDestination.CATEGORY_MANAGEMENT) {
-                        CategoryManagementScreen(onBack = { navController.popBackStack() })
+                        CategoryManagementScreen(
+                            modifier = Modifier.edgeSwipeBack { navController.popBackStack() },
+                            categories = manualCategories,
+                            usedCategoryCount = usedCategoryCount,
+                            accentColor = palette.primaryDark,
+                            onBack = { navController.popBackStack() },
+                            onAddCategory = { newCategory ->
+                                val trimmed = newCategory.trim()
+                                if (trimmed.isNotBlank() && manualCategories.none { it == trimmed }) {
+                                    manualCategories = manualCategories + trimmed
+                                }
+                            },
+                            onDeleteCategory = { category ->
+                                if (manualCategories.size > 1 && (usedCategoryCount[category] ?: 0) == 0) {
+                                    manualCategories = manualCategories.filterNot { it == category }
+                                }
+                            },
+                        )
                     }
 
                     composable(KeepAccountsDestination.CLEAR_CACHE) {
-                        CacheCleanupScreen(onBack = { navController.popBackStack() })
+                        CacheCleanupScreen(
+                            modifier = Modifier.edgeSwipeBack { navController.popBackStack() },
+                            onBack = { navController.popBackStack() },
+                        )
                     }
                 }
             }

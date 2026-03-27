@@ -373,14 +373,14 @@ private fun CalendarPanel(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .glassCard(shape = RoundedCornerShape(26.dp), backgroundColor = Color.White.copy(alpha = 0.72f))
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+            .glassCard(shape = RoundedCornerShape(24.dp), backgroundColor = Color.White.copy(alpha = 0.72f))
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
 
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             listOf("一", "二", "三", "四", "五", "六", "日").forEach {
-                Text(text = it, color = WarmBrown.copy(alpha = 0.66f), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                Text(text = it, color = WarmBrown.copy(alpha = 0.66f), fontWeight = FontWeight.Bold, fontSize = 12.sp)
             }
         }
 
@@ -388,19 +388,20 @@ private fun CalendarPanel(
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 week.forEach { cell ->
                     if (cell.day == null) {
-                        Spacer(modifier = Modifier.width(36.dp))
+                        Spacer(modifier = Modifier.width(30.dp))
                     } else {
                         val selected = cell.day == selectedDay
                         Column(
                             modifier = Modifier
-                                .width(36.dp)
+                                .width(30.dp)
                                 .clickable { onSelectDay(cell.day) }
-                                .padding(vertical = 1.dp),
+                                .padding(vertical = 0.dp),
+                            verticalArrangement = Arrangement.spacedBy(0.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(24.dp)
+                                    .size(20.dp)
                                     .background(
                                         color = if (selected) Color(0xFFF8A85C) else Color.Transparent,
                                         shape = CircleShape,
@@ -411,20 +412,20 @@ private fun CalendarPanel(
                                     text = cell.day.toString(),
                                     color = if (selected) Color.White else WarmBrown,
                                     fontWeight = FontWeight.ExtraBold,
-                                    fontSize = 13.sp,
+                                    fontSize = 11.sp,
                                 )
                             }
                             Text(
                                 text = if (cell.expense > 0) "-${trimNumber(cell.expense)}" else "",
                                 color = WatermelonRed,
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 10.sp,
+                                fontSize = 9.sp,
                             )
                             Text(
                                 text = if (cell.income > 0) "+${trimNumber(cell.income)}" else "",
                                 color = MintGreen,
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 10.sp,
+                                fontSize = 9.sp,
                             )
                         }
                     }

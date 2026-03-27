@@ -1,5 +1,8 @@
 package com.qcb.keepaccounts.ui.screens
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -37,9 +40,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import com.qcb.keepaccounts.ui.components.glassCard
 import com.qcb.keepaccounts.ui.model.AppThemePreset
 import com.qcb.keepaccounts.ui.navigation.KeepAccountsDestination
@@ -52,13 +57,25 @@ fun AppSettingsScreen(
     type: String,
     theme: AppThemePreset,
     userName: String,
+    userAvatarUri: String?,
+    accentColor: Color,
     onBack: () -> Unit,
     onThemeChange: (AppThemePreset) -> Unit,
     onUserNameChange: (String) -> Unit,
+    onUserAvatarChange: (String?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var localName by rememberSaveable(userName) { mutableStateOf(userName) }
+    var localAvatarUri by rememberSaveable(userAvatarUri) { mutableStateOf(userAvatarUri) }
     var hintText by remember { mutableStateOf<String?>(null) }
+
+    val avatarPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia(),
+    ) { uri ->
+        if (uri != null) {
+            localAvatarUri = uri.toString()
+        }
+    }
 
     LazyColumn(
         modifier = modifier
@@ -72,7 +89,7 @@ fun AppSettingsScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .statusBarsPadding()
-                    .glassCard(shape = RoundedCornerShape(20.dp), glowColor = MintGreen.copy(alpha = 0.15f))
+                    .glassCard(shape = RoundedCornerShape(20.dp), glowColor = accentColor.copy(alpha = 0.15f))
                     .padding(horizontal = 12.dp, vertical = 10.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
@@ -99,12 +116,12 @@ fun AppSettingsScreen(
                     )
                 }
                 item {
-                    ActionButton(icon = Icons.Rounded.Download, text = "导出为 CSV") {
+                    ActionButton(icon = Icons.Rounded.Download, text = "导出为 CSV", accentColor = accentColor) {
                         hintText = "已生成 CSV 导出任务"
                     }
                 }
                 item {
-                    ActionButton(icon = Icons.Rounded.Save, text = "导出为 JSON") {
+                    ActionButton(icon = Icons.Rounded.Save, text = "导出为 JSON", accentColor = accentColor) {
                         hintText = "已生成 JSON 导出任务"
                     }
                 }
@@ -122,6 +139,7 @@ fun AppSettingsScreen(
                         title = "水彩薄荷绿",
                         selected = theme == AppThemePreset.MINT,
                         colors = listOf(Color(0xFFA8E6CF), Color(0xFF8FD3BC)),
+                        selectedColor = Color(0xFF7FD6C6),
                         onClick = {
                             onThemeChange(AppThemePreset.MINT)
                             hintText = "已应用：水彩薄荷绿"
@@ -133,6 +151,7 @@ fun AppSettingsScreen(
                         title = "樱花粉红",
                         selected = theme == AppThemePreset.PINK,
                         colors = listOf(Color(0xFFFFB7B2), Color(0xFFFF9E99)),
+                        selectedColor = Color(0xFFFF9E99),
                         onClick = {
                             onThemeChange(AppThemePreset.PINK)
                             hintText = "已应用：樱花粉红"
@@ -144,6 +163,7 @@ fun AppSettingsScreen(
                         title = "天空湛蓝",
                         selected = theme == AppThemePreset.BLUE,
                         colors = listOf(Color(0xFFA1C4FD), Color(0xFF8EB5F5)),
+                        selectedColor = Color(0xFF8EB5F5),
                         onClick = {
                             onThemeChange(AppThemePreset.BLUE)
                             hintText = "已应用：天空湛蓝"
@@ -154,7 +174,51 @@ fun AppSettingsScreen(
 
             KeepAccountsDestination.SETTINGS_TYPE_MY_NAME -> {
                 item {
-                    GenericCard(title = "我的称呼", desc = "AI 对话中会使用这个称呼")
+                    GenericCard(title = "个人通用设置", desc = "设置你的昵称和头像")
+                }
+                item {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .glassCard(shape = RoundedCornerShape(18.dp), glowColor = accentColor.copy(alpha = 0.1f))
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(52.dp)
+                                    .background(Color.White.copy(alpha = 0.72f), RoundedCornerShape(999.dp)),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                if (!localAvatarUri.isNullOrBlank()) {
+                                    AsyncImage(
+                                        model = localAvatarUri,
+                                        contentDescription = "user-avatar-preview",
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .background(Color.White, RoundedCornerShape(999.dp)),
+                                    )
+                                } else {
+                                    Text(text = "🧑‍💻", fontSize = 24.sp)
+                                }
+                            }
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(text = "个人头像", color = WarmBrown, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                Text(text = "圆形中心裁切", color = WarmBrownMuted, fontSize = 12.sp)
+                            }
+                        }
+                        Text(
+                            text = "上传",
+                            color = accentColor,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.clickable {
+                                avatarPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                            },
+                        )
+                    }
                 }
                 item {
                     TextField(
@@ -170,13 +234,14 @@ fun AppSettingsScreen(
                         ),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .glassCard(shape = RoundedCornerShape(18.dp), glowColor = MintGreen.copy(alpha = 0.1f)),
+                            .glassCard(shape = RoundedCornerShape(18.dp), glowColor = accentColor.copy(alpha = 0.1f)),
                     )
                 }
                 item {
-                    ActionButton(icon = Icons.Rounded.CheckCircle, text = "保存称呼") {
+                    ActionButton(icon = Icons.Rounded.CheckCircle, text = "保存个人设置", accentColor = accentColor) {
                         onUserNameChange(localName.ifBlank { "主人" })
-                        hintText = "称呼已更新"
+                        onUserAvatarChange(localAvatarUri)
+                        hintText = "个人设置已更新"
                     }
                 }
             }
@@ -201,7 +266,7 @@ fun AppSettingsScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .glassCard(shape = RoundedCornerShape(16.dp), glowColor = MintGreen.copy(alpha = 0.1f))
+                        .glassCard(shape = RoundedCornerShape(16.dp), glowColor = accentColor.copy(alpha = 0.1f))
                         .padding(10.dp),
                 ) {
                     Text(text = hintText ?: "", color = WarmBrownMuted, fontWeight = FontWeight.Bold, fontSize = 12.sp)
@@ -232,13 +297,14 @@ private fun GenericCard(
 private fun ActionButton(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     text: String,
+    accentColor: Color,
     onClick: () -> Unit,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .background(
-                brush = Brush.horizontalGradient(listOf(MintGreen, Color(0xFF88D4B4))),
+                brush = Brush.horizontalGradient(listOf(accentColor, accentColor.copy(alpha = 0.82f))),
                 shape = RoundedCornerShape(999.dp),
             )
             .clickable { onClick() }
@@ -256,6 +322,7 @@ private fun ThemePickerRow(
     title: String,
     selected: Boolean,
     colors: List<Color>,
+    selectedColor: Color,
     onClick: () -> Unit,
 ) {
     Row(
@@ -284,7 +351,7 @@ private fun ThemePickerRow(
                 Icon(
                     imageVector = Icons.Rounded.CheckCircle,
                     contentDescription = null,
-                    tint = MintGreen,
+                    tint = selectedColor,
                     modifier = Modifier.size(15.dp),
                 )
             }
@@ -297,7 +364,7 @@ private fun titleForType(type: String): String {
         KeepAccountsDestination.SETTINGS_TYPE_EXPORT -> "导入与导出"
         KeepAccountsDestination.SETTINGS_TYPE_THEME -> "主题与外观"
         KeepAccountsDestination.SETTINGS_TYPE_LEDGER -> "账本基础设置"
-        KeepAccountsDestination.SETTINGS_TYPE_MY_NAME -> "我的称呼"
+        KeepAccountsDestination.SETTINGS_TYPE_MY_NAME -> "个人设置"
         else -> "帮助与反馈"
     }
 }

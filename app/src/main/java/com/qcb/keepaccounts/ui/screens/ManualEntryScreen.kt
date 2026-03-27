@@ -11,14 +11,14 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -53,25 +53,12 @@ import com.qcb.keepaccounts.ui.theme.WarmBrownMuted
 import com.qcb.keepaccounts.ui.theme.WatermelonRed
 import com.qcb.keepaccounts.ui.viewmodel.MainViewModel
 
-private data class CategoryOption(
-    val name: String,
-)
-
-private val categories = listOf(
-    CategoryOption("餐饮美食"),
-    CategoryOption("交通出行"),
-    CategoryOption("购物消费"),
-    CategoryOption("居家生活"),
-    CategoryOption("娱乐休闲"),
-    CategoryOption("医疗健康"),
-    CategoryOption("人情交际"),
-    CategoryOption("其他"),
-)
-
 @Composable
 fun ManualEntryScreen(
     viewModel: MainViewModel,
     onBack: () -> Unit,
+    categories: List<String>,
+    selectedColor: Color,
     initialData: ManualEntryPrefill? = null,
     onConsumedInitialData: () -> Unit = {},
     modifier: Modifier = Modifier,
@@ -91,6 +78,12 @@ fun ManualEntryScreen(
                 selectedCategory = initialData.category
             }
             onConsumedInitialData()
+        }
+    }
+
+    LaunchedEffect(categories) {
+        if (categories.isNotEmpty() && selectedCategory !in categories) {
+            selectedCategory = categories.first()
         }
     }
 
@@ -190,15 +183,12 @@ fun ManualEntryScreen(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Text(text = "选择分类", color = WarmBrownMuted, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(categories) { option ->
-                        CategoryChip(
-                            option = option,
-                            selected = selectedCategory == option.name,
-                            onClick = { selectedCategory = option.name },
-                        )
-                    }
-                }
+                CategoryFlow(
+                    categories = categories,
+                    selectedCategory = selectedCategory,
+                    selectedColor = selectedColor,
+                    onSelect = { selectedCategory = it },
+                )
             }
         }
 
@@ -281,7 +271,7 @@ fun ManualEntryScreen(
                             viewModel.addManualTransaction(
                                 type = if (type == "expense") 0 else 1,
                                 amount = amount,
-                                categoryName = selectedCategory,
+                                categoryName = selectedCategory.ifBlank { "其他" },
                                 categoryIcon = selectedCategory.firstOrNull()?.toString() ?: "",
                                 remark = remarkInput.ifBlank { if (type == "expense") "手动支出" else "手动收入" },
                                 recordTimestamp = System.currentTimeMillis(),
@@ -320,6 +310,29 @@ fun ManualEntryScreen(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun CategoryFlow(
+    categories: List<String>,
+    selectedCategory: String,
+    selectedColor: Color,
+    onSelect: (String) -> Unit,
+) {
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        categories.forEach { option ->
+            CategoryChip(
+                name = option,
+                selectedColor = selectedColor,
+                selected = selectedCategory == option,
+                onClick = { onSelect(option) },
+            )
+        }
+    }
+}
+
 @Composable
 private fun ToggleChip(
     text: String,
@@ -347,14 +360,15 @@ private fun ToggleChip(
 
 @Composable
 private fun CategoryChip(
-    option: CategoryOption,
+    name: String,
+    selectedColor: Color,
     selected: Boolean,
     onClick: () -> Unit,
 ) {
     Row(
         modifier = Modifier
             .background(
-                color = if (selected) Color.White.copy(alpha = 0.92f) else Color.White.copy(alpha = 0.6f),
+                color = if (selected) selectedColor.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.6f),
                 shape = RoundedCornerShape(14.dp),
             )
             .clickable { onClick() }
@@ -363,11 +377,16 @@ private fun CategoryChip(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
-            imageVector = resolveCategoryIcon(option.name),
-            contentDescription = option.name,
-            tint = WarmBrown,
+            imageVector = resolveCategoryIcon(name),
+            contentDescription = name,
+            tint = if (selected) selectedColor else WarmBrown,
             modifier = Modifier.size(16.dp),
         )
-        Text(text = option.name, color = WarmBrown, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+        Text(
+            text = name,
+            color = if (selected) selectedColor else WarmBrown,
+            fontWeight = FontWeight.Bold,
+            fontSize = 12.sp,
+        )
     }
 }

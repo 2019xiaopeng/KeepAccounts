@@ -83,23 +83,23 @@ fun SearchScreen(
                     .statusBarsPadding()
                     .padding(top = 8.dp, start = 12.dp, end = 12.dp)
                     .glassCard(shape = RoundedCornerShape(20.dp), glowColor = MintGreen.copy(alpha = 0.15f))
-                    .padding(horizontal = 10.dp, vertical = 4.dp),
+                    .padding(horizontal = 6.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = "back",
                     tint = WarmBrown.copy(alpha = 0.7f),
                     modifier = Modifier
-                        .size(20.dp)
+                        .size(18.dp)
                         .clickable { onBack() },
                 )
                 Icon(
                     imageVector = Icons.Rounded.Search,
                     contentDescription = "search",
                     tint = WarmBrown.copy(alpha = 0.45f),
-                    modifier = Modifier.size(18.dp),
+                    modifier = Modifier.size(16.dp),
                 )
                 TextField(
                     value = query,
@@ -114,7 +114,7 @@ fun SearchScreen(
                     ),
                     modifier = Modifier
                         .weight(1f)
-                        .height(40.dp),
+                        .height(44.dp),
                 )
             }
         }

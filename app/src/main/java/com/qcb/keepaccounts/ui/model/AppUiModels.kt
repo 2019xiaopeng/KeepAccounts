@@ -68,8 +68,10 @@ enum class ChatBackgroundPreset {
 data class AiAssistantConfig(
     val name: String = "Nanami",
     val avatar: String = "🌊",
+    val avatarUri: String? = null,
     val tone: AiTone = AiTone.HEALING,
     val chatBackground: ChatBackgroundPreset = ChatBackgroundPreset.NONE,
+    val customChatBackgroundUri: String? = null,
 )
 
 data class ManualEntryPrefill(
@@ -77,4 +79,15 @@ data class ManualEntryPrefill(
     val category: String = "",
     val desc: String = "",
     val amount: String = "",
+)
+
+val defaultManualCategories = listOf(
+    "餐饮美食",
+    "交通出行",
+    "购物消费",
+    "居家生活",
+    "娱乐休闲",
+    "医疗健康",
+    "人情交际",
+    "其他",
 )

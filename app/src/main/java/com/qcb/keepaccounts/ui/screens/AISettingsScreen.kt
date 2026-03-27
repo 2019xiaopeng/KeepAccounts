@@ -1,5 +1,8 @@
 package com.qcb.keepaccounts.ui.screens
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -10,6 +13,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -37,14 +41,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import com.qcb.keepaccounts.ui.components.glassCard
 import com.qcb.keepaccounts.ui.model.AiAssistantConfig
 import com.qcb.keepaccounts.ui.model.AiTone
 import com.qcb.keepaccounts.ui.model.ChatBackgroundPreset
-import com.qcb.keepaccounts.ui.theme.MintGreen
 import com.qcb.keepaccounts.ui.theme.WarmBrown
 import com.qcb.keepaccounts.ui.theme.WarmBrownMuted
 
@@ -53,14 +58,32 @@ private val avatarOptions = listOf("🌊", "🐶", "🐱", "🐰", "🦊", "🐼
 @Composable
 fun AISettingsScreen(
     config: AiAssistantConfig,
+    accentColor: Color,
     onBack: () -> Unit,
     onSave: (AiAssistantConfig) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var name by rememberSaveable { mutableStateOf(config.name) }
     var avatar by rememberSaveable { mutableStateOf(config.avatar) }
+    var avatarUri by rememberSaveable { mutableStateOf(config.avatarUri) }
     var tone by rememberSaveable { mutableStateOf(config.tone) }
     var background by rememberSaveable { mutableStateOf(config.chatBackground) }
+    var customBackgroundUri by rememberSaveable { mutableStateOf(config.customChatBackgroundUri) }
+
+    val avatarPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia(),
+    ) { uri ->
+        if (uri != null) avatarUri = uri.toString()
+    }
+
+    val backgroundPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia(),
+    ) { uri ->
+        if (uri != null) {
+            customBackgroundUri = uri.toString()
+            background = ChatBackgroundPreset.NONE
+        }
+    }
 
     LazyColumn(
         modifier = modifier
@@ -74,7 +97,7 @@ fun AISettingsScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .statusBarsPadding()
-                    .glassCard(shape = RoundedCornerShape(20.dp), glowColor = MintGreen.copy(alpha = 0.15f))
+                    .glassCard(shape = RoundedCornerShape(20.dp), glowColor = accentColor.copy(alpha = 0.15f))
                     .padding(horizontal = 12.dp, vertical = 10.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
@@ -96,7 +119,7 @@ fun AISettingsScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .glassCard(shape = RoundedCornerShape(24.dp), glowColor = MintGreen.copy(alpha = 0.16f))
+                    .glassCard(shape = RoundedCornerShape(24.dp), glowColor = accentColor.copy(alpha = 0.16f))
                     .padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
@@ -121,7 +144,7 @@ fun AISettingsScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .glassCard(shape = RoundedCornerShape(24.dp), glowColor = MintGreen.copy(alpha = 0.16f))
+                    .glassCard(shape = RoundedCornerShape(24.dp), glowColor = accentColor.copy(alpha = 0.16f))
                     .padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
@@ -129,10 +152,21 @@ fun AISettingsScreen(
                 Box(
                     modifier = Modifier
                         .size(72.dp)
-                        .background(MintGreen.copy(alpha = 0.25f), RoundedCornerShape(999.dp)),
+                        .background(accentColor.copy(alpha = 0.25f), RoundedCornerShape(999.dp)),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text(text = avatar, fontSize = 34.sp)
+                    if (!avatarUri.isNullOrBlank()) {
+                        AsyncImage(
+                            model = avatarUri,
+                            contentDescription = "assistant-avatar-preview",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color.White, RoundedCornerShape(999.dp)),
+                        )
+                    } else {
+                        Text(text = avatar, fontSize = 34.sp)
+                    }
                 }
                 LazyVerticalGrid(columns = GridCells.Fixed(5), modifier = Modifier.height(130.dp)) {
                     items(avatarOptions) { item ->
@@ -140,16 +174,32 @@ fun AISettingsScreen(
                             modifier = Modifier
                                 .padding(4.dp)
                                 .background(
-                                    color = if (avatar == item) Color.White else Color.White.copy(alpha = 0.5f),
+                                    color = if (avatar == item && avatarUri.isNullOrBlank()) accentColor.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.5f),
                                     shape = RoundedCornerShape(14.dp),
                                 )
-                                .clickable { avatar = item }
+                                .clickable {
+                                    avatar = item
+                                    avatarUri = null
+                                }
                                 .padding(vertical = 8.dp),
                             contentAlignment = Alignment.Center,
                         ) {
                             Text(text = item, fontSize = 22.sp)
                         }
                     }
+                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color.White.copy(alpha = 0.8f), RoundedCornerShape(14.dp))
+                        .clickable {
+                            avatarPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                        }
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(text = "从相册上传头像", color = WarmBrown, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    Text(text = "圆形裁切", color = WarmBrownMuted, fontWeight = FontWeight.Medium, fontSize = 12.sp)
                 }
             }
         }
@@ -158,7 +208,7 @@ fun AISettingsScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .glassCard(shape = RoundedCornerShape(24.dp), glowColor = MintGreen.copy(alpha = 0.16f))
+                    .glassCard(shape = RoundedCornerShape(24.dp), glowColor = accentColor.copy(alpha = 0.16f))
                     .padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
@@ -167,18 +217,21 @@ fun AISettingsScreen(
                     title = "贴心治愈",
                     desc = "温柔体贴，像朋友一样关心你",
                     selected = tone == AiTone.HEALING,
+                    accentColor = accentColor,
                     onClick = { tone = AiTone.HEALING },
                 )
                 ToneRow(
                     title = "傲娇毒舌",
                     desc = "嘴硬心软，偶尔会吐槽你的花销",
                     selected = tone == AiTone.TSUNDERE,
+                    accentColor = accentColor,
                     onClick = { tone = AiTone.TSUNDERE },
                 )
                 ToneRow(
                     title = "理智管家",
                     desc = "冷静客观，帮你理性分析每一笔账",
                     selected = tone == AiTone.RATIONAL,
+                    accentColor = accentColor,
                     onClick = { tone = AiTone.RATIONAL },
                 )
             }
@@ -188,7 +241,7 @@ fun AISettingsScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .glassCard(shape = RoundedCornerShape(24.dp), glowColor = MintGreen.copy(alpha = 0.16f))
+                    .glassCard(shape = RoundedCornerShape(24.dp), glowColor = accentColor.copy(alpha = 0.16f))
                     .padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
@@ -196,10 +249,48 @@ fun AISettingsScreen(
                     Icon(imageVector = Icons.Rounded.Wallpaper, contentDescription = null, tint = WarmBrown.copy(alpha = 0.7f), modifier = Modifier.size(16.dp))
                     Text(text = "对话背景", color = WarmBrown, fontWeight = FontWeight.Bold)
                 }
-                BackgroundChip("默认", selected = background == ChatBackgroundPreset.NONE) { background = ChatBackgroundPreset.NONE }
-                BackgroundChip("海蓝渐变", selected = background == ChatBackgroundPreset.OCEAN) { background = ChatBackgroundPreset.OCEAN }
-                BackgroundChip("森林薄荷", selected = background == ChatBackgroundPreset.FOREST) { background = ChatBackgroundPreset.FOREST }
-                BackgroundChip("晚霞暖色", selected = background == ChatBackgroundPreset.SUNSET) { background = ChatBackgroundPreset.SUNSET }
+                BackgroundChip("默认", selected = background == ChatBackgroundPreset.NONE) {
+                    background = ChatBackgroundPreset.NONE
+                    customBackgroundUri = null
+                }
+                BackgroundChip("海蓝渐变", selected = background == ChatBackgroundPreset.OCEAN) {
+                    background = ChatBackgroundPreset.OCEAN
+                    customBackgroundUri = null
+                }
+                BackgroundChip("森林薄荷", selected = background == ChatBackgroundPreset.FOREST) {
+                    background = ChatBackgroundPreset.FOREST
+                    customBackgroundUri = null
+                }
+                BackgroundChip("晚霞暖色", selected = background == ChatBackgroundPreset.SUNSET) {
+                    background = ChatBackgroundPreset.SUNSET
+                    customBackgroundUri = null
+                }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color.White.copy(alpha = 0.8f), RoundedCornerShape(14.dp))
+                        .clickable {
+                            backgroundPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                        }
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(text = "上传自定义对话背景", color = WarmBrown, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    Text(text = "长图中心裁切", color = WarmBrownMuted, fontWeight = FontWeight.Medium, fontSize = 12.sp)
+                }
+
+                if (!customBackgroundUri.isNullOrBlank()) {
+                    AsyncImage(
+                        model = customBackgroundUri,
+                        contentDescription = "custom-chat-background-preview",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .aspectRatio(1.8f)
+                            .background(Color.White.copy(alpha = 0.7f), RoundedCornerShape(16.dp)),
+                    )
+                }
             }
         }
 
@@ -208,7 +299,7 @@ fun AISettingsScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(
-                        brush = Brush.horizontalGradient(listOf(MintGreen, Color(0xFF88D4B4))),
+                        brush = Brush.horizontalGradient(listOf(accentColor, accentColor.copy(alpha = 0.82f))),
                         shape = RoundedCornerShape(999.dp),
                     )
                     .clickable {
@@ -216,8 +307,10 @@ fun AISettingsScreen(
                             AiAssistantConfig(
                                 name = name.ifBlank { "Nanami" },
                                 avatar = avatar,
+                                avatarUri = avatarUri,
                                 tone = tone,
                                 chatBackground = background,
+                                customChatBackgroundUri = customBackgroundUri,
                             ),
                         )
                     }
@@ -237,13 +330,14 @@ private fun ToneRow(
     title: String,
     desc: String,
     selected: Boolean,
+    accentColor: Color,
     onClick: () -> Unit,
 ) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .background(
-                color = if (selected) MintGreen.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.5f),
+                color = if (selected) accentColor.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.5f),
                 shape = RoundedCornerShape(16.dp),
             )
             .clickable { onClick() }

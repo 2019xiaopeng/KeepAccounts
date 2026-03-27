@@ -1,4 +1,4 @@
-package com.qcb.keepaccounts.ui.screens
+﻿package com.qcb.keepaccounts.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -18,8 +18,14 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -44,18 +50,134 @@ data class OptionRowData(
 )
 
 @Composable
-fun CategoryManagementScreen(onBack: () -> Unit) {
-    OptionPageScaffold(
-        title = "分类管理",
-        subtitle = "支持换色与图标修改",
-        rows = listOf(
-            OptionRowData("☕", "餐饮美食", "早餐 / 下午茶 / 外卖", "12 项"),
-            OptionRowData("🚗", "交通出行", "地铁 / 打车 / 油费", "8 项"),
-            OptionRowData("🛍️", "购物消费", "衣物 / 数码 / 日用", "15 项"),
-            OptionRowData("➕", "新增分类", "自定义图标与配色"),
-        ),
-        onBack = onBack,
-    )
+fun CategoryManagementScreen(
+    categories: List<String>,
+    usedCategoryCount: Map<String, Int>,
+    accentColor: Color,
+    onBack: () -> Unit,
+    onAddCategory: (String) -> Unit,
+    onDeleteCategory: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var input by remember { mutableStateOf("") }
+    var hint by remember { mutableStateOf<String?>(null) }
+
+    LazyColumn(
+        modifier = modifier
+            .fillMaxSize()
+            .navigationBarsPadding()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        contentPadding = PaddingValues(bottom = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        item { OptionHeader(title = "分类管理", subtitle = "与手动记账分类实时联动", onBack = onBack) }
+
+        item {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .glassCard(shape = RoundedCornerShape(22.dp), glowColor = accentColor.copy(alpha = 0.16f))
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TextField(
+                    value = input,
+                    onValueChange = { input = it },
+                    placeholder = { Text("新增分类名称，例如：学习成长") },
+                    singleLine = true,
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = Color.White.copy(alpha = 0.75f),
+                        unfocusedContainerColor = Color.White.copy(alpha = 0.6f),
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent,
+                    ),
+                    modifier = Modifier.weight(1f),
+                )
+                Row(
+                    modifier = Modifier
+                        .size(38.dp)
+                        .background(accentColor, RoundedCornerShape(999.dp))
+                        .clickable {
+                            val name = input.trim()
+                            when {
+                                name.isBlank() -> hint = "分类名称不能为空"
+                                categories.any { it == name } -> hint = "分类已存在"
+                                else -> {
+                                    onAddCategory(name)
+                                    input = ""
+                                    hint = "已新增分类：$name"
+                                }
+                            }
+                        },
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Add,
+                        contentDescription = "add-category",
+                        tint = Color.White,
+                    )
+                }
+            }
+        }
+
+        items(categories) { category ->
+            val used = usedCategoryCount[category] ?: 0
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .glassCard(shape = RoundedCornerShape(20.dp), glowColor = accentColor.copy(alpha = 0.12f))
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(text = category, color = WarmBrown, fontWeight = FontWeight.Bold)
+                    Text(text = "关联账单：$used", color = WarmBrownMuted)
+                }
+                Row(
+                    modifier = Modifier
+                        .size(32.dp)
+                        .background(
+                            color = if (used == 0 && categories.size > 1) Color(0xFFFFF0F0) else Color(0xFFF3F4F6),
+                            shape = RoundedCornerShape(999.dp),
+                        )
+                        .clickable {
+                            when {
+                                categories.size <= 1 -> hint = "至少保留一个分类"
+                                used > 0 -> hint = "该分类已关联账单，暂不可删除"
+                                else -> {
+                                    onDeleteCategory(category)
+                                    hint = "已删除分类：$category"
+                                }
+                            }
+                        },
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Delete,
+                        contentDescription = "delete-category",
+                        tint = if (used == 0 && categories.size > 1) Color(0xFFFF8B94) else WarmBrownMuted,
+                    )
+                }
+            }
+        }
+
+        if (!hint.isNullOrBlank()) {
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .glassCard(shape = RoundedCornerShape(20.dp), glowColor = accentColor.copy(alpha = 0.12f))
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                ) {
+                    Text(text = hint ?: "", color = WarmBrownMuted, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -64,10 +186,10 @@ fun LedgerSettingsScreen(onBack: () -> Unit) {
         title = "账本基础设置",
         subtitle = "账本币种与记账默认项",
         rows = listOf(
-            OptionRowData("💱", "默认币种", value = "CNY ¥"),
-            OptionRowData("🧾", "默认账本", value = "日常账本"),
-            OptionRowData("📅", "周起始日", value = "周一"),
-            OptionRowData("🔔", "记账提醒", value = "每天 21:00"),
+            OptionRowData("", "默认币种", value = "CNY "),
+            OptionRowData("", "默认账本", value = "日常账本"),
+            OptionRowData("", "周起始日", value = "周一"),
+            OptionRowData("", "记账提醒", value = "每天 21:00"),
         ),
         onBack = onBack,
     )
@@ -79,23 +201,26 @@ fun ImportExportScreen(onBack: () -> Unit) {
         title = "账单导入与导出",
         subtitle = "纯本地 CSV/JSON 文件交换",
         rows = listOf(
-            OptionRowData("📤", "导出 CSV", "适用于表格软件"),
-            OptionRowData("📤", "导出 JSON", "适用于备份与迁移"),
-            OptionRowData("📥", "导入 CSV", "自动字段映射"),
-            OptionRowData("📥", "导入 JSON", "保留分类与备注"),
+            OptionRowData("", "导出 CSV", "适用于表格软件"),
+            OptionRowData("", "导出 JSON", "适用于备份与迁移"),
+            OptionRowData("", "导入 CSV", "自动字段映射"),
+            OptionRowData("", "导入 JSON", "保留分类与备注"),
         ),
         onBack = onBack,
     )
 }
 
 @Composable
-fun CacheCleanupScreen(onBack: () -> Unit) {
+fun CacheCleanupScreen(
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     var clearThumb by remember { mutableStateOf(false) }
     var cacheSize by remember { mutableStateOf("14.2 MB") }
     var statusText by remember { mutableStateOf("包含缩略图、图表快照和日志片段") }
 
     LazyColumn(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxSize()
             .navigationBarsPadding()
             .padding(horizontal = 16.dp, vertical = 8.dp),
@@ -214,10 +339,10 @@ fun HelpFeedbackScreen(onBack: () -> Unit) {
         title = "帮助与反馈中心",
         subtitle = "常见问题与问题反馈入口",
         rows = listOf(
-            OptionRowData("❓", "常见问题", "记账失败/分类缺失/同步说明"),
-            OptionRowData("🐞", "问题反馈", "提交截图与日志"),
-            OptionRowData("📬", "功能建议", "告诉我们你想要的新能力"),
-            OptionRowData("🆕", "版本更新日志", "查看最近功能迭代"),
+            OptionRowData("", "常见问题", "记账失败/分类缺失/同步说明"),
+            OptionRowData("", "问题反馈", "提交截图与日志"),
+            OptionRowData("", "功能建议", "告诉我们你想要的新能力"),
+            OptionRowData("", "版本更新日志", "查看最近功能迭代"),
         ),
         onBack = onBack,
     )
@@ -283,7 +408,7 @@ private fun OptionHeader(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = "← 返回",
+                text = " 返回",
                 color = WarmBrown,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.clickable { onBack() },
@@ -318,6 +443,6 @@ private fun OptionRow(
                 }
             }
         }
-        Text(text = data.value ?: "›", color = WarmBrown.copy(alpha = 0.45f), fontWeight = FontWeight.Bold)
+        Text(text = data.value ?: "", color = WarmBrown.copy(alpha = 0.45f), fontWeight = FontWeight.Bold)
     }
 }

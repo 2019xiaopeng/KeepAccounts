@@ -53,6 +53,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -62,6 +63,7 @@ import com.qcb.keepaccounts.ui.components.glassCard
 import com.qcb.keepaccounts.ui.model.AiAssistantConfig
 import com.qcb.keepaccounts.ui.model.ChatBackgroundPreset
 import com.qcb.keepaccounts.ui.model.ManualEntryPrefill
+import com.qcb.keepaccounts.ui.model.ThemePalette
 import com.qcb.keepaccounts.ui.theme.MintGreen
 import com.qcb.keepaccounts.ui.theme.WarmBrown
 import com.qcb.keepaccounts.ui.theme.WarmBrownMuted
@@ -98,6 +100,8 @@ private val initialChatMessages = listOf(
 fun ChatScreen(
     aiConfig: AiAssistantConfig,
     userName: String,
+    userAvatarUri: String?,
+    palette: ThemePalette,
     modifier: Modifier = Modifier,
     initialInput: String? = null,
     onConsumedInitialInput: () -> Unit = {},
@@ -121,17 +125,26 @@ fun ChatScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(brush = chatBackgroundBrush(aiConfig.chatBackground)),
+            .background(brush = chatBackgroundBrush(aiConfig.chatBackground, palette)),
     ) {
+        if (!aiConfig.customChatBackgroundUri.isNullOrBlank()) {
+            AsyncImage(
+                model = aiConfig.customChatBackgroundUri,
+                contentDescription = "chat-custom-background",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.matchParentSize(),
+            )
+        }
+
         Box(
             modifier = Modifier
                 .matchParentSize()
                 .background(
                     brush = Brush.linearGradient(
                         colors = listOf(
-                            MintGreen.copy(alpha = 0.12f),
+                            palette.primary.copy(alpha = 0.16f),
                             Color.White.copy(alpha = 0.45f),
-                            Color(0xFFEFF8F6).copy(alpha = 0.86f),
+                            palette.backgroundLight.copy(alpha = 0.82f),
                         ),
                     ),
                 ),
@@ -143,6 +156,7 @@ fun ChatScreen(
                 onOpenAiSettings = onOpenAiSettings,
                 assistantName = aiConfig.name,
                 assistantAvatar = aiConfig.avatar,
+                assistantAvatarUri = aiConfig.avatarUri,
             )
 
             if (topTip.isNotBlank()) {
@@ -153,7 +167,7 @@ fun ChatScreen(
                         .glassCard(
                             shape = RoundedCornerShape(999.dp),
                             backgroundColor = Color.White.copy(alpha = 0.38f),
-                            glowColor = MintGreen.copy(alpha = 0.18f),
+                            glowColor = palette.primaryDark.copy(alpha = 0.18f),
                         )
                         .padding(horizontal = 12.dp, vertical = 6.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -178,7 +192,10 @@ fun ChatScreen(
                     MessageRow(
                         message = message,
                         assistantAvatar = aiConfig.avatar,
+                        assistantAvatarUri = aiConfig.avatarUri,
                         userName = userName,
+                        userAvatarUri = userAvatarUri,
+                        palette = palette,
                         onDelete = {
                             messages.removeAll { it.id == message.id }
                             topTip = "已删除这条回执"
@@ -198,7 +215,13 @@ fun ChatScreen(
                 }
 
                 if (isTyping) {
-                    item { TypingRow(assistantAvatar = aiConfig.avatar) }
+                    item {
+                        TypingRow(
+                            assistantAvatar = aiConfig.avatar,
+                            assistantAvatarUri = aiConfig.avatarUri,
+                            palette = palette,
+                        )
+                    }
                 }
 
                 item { Spacer(modifier = Modifier.height(112.dp)) }
@@ -213,6 +236,7 @@ fun ChatScreen(
             input = inputText,
             onInputChange = { inputText = it },
             assistantName = aiConfig.name,
+            accentColor = palette.primaryDark,
             onSend = {
                 val userText = inputText.trim()
                 if (userText.isEmpty() || isTyping) return@InputBar
@@ -259,12 +283,12 @@ fun ChatScreen(
     }
 }
 
-private fun chatBackgroundBrush(preset: ChatBackgroundPreset): Brush {
+private fun chatBackgroundBrush(preset: ChatBackgroundPreset, palette: ThemePalette): Brush {
     val colors = when (preset) {
         ChatBackgroundPreset.NONE -> listOf(
-            Color(0xFFF6FFFC),
-            Color(0xFFEAF8F4),
-            Color(0xFFE0F3EE),
+            palette.backgroundLight,
+            palette.background,
+            Color.White,
         )
 
         ChatBackgroundPreset.OCEAN -> listOf(
@@ -299,6 +323,7 @@ private fun ChatHeader(
     onOpenAiSettings: () -> Unit,
     assistantName: String,
     assistantAvatar: String,
+    assistantAvatarUri: String?,
 ) {
     Row(
         modifier = Modifier
@@ -326,7 +351,7 @@ private fun ChatHeader(
 
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
-                text = "$assistantName${if (assistantAvatar.startsWith("http")) "" else assistantAvatar}",
+                text = "$assistantName${if (assistantAvatarUri.isNullOrBlank() && !assistantAvatar.startsWith("http")) assistantAvatar else ""}",
                 color = WarmBrown,
                 fontWeight = FontWeight.ExtraBold,
                 fontSize = 16.sp,
@@ -356,7 +381,10 @@ private fun ChatHeader(
 private fun MessageRow(
     message: DemoMessage,
     assistantAvatar: String,
+    assistantAvatarUri: String?,
     userName: String,
+    userAvatarUri: String?,
+    palette: ThemePalette,
     onDelete: () -> Unit,
     onEdit: () -> Unit,
 ) {
@@ -375,6 +403,8 @@ private fun MessageRow(
         if (!isUser) {
             AssistantAvatarBubble(
                 assistantAvatar = assistantAvatar,
+                assistantAvatarUri = assistantAvatarUri,
+                palette = palette,
                 modifier = Modifier.padding(end = 8.dp),
             )
         }
@@ -383,10 +413,16 @@ private fun MessageRow(
             Box(
                 modifier = Modifier
                     .clip(bubbleShape)
-                    .background(if (isUser) MintGreen.copy(alpha = 0.86f) else Color.White.copy(alpha = 0.98f))
+                    .background(if (isUser) palette.primaryDark.copy(alpha = 0.86f) else Color.White.copy(alpha = 0.98f))
                     .padding(horizontal = 14.dp, vertical = 10.dp),
             ) {
-                Text(text = message.text, color = WarmBrown, fontWeight = FontWeight.Medium, fontSize = 14.sp, lineHeight = 20.sp)
+                Text(
+                    text = message.text,
+                    color = if (isUser) Color.White else WarmBrown,
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 14.sp,
+                    lineHeight = 20.sp,
+                )
             }
 
             if (message.isReceipt) {
@@ -401,6 +437,7 @@ private fun MessageRow(
         if (isUser) {
             UserAvatarBubble(
                 name = userName,
+                avatarUri = userAvatarUri,
                 modifier = Modifier.padding(start = 8.dp),
             )
         }
@@ -410,22 +447,34 @@ private fun MessageRow(
 @Composable
 private fun AssistantAvatarBubble(
     assistantAvatar: String,
+    assistantAvatarUri: String?,
+    palette: ThemePalette,
     modifier: Modifier = Modifier,
 ) {
     Box(
         modifier = modifier
             .size(40.dp)
             .clip(CircleShape)
-            .background(brush = Brush.linearGradient(listOf(MintGreen, Color(0xFF88D4B4)))),
+            .background(brush = Brush.linearGradient(listOf(palette.primary, palette.primaryDark))),
         contentAlignment = Alignment.Center,
     ) {
-        if (assistantAvatar.startsWith("http://") || assistantAvatar.startsWith("https://")) {
+        if (!assistantAvatarUri.isNullOrBlank()) {
+            AsyncImage(
+                model = assistantAvatarUri,
+                contentDescription = "assistant-avatar",
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(CircleShape),
+                contentScale = ContentScale.Crop,
+            )
+        } else if (assistantAvatar.startsWith("http://") || assistantAvatar.startsWith("https://")) {
             AsyncImage(
                 model = assistantAvatar,
                 contentDescription = "assistant-avatar",
                 modifier = Modifier
                     .fillMaxSize()
                     .clip(CircleShape),
+                contentScale = ContentScale.Crop,
             )
         } else {
             Text(text = assistantAvatar, color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
@@ -436,6 +485,7 @@ private fun AssistantAvatarBubble(
 @Composable
 private fun UserAvatarBubble(
     name: String,
+    avatarUri: String?,
     modifier: Modifier = Modifier,
 ) {
     Box(
@@ -445,7 +495,18 @@ private fun UserAvatarBubble(
             .background(Color(0xFFF3D2C1)),
         contentAlignment = Alignment.Center,
     ) {
-        Text(text = name.take(1).ifBlank { "我" }, color = WarmBrown.copy(alpha = 0.9f), fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
+        if (!avatarUri.isNullOrBlank()) {
+            AsyncImage(
+                model = avatarUri,
+                contentDescription = "user-avatar",
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(CircleShape),
+                contentScale = ContentScale.Crop,
+            )
+        } else {
+            Text(text = name.take(1).ifBlank { "我" }, color = WarmBrown.copy(alpha = 0.9f), fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
+        }
     }
 }
 
@@ -573,7 +634,11 @@ private fun ReceiptRow(
 }
 
 @Composable
-private fun TypingRow(assistantAvatar: String) {
+private fun TypingRow(
+    assistantAvatar: String,
+    assistantAvatarUri: String?,
+    palette: ThemePalette,
+) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.Start,
@@ -581,6 +646,8 @@ private fun TypingRow(assistantAvatar: String) {
     ) {
         AssistantAvatarBubble(
             assistantAvatar = assistantAvatar,
+            assistantAvatarUri = assistantAvatarUri,
+            palette = palette,
             modifier = Modifier.padding(end = 8.dp),
         )
 
@@ -590,13 +657,13 @@ private fun TypingRow(assistantAvatar: String) {
                 .background(Color.White.copy(alpha = 0.98f))
                 .padding(horizontal = 14.dp, vertical = 10.dp),
         ) {
-            JumpingDots()
+            JumpingDots(color = palette.primaryDark)
         }
     }
 }
 
 @Composable
-private fun JumpingDots() {
+private fun JumpingDots(color: Color = MintGreen) {
     val infinite = rememberInfiniteTransition(label = "loading")
     val dot1 = infinite.animateFloat(
         initialValue = 0.25f,
@@ -627,20 +694,20 @@ private fun JumpingDots() {
     )
 
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        Dot(dot1.value)
-        Dot(dot2.value)
-        Dot(dot3.value)
+        Dot(dot1.value, color)
+        Dot(dot2.value, color)
+        Dot(dot3.value, color)
     }
 }
 
 @Composable
-private fun Dot(alpha: Float) {
+private fun Dot(alpha: Float, color: Color) {
     Box(
         modifier = Modifier
             .size(8.dp)
             .clip(CircleShape)
             .alpha(alpha)
-            .background(MintGreen),
+            .background(color),
     )
 }
 
@@ -650,6 +717,7 @@ private fun InputBar(
     input: String,
     onInputChange: (String) -> Unit,
     assistantName: String,
+    accentColor: Color,
     onSend: () -> Unit,
 ) {
     Row(
@@ -658,7 +726,7 @@ private fun InputBar(
             .glassCard(
                 shape = RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp, bottomStart = 18.dp, bottomEnd = 18.dp),
                 backgroundColor = Color.White.copy(alpha = 0.74f),
-                glowColor = MintGreen.copy(alpha = 0.18f),
+                glowColor = accentColor.copy(alpha = 0.18f),
             )
             .padding(horizontal = 10.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -702,7 +770,7 @@ private fun InputBar(
             modifier = Modifier
                 .size(40.dp)
                 .clip(CircleShape)
-                .background(brush = Brush.linearGradient(listOf(MintGreen, Color(0xFF88D4B4))))
+                .background(brush = Brush.linearGradient(listOf(accentColor, accentColor.copy(alpha = 0.82f))))
                 .clickable { onSend() },
             contentAlignment = Alignment.Center,
         ) {

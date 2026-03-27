@@ -31,10 +31,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import com.qcb.keepaccounts.ui.components.glassCard
 import com.qcb.keepaccounts.ui.model.AiAssistantConfig
 import com.qcb.keepaccounts.ui.model.AppThemePreset
@@ -47,7 +49,9 @@ import com.qcb.keepaccounts.ui.theme.WarmBrownMuted
 fun ProfileScreen(
     aiConfig: AiAssistantConfig,
     userName: String,
+    userAvatarUri: String?,
     theme: AppThemePreset,
+    highlightColor: Color,
     onNavigateToOption: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -84,10 +88,21 @@ fun ProfileScreen(
                                     brush = Brush.linearGradient(listOf(Color.White, Color(0xFFF0FDF4))),
                                     shape = RoundedCornerShape(22.dp),
                                 )
-                                .glassCard(shape = RoundedCornerShape(22.dp), glowColor = MintGreen.copy(alpha = 0.26f)),
+                                .glassCard(shape = RoundedCornerShape(22.dp), glowColor = highlightColor.copy(alpha = 0.26f)),
                             contentAlignment = Alignment.Center,
                         ) {
-                            Text(text = "🧑‍💻", fontSize = 28.sp)
+                            if (!userAvatarUri.isNullOrBlank()) {
+                                AsyncImage(
+                                    model = userAvatarUri,
+                                    contentDescription = "profile-user-avatar",
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(Color.White, RoundedCornerShape(22.dp)),
+                                )
+                            } else {
+                                Text(text = "🧑‍💻", fontSize = 28.sp)
+                            }
                         }
                         Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
                             Text(text = userName, color = WarmBrown, fontWeight = FontWeight.ExtraBold, fontSize = 17.sp)
@@ -123,10 +138,21 @@ fun ProfileScreen(
                             Box(
                                 modifier = Modifier
                                     .size(44.dp)
-                                    .background(MintGreen.copy(alpha = 0.28f), RoundedCornerShape(999.dp)),
+                                    .background(highlightColor.copy(alpha = 0.28f), RoundedCornerShape(999.dp)),
                                 contentAlignment = Alignment.Center,
                             ) {
-                                Text(text = aiConfig.avatar, fontSize = 22.sp)
+                                if (!aiConfig.avatarUri.isNullOrBlank()) {
+                                    AsyncImage(
+                                        model = aiConfig.avatarUri,
+                                        contentDescription = "ai-avatar",
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .background(Color.White, RoundedCornerShape(999.dp)),
+                                    )
+                                } else {
+                                    Text(text = aiConfig.avatar, fontSize = 22.sp)
+                                }
                             }
                             Column {
                                 Text(text = aiConfig.name, color = WarmBrown, fontWeight = FontWeight.Bold, fontSize = 15.sp)
@@ -178,6 +204,7 @@ fun ProfileScreen(
                         KeepAccountsDestination.settingsRoute(KeepAccountsDestination.SETTINGS_TYPE_LEDGER),
                     ),
                 ),
+                highlightColor = highlightColor,
                 onNavigate = onNavigateToOption,
             )
         }
@@ -195,6 +222,7 @@ fun ProfileScreen(
                     ),
                     MenuEntry(Icons.Rounded.DeleteSweep, "清除缓存", null, "14.2 MB", KeepAccountsDestination.CLEAR_CACHE),
                 ),
+                highlightColor = highlightColor,
                 onNavigate = onNavigateToOption,
             )
         }
@@ -226,6 +254,7 @@ fun ProfileScreen(
                         KeepAccountsDestination.settingsRoute(KeepAccountsDestination.SETTINGS_TYPE_HELP),
                     ),
                 ),
+                highlightColor = highlightColor,
                 onNavigate = onNavigateToOption,
             )
         }
@@ -253,6 +282,7 @@ private data class MenuEntry(
 private fun MenuGroup(
     title: String,
     items: List<MenuEntry>,
+    highlightColor: Color,
     onNavigate: (String) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -265,14 +295,14 @@ private fun MenuGroup(
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             items.forEach { item ->
-                MenuRow(item = item, onClick = { onNavigate(item.route) })
+                MenuRow(item = item, highlightColor = highlightColor, onClick = { onNavigate(item.route) })
             }
         }
     }
 }
 
 @Composable
-private fun MenuRow(item: MenuEntry, onClick: () -> Unit) {
+private fun MenuRow(item: MenuEntry, highlightColor: Color, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -306,7 +336,7 @@ private fun MenuRow(item: MenuEntry, onClick: () -> Unit) {
             if (item.value != null) {
                 Text(
                     text = item.value,
-                    color = if (item.highlightValue) MintGreen else WarmBrown.copy(alpha = 0.45f),
+                    color = if (item.highlightValue) highlightColor else WarmBrown.copy(alpha = 0.45f),
                     fontWeight = FontWeight.Bold,
                     fontSize = 12.sp,
                 )
