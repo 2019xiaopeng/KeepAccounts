@@ -12,8 +12,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Category
@@ -49,167 +49,184 @@ fun ProfileScreen(
     onNavigateToOption: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Column(
+    LazyColumn(
         modifier = modifier
             .fillMaxSize()
-            .padding(horizontal = 16.dp, vertical = 14.dp),
+            .padding(horizontal = 16.dp),
+        contentPadding = PaddingValues(top = 8.dp, bottom = 120.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(text = "我的", color = WarmBrown, fontWeight = FontWeight.ExtraBold, fontSize = 22.sp)
+        item {
+            Text(
+                text = "设置 ⚙️",
+                color = WarmBrown,
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 22.sp,
+                modifier = Modifier.statusBarsPadding(),
+            )
+        }
 
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .glassCard(shape = RoundedCornerShape(32.dp), glowColor = MintGreen.copy(alpha = 0.2f))
-                .padding(14.dp),
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(60.dp)
-                            .background(
-                                brush = Brush.linearGradient(listOf(Color.White, Color(0xFFF0FDF4))),
-                                shape = RoundedCornerShape(22.dp),
-                            )
-                            .glassCard(shape = RoundedCornerShape(22.dp), glowColor = MintGreen.copy(alpha = 0.26f)),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(text = "🧑‍💻", fontSize = 28.sp)
-                    }
-                    Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                        Text(text = userName, color = WarmBrown, fontWeight = FontWeight.ExtraBold, fontSize = 17.sp)
-                        Text(text = "已坚持记账 128 天", color = WarmBrownMuted, fontWeight = FontWeight.Bold, fontSize = 11.sp)
-                    }
-                }
-
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(1.dp)
-                        .background(
-                            brush = Brush.horizontalGradient(
-                                colors = listOf(
-                                    Color.Transparent,
-                                    WarmBrown.copy(alpha = 0.12f),
-                                    Color.Transparent,
-                                ),
-                            ),
-                        ),
-                )
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(Color.White.copy(alpha = 0.82f), RoundedCornerShape(24.dp))
-                        .clickable { onNavigateToOption(KeepAccountsDestination.AI_SETTINGS) }
-                        .padding(12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
+        item {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .glassCard(shape = RoundedCornerShape(32.dp), glowColor = MintGreen.copy(alpha = 0.2f))
+                    .padding(14.dp),
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
                         Box(
                             modifier = Modifier
-                                .size(44.dp)
-                                .background(MintGreen.copy(alpha = 0.28f), RoundedCornerShape(999.dp)),
+                                .size(60.dp)
+                                .background(
+                                    brush = Brush.linearGradient(listOf(Color.White, Color(0xFFF0FDF4))),
+                                    shape = RoundedCornerShape(22.dp),
+                                )
+                                .glassCard(shape = RoundedCornerShape(22.dp), glowColor = MintGreen.copy(alpha = 0.26f)),
                             contentAlignment = Alignment.Center,
                         ) {
-                            Text(text = aiConfig.avatar, fontSize = 22.sp)
+                            Text(text = "🧑‍💻", fontSize = 28.sp)
                         }
-                        Column {
-                            Text(text = aiConfig.name, color = WarmBrown, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                            Text(
-                                text = when (aiConfig.tone.name) {
-                                    "TSUNDERE" -> "傲娇毒舌"
-                                    "RATIONAL" -> "理智管家"
-                                    else -> "贴心治愈"
-                                },
-                                color = WarmBrown.copy(alpha = 0.6f),
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Medium,
-                            )
+                        Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                            Text(text = userName, color = WarmBrown, fontWeight = FontWeight.ExtraBold, fontSize = 17.sp)
+                            Text(text = "已坚持记账 128 天", color = WarmBrownMuted, fontWeight = FontWeight.Bold, fontSize = 11.sp)
                         }
                     }
-                    Icon(
-                        imageVector = Icons.Rounded.ChevronRight,
-                        contentDescription = "next",
-                        tint = WarmBrown.copy(alpha = 0.35f),
-                        modifier = Modifier.size(17.dp),
-                    )
-                }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(imageVector = Icons.Rounded.SmartToy, contentDescription = null, tint = WarmBrown.copy(alpha = 0.7f), modifier = Modifier.size(15.dp))
-                    Text(text = "AI 专属管家", color = WarmBrown.copy(alpha = 0.82f), fontWeight = FontWeight.Bold, fontSize = 13.sp)
                     Box(
                         modifier = Modifier
-                            .background(Color(0x33A8E6CF), RoundedCornerShape(8.dp))
-                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                            .fillMaxWidth()
+                            .height(1.dp)
+                            .background(
+                                brush = Brush.horizontalGradient(
+                                    colors = listOf(
+                                        Color.Transparent,
+                                        WarmBrown.copy(alpha = 0.12f),
+                                        Color.Transparent,
+                                    ),
+                                ),
+                            ),
+                    )
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color.White.copy(alpha = 0.82f), RoundedCornerShape(24.dp))
+                            .clickable { onNavigateToOption(KeepAccountsDestination.AI_SETTINGS) }
+                            .padding(12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(text = "PRO", color = Color(0xFF22C55E), fontWeight = FontWeight.ExtraBold, fontSize = 9.sp)
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .background(MintGreen.copy(alpha = 0.28f), RoundedCornerShape(999.dp)),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(text = aiConfig.avatar, fontSize = 22.sp)
+                            }
+                            Column {
+                                Text(text = aiConfig.name, color = WarmBrown, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                                Text(
+                                    text = when (aiConfig.tone.name) {
+                                        "TSUNDERE" -> "傲娇毒舌"
+                                        "RATIONAL" -> "理智管家"
+                                        else -> "贴心治愈"
+                                    },
+                                    color = WarmBrown.copy(alpha = 0.6f),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium,
+                                )
+                            }
+                        }
+                        Icon(
+                            imageVector = Icons.Rounded.ChevronRight,
+                            contentDescription = "next",
+                            tint = WarmBrown.copy(alpha = 0.35f),
+                            modifier = Modifier.size(17.dp),
+                        )
+                    }
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(imageVector = Icons.Rounded.SmartToy, contentDescription = null, tint = WarmBrown.copy(alpha = 0.7f), modifier = Modifier.size(15.dp))
+                        Text(text = "AI 专属管家", color = WarmBrown.copy(alpha = 0.82f), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        Box(
+                            modifier = Modifier
+                                .background(Color(0x33A8E6CF), RoundedCornerShape(8.dp))
+                                .padding(horizontal = 6.dp, vertical = 2.dp),
+                        ) {
+                            Text(text = "PRO", color = Color(0xFF22C55E), fontWeight = FontWeight.ExtraBold, fontSize = 9.sp)
+                        }
                     }
                 }
             }
         }
 
-        MenuGroup(
-            title = "资产与分类",
-            items = listOf(
-                MenuEntry(Icons.Rounded.Category, "分类管理", "支持换色与图标修改", null, KeepAccountsDestination.CATEGORY_MANAGEMENT),
-                MenuEntry(
-                    Icons.Rounded.MenuBook,
-                    "账本基础设置",
-                    null,
-                    null,
-                    KeepAccountsDestination.settingsRoute(KeepAccountsDestination.SETTINGS_TYPE_LEDGER),
+        item {
+            MenuGroup(
+                title = "资产与分类",
+                items = listOf(
+                    MenuEntry(Icons.Rounded.Category, "分类管理", "支持换色与图标修改", null, KeepAccountsDestination.CATEGORY_MANAGEMENT),
+                    MenuEntry(
+                        Icons.Rounded.MenuBook,
+                        "账本基础设置",
+                        null,
+                        null,
+                        KeepAccountsDestination.settingsRoute(KeepAccountsDestination.SETTINGS_TYPE_LEDGER),
+                    ),
                 ),
-            ),
-            onNavigate = onNavigateToOption,
-        )
+                onNavigate = onNavigateToOption,
+            )
+        }
 
-        MenuGroup(
-            title = "数据安全与清理",
-            items = listOf(
-                MenuEntry(
-                    Icons.Rounded.ImportExport,
-                    "账单导入与导出",
-                    "纯本地 CSV/JSON 文件交换",
-                    null,
-                    KeepAccountsDestination.settingsRoute(KeepAccountsDestination.SETTINGS_TYPE_EXPORT),
+        item {
+            MenuGroup(
+                title = "数据安全与清理",
+                items = listOf(
+                    MenuEntry(
+                        Icons.Rounded.ImportExport,
+                        "账单导入与导出",
+                        "纯本地 CSV/JSON 文件交换",
+                        null,
+                        KeepAccountsDestination.settingsRoute(KeepAccountsDestination.SETTINGS_TYPE_EXPORT),
+                    ),
+                    MenuEntry(Icons.Rounded.DeleteSweep, "清除缓存", null, "14.2 MB", KeepAccountsDestination.CLEAR_CACHE),
                 ),
-                MenuEntry(Icons.Rounded.DeleteSweep, "清除缓存", null, "14.2 MB", KeepAccountsDestination.CLEAR_CACHE),
-            ),
-            onNavigate = onNavigateToOption,
-        )
+                onNavigate = onNavigateToOption,
+            )
+        }
 
-        MenuGroup(
-            title = "个性化与反馈",
-            items = listOf(
-                MenuEntry(
-                    Icons.Rounded.RecordVoiceOver,
-                    "我的称呼",
-                    null,
-                    userName,
-                    KeepAccountsDestination.settingsRoute(KeepAccountsDestination.SETTINGS_TYPE_MY_NAME),
+        item {
+            MenuGroup(
+                title = "个性化与反馈",
+                items = listOf(
+                    MenuEntry(
+                        Icons.Rounded.RecordVoiceOver,
+                        "我的称呼",
+                        null,
+                        userName,
+                        KeepAccountsDestination.settingsRoute(KeepAccountsDestination.SETTINGS_TYPE_MY_NAME),
+                    ),
+                    MenuEntry(
+                        Icons.Rounded.Palette,
+                        "主题与外观",
+                        null,
+                        "水彩薄荷绿",
+                        KeepAccountsDestination.settingsRoute(KeepAccountsDestination.SETTINGS_TYPE_THEME),
+                        true,
+                    ),
+                    MenuEntry(
+                        Icons.Rounded.SmartToy,
+                        "帮助与反馈中心",
+                        null,
+                        null,
+                        KeepAccountsDestination.settingsRoute(KeepAccountsDestination.SETTINGS_TYPE_HELP),
+                    ),
                 ),
-                MenuEntry(
-                    Icons.Rounded.Palette,
-                    "主题与外观",
-                    null,
-                    "水彩薄荷绿",
-                    KeepAccountsDestination.settingsRoute(KeepAccountsDestination.SETTINGS_TYPE_THEME),
-                    true,
-                ),
-                MenuEntry(
-                    Icons.Rounded.SmartToy,
-                    "帮助与反馈中心",
-                    null,
-                    null,
-                    KeepAccountsDestination.settingsRoute(KeepAccountsDestination.SETTINGS_TYPE_HELP),
-                ),
-            ),
-            onNavigate = onNavigateToOption,
-        )
+                onNavigate = onNavigateToOption,
+            )
+        }
     }
 }
 

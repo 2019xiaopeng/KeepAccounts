@@ -35,6 +35,7 @@ import com.qcb.keepaccounts.ui.theme.WarmBrown
 fun BottomNavigationBar(
     navController: NavHostController,
     items: List<BottomNavItem>,
+    activeColor: Color,
     modifier: Modifier = Modifier,
 ) {
     val backStackEntry by navController.currentBackStackEntryAsState()
@@ -43,14 +44,14 @@ fun BottomNavigationBar(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .height(82.dp)
-            .padding(horizontal = 18.dp, vertical = 10.dp)
+            .height(90.dp)
+            .padding(horizontal = 16.dp, vertical = 8.dp)
             .glassCard(
-                shape = RoundedCornerShape(24.dp),
-                backgroundColor = Color.White.copy(alpha = 0.46f),
-                glowColor = MintGreen.copy(alpha = 0.25f),
+                shape = RoundedCornerShape(26.dp),
+                backgroundColor = Color.White.copy(alpha = 0.50f),
+                glowColor = activeColor.copy(alpha = 0.22f),
             )
-            .padding(horizontal = 10.dp, vertical = 4.dp),
+            .padding(horizontal = 10.dp, vertical = 6.dp),
         horizontalArrangement = Arrangement.SpaceAround,
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -75,7 +76,7 @@ fun BottomNavigationBar(
                         translationY = offsetY,
                     )
                     .background(
-                        color = if (selected) MintGreen.copy(alpha = 0.2f) else Color.Transparent,
+                        color = if (selected) activeColor.copy(alpha = 0.16f) else Color.Transparent,
                         shape = RoundedCornerShape(16.dp),
                     )
                     .clickable {
@@ -96,7 +97,7 @@ fun BottomNavigationBar(
                     modifier = Modifier
                         .size(26.dp)
                         .background(
-                            color = if (selected) MintGreen.copy(alpha = 0.22f) else Color.Transparent,
+                            color = if (selected) activeColor.copy(alpha = 0.2f) else Color.Transparent,
                             shape = CircleShape,
                         ),
                     contentAlignment = Alignment.Center,
@@ -105,14 +106,15 @@ fun BottomNavigationBar(
                         imageVector = item.icon,
                         contentDescription = item.label,
                         modifier = Modifier.size(17.dp),
-                        tint = if (selected) Color(0xFF53C3B8) else Color(0xFF7D7C7A),
+                        tint = if (selected) activeColor else Color(0xFF7D7C7A),
                     )
                 }
                 Text(
                     text = item.label,
-                    color = if (selected) Color(0xFF53C3B8) else WarmBrown.copy(alpha = 0.75f),
+                    color = if (selected) activeColor else WarmBrown.copy(alpha = 0.75f),
                     fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
                     fontSize = 12.sp,
+                    lineHeight = 13.sp,
                 )
             }
         }

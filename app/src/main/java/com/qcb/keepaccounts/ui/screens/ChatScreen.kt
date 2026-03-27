@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -104,6 +103,7 @@ fun ChatScreen(
     initialInput: String? = null,
     onConsumedInitialInput: () -> Unit = {},
     onBack: (() -> Unit)? = null,
+    onOpenAiSettings: () -> Unit = {},
     onOpenManualEntry: (ManualEntryPrefill) -> Unit = {},
 ) {
     val messages = remember { mutableStateListOf<DemoMessage>().apply { addAll(initialChatMessages) } }
@@ -141,6 +141,7 @@ fun ChatScreen(
         Column(modifier = Modifier.fillMaxSize()) {
             ChatHeader(
                 onBack = onBack,
+                onOpenAiSettings = onOpenAiSettings,
                 assistantName = aiConfig.name,
                 assistantAvatar = aiConfig.avatar,
             )
@@ -210,7 +211,6 @@ fun ChatScreen(
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
                 .navigationBarsPadding()
-                .imePadding()
                 .padding(bottom = 2.dp),
             input = inputText,
             onInputChange = { inputText = it },
@@ -298,6 +298,7 @@ private fun parseAmount(text: String): String? {
 @Composable
 private fun ChatHeader(
     onBack: (() -> Unit)?,
+    onOpenAiSettings: () -> Unit,
     assistantName: String,
     assistantAvatar: String,
 ) {
@@ -307,8 +308,8 @@ private fun ChatHeader(
             .statusBarsPadding()
             .glassCard(
                 shape = RoundedCornerShape(bottomStart = 18.dp, bottomEnd = 18.dp, topStart = 0.dp, topEnd = 0.dp),
-                backgroundColor = Color.White.copy(alpha = 0.40f),
-                glowColor = MintGreen.copy(alpha = 0.16f),
+                backgroundColor = MintGreen.copy(alpha = 0.36f),
+                glowColor = MintGreen.copy(alpha = 0.24f),
             )
             .padding(horizontal = 14.dp, vertical = 10.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -344,7 +345,8 @@ private fun ChatHeader(
             modifier = Modifier
                 .size(34.dp)
                 .clip(CircleShape)
-                .background(Color.White.copy(alpha = 0.78f)),
+                .background(Color.White.copy(alpha = 0.78f))
+                .clickable { onOpenAiSettings() },
             contentAlignment = Alignment.Center,
         ) {
             Icon(

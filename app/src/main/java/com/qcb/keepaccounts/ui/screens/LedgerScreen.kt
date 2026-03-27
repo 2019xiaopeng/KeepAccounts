@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
@@ -177,30 +178,46 @@ fun LedgerScreen(
     val categoryExpense = remember(scopeTransactions) { categoryStats(scopeTransactions.filter { it.type == 0 }) }
     val categoryIncome = remember(scopeTransactions) { categoryStats(scopeTransactions.filter { it.type == 1 }) }
     val rankList = if (rankType == RankType.EXPENSE) categoryExpense else categoryIncome
+    val trendXAxisLabels = remember(statsPeriod) {
+        if (statsPeriod == StatsPeriod.MONTH) {
+            listOf("1日", "5日", "10日", "15日", "20日", "25日")
+        } else {
+            listOf("1月", "3月", "5月", "7月", "9月", "11月")
+        }
+    }
 
     LazyColumn(
         modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
+        contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 14.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         item {
+            Text(
+                text = "账本 📒",
+                color = WarmBrown,
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 22.sp,
+                modifier = Modifier.statusBarsPadding(),
+            )
+        }
+
+        item {
             Row(
                 modifier = Modifier
-                    .fillMaxWidth()
+                    .background(Color.White.copy(alpha = 0.4f), RoundedCornerShape(999.dp))
                     .glassCard(shape = RoundedCornerShape(999.dp), backgroundColor = Color.White.copy(alpha = 0.56f))
                     .padding(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 TopToggle(
                     selected = viewMode == LedgerViewMode.CALENDAR,
                     iconText = "📅",
                     text = "日历记账",
-                    modifier = Modifier.weight(1f),
                 ) { viewMode = LedgerViewMode.CALENDAR }
                 TopToggle(
                     selected = viewMode == LedgerViewMode.STATS,
                     iconText = "📊",
                     text = "统计报表",
-                    modifier = Modifier.weight(1f),
                 ) { viewMode = LedgerViewMode.STATS }
             }
         }
@@ -279,6 +296,7 @@ fun LedgerScreen(
                     trendMetric = trendMetric,
                     onTrendMetricChange = { trendMetric = it },
                     trendPoints = trendPoints,
+                    xLabels = trendXAxisLabels,
                     categoryExpense = categoryExpense,
                     rankType = rankType,
                     onRankTypeChange = { rankType = it },
@@ -306,17 +324,19 @@ private fun TopToggle(
                 shape = RoundedCornerShape(999.dp),
             )
             .clickable { onClick() }
-            .padding(horizontal = 14.dp, vertical = 8.dp),
+            .padding(horizontal = 12.dp, vertical = 7.dp),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(text = iconText, fontSize = 13.sp)
-        Spacer(modifier = Modifier.width(5.dp))
+        if (iconText.isNotBlank()) {
+            Text(text = iconText, fontSize = 12.sp)
+            Spacer(modifier = Modifier.width(4.dp))
+        }
         Text(
             text = text,
             color = if (selected) WarmBrown else WarmBrown.copy(alpha = 0.62f),
             fontWeight = FontWeight.ExtraBold,
-            fontSize = 13.sp,
+            fontSize = 12.sp,
         )
     }
 }
@@ -559,6 +579,7 @@ private fun StatsPanel(
     trendMetric: TrendMetric,
     onTrendMetricChange: (TrendMetric) -> Unit,
     trendPoints: List<Float>,
+    xLabels: List<String>,
     categoryExpense: List<CategoryStat>,
     rankType: RankType,
     onRankTypeChange: (RankType) -> Unit,
@@ -567,22 +588,20 @@ private fun StatsPanel(
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Row(
             modifier = Modifier
-                .fillMaxWidth()
+                .background(Color.White.copy(alpha = 0.4f), RoundedCornerShape(999.dp))
                 .glassCard(shape = RoundedCornerShape(999.dp), backgroundColor = Color.White.copy(alpha = 0.7f))
                 .padding(4.dp),
-            horizontalArrangement = Arrangement.Center,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             TopToggle(
                 selected = statsPeriod == StatsPeriod.MONTH,
                 iconText = "",
                 text = "月度",
-                modifier = Modifier.weight(1f),
             ) { onStatsPeriodChange(StatsPeriod.MONTH) }
             TopToggle(
                 selected = statsPeriod == StatsPeriod.YEAR,
                 iconText = "",
                 text = "年度",
-                modifier = Modifier.weight(1f),
             ) { onStatsPeriodChange(StatsPeriod.YEAR) }
         }
 
@@ -633,7 +652,7 @@ private fun StatsPanel(
                     MetricChip("结余", trendMetric == TrendMetric.BALANCE) { onTrendMetricChange(TrendMetric.BALANCE) }
                 }
             }
-            LineChart(points = trendPoints, metric = trendMetric)
+            LineChart(points = trendPoints, metric = trendMetric, xLabels = xLabels)
         }
 
         Column(
@@ -754,20 +773,21 @@ private fun MetricChip(text: String, selected: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-private fun LineChart(points: List<Float>, metric: TrendMetric) {
+private fun LineChart(points: List<Float>, metric: TrendMetric, xLabels: List<String>) {
     val strokeColor = when (metric) {
         TrendMetric.EXPENSE -> WatermelonRed
         TrendMetric.INCOME -> Color(0xFF37A56B)
         TrendMetric.BALANCE -> Color(0xFF5A6EE0)
     }
-    Box(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .height(180.dp)
             .background(Color.White.copy(alpha = 0.4f), RoundedCornerShape(18.dp))
             .padding(horizontal = 8.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
+        Box(modifier = Modifier.fillMaxWidth().height(164.dp)) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
             repeat(4) { i ->
                 val y = size.height * i / 3f
                 drawLine(
@@ -808,6 +828,17 @@ private fun LineChart(points: List<Float>, metric: TrendMetric) {
                     ),
                 )
                 drawPath(path = linePath, color = strokeColor, style = Stroke(width = 4f, cap = StrokeCap.Round))
+            }
+        }
+        }
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            xLabels.forEach { label ->
+                Text(
+                    text = label,
+                    color = WarmBrown.copy(alpha = 0.42f),
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 10.sp,
+                )
             }
         }
     }
