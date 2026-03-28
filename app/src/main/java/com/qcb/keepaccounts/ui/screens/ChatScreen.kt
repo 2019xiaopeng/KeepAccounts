@@ -87,10 +87,12 @@ fun ChatScreen(
     userAvatarUri: String?,
     palette: ThemePalette,
     chatRecords: List<AiChatRecord>,
+    isSending: Boolean,
     modifier: Modifier = Modifier,
     initialInput: String? = null,
     onConsumedInitialInput: () -> Unit = {},
-    onChatRecordsChange: (List<AiChatRecord>) -> Unit = {},
+    onSendMessage: (String) -> Unit = {},
+    onDeleteMessage: (Long) -> Unit = {},
     onBack: (() -> Unit)? = null,
     onOpenAiSettings: () -> Unit = {},
     onOpenManualEntry: (ManualEntryPrefill) -> Unit = {},
@@ -99,11 +101,9 @@ fun ChatScreen(
     var inputText by remember { mutableStateOf("") }
     var topTip by remember { mutableStateOf("") }
 
-    LaunchedEffect(Unit) {
-        if (messages.isNotEmpty()) return@LaunchedEffect
-        if (chatRecords.isNotEmpty()) {
-            messages.addAll(chatRecords.map { it.toDemoMessage() })
-        }
+    LaunchedEffect(chatRecords) {
+        messages.clear()
+        messages.addAll(chatRecords.map { it.toDemoMessage() })
     }
 
     LaunchedEffect(initialInput) {
@@ -189,8 +189,7 @@ fun ChatScreen(
                         userAvatarUri = userAvatarUri,
                         palette = palette,
                         onDelete = {
-                            messages.removeAll { it.id == message.id }
-                            onChatRecordsChange(messages.map { it.toChatRecord() })
+                            onDeleteMessage(message.id)
                             topTip = "已删除这条回执"
                         },
                         onEdit = {
@@ -205,6 +204,16 @@ fun ChatScreen(
                             topTip = "已跳转到手动记账，可继续修改"
                         },
                     )
+                }
+
+                if (isSending) {
+                    item {
+                        TypingRow(
+                            assistantAvatar = aiConfig.avatar,
+                            assistantAvatarUri = aiConfig.avatarUri,
+                            palette = palette,
+                        )
+                    }
                 }
 
                 item { Spacer(modifier = Modifier.height(112.dp)) }
@@ -224,14 +233,7 @@ fun ChatScreen(
                 if (userText.isEmpty()) return@InputBar
 
                 inputText = ""
-                messages.add(
-                    DemoMessage(
-                        id = System.currentTimeMillis(),
-                        role = "user",
-                        text = userText,
-                    ),
-                )
-                onChatRecordsChange(messages.map { it.toChatRecord() })
+                onSendMessage(userText)
             },
         )
     }
@@ -266,21 +268,24 @@ private fun chatBackgroundBrush(preset: ChatBackgroundPreset, palette: ThemePale
     return Brush.verticalGradient(colors = colors)
 }
 
-private fun DemoMessage.toChatRecord(): AiChatRecord {
-    return AiChatRecord(
+private fun AiChatRecord.toDemoMessage(): DemoMessage {
+    val normalizedRole = if (role == "assistant") "ai" else role
+    val parsedAmount = parseAmount(content).orEmpty()
+    val showReceipt = isReceipt && parsedAmount.isNotBlank()
+    return DemoMessage(
         id = id,
-        timestamp = id,
-        role = role,
-        content = text,
+        role = normalizedRole,
+        text = content,
+        isReceipt = showReceipt,
+        receiptCategory = if (showReceipt) "已识别" else "",
+        receiptAmount = parsedAmount,
+        receiptRemark = content,
     )
 }
 
-private fun AiChatRecord.toDemoMessage(): DemoMessage {
-    return DemoMessage(
-        id = id,
-        role = role,
-        text = content,
-    )
+private fun parseAmount(text: String): String? {
+    val regex = Regex("(\\d+(?:\\.\\d{1,2})?)")
+    return regex.find(text)?.groupValues?.get(1)
 }
 
 @Composable

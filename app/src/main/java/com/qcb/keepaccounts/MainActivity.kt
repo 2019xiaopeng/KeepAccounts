@@ -65,7 +65,9 @@ import com.qcb.keepaccounts.ui.screens.ManualEntryScreen
 import com.qcb.keepaccounts.ui.screens.ProfileScreen
 import com.qcb.keepaccounts.ui.screens.SearchScreen
 import com.qcb.keepaccounts.ui.theme.KeepAccountsTheme
+import com.qcb.keepaccounts.ui.viewmodel.ChatViewModel
 import com.qcb.keepaccounts.ui.viewmodel.MainViewModel
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 
 private const val MAIN_TABS_ROUTE = "main_tabs"
@@ -110,7 +112,6 @@ fun KeepAccountsApp() {
     var manualEntryPrefill by remember { mutableStateOf<ManualEntryPrefill?>(null) }
     var appTheme by remember { mutableStateOf(AppThemePreset.MINT) }
     var aiConfig by remember { mutableStateOf(AiAssistantConfig()) }
-    var aiChatRecords by remember { mutableStateOf<List<AiChatRecord>>(emptyList()) }
     var userName by remember { mutableStateOf("主人") }
     var userAvatarUri by remember { mutableStateOf<String?>(null) }
     var manualCategories by remember { mutableStateOf(defaultManualCategories) }
@@ -120,6 +121,7 @@ fun KeepAccountsApp() {
         aiConfig = settings.aiConfig
         userName = settings.userName
         userAvatarUri = settings.userAvatarUri
+        manualCategories = settings.manualCategories
     }
 
     val palette = remember(appTheme) { paletteForTheme(appTheme) }
@@ -127,7 +129,12 @@ fun KeepAccountsApp() {
     val mainViewModel: MainViewModel = viewModel(
         factory = MainViewModel.provideFactory(appContainer.transactionRepository),
     )
+    val chatViewModel: ChatViewModel = viewModel(
+        factory = ChatViewModel.provideFactory(appContainer.chatRepository),
+    )
     val transactions by mainViewModel.transactions.collectAsStateWithLifecycle()
+    val aiChatRecords by chatViewModel.chatRecords.collectAsStateWithLifecycle()
+    val aiIsSending by chatViewModel.isSending.collectAsStateWithLifecycle()
     val systemUiController = rememberSystemUiController()
     val usedCategoryCount = remember(transactions) {
         transactions
@@ -275,16 +282,24 @@ fun KeepAccountsApp() {
                             theme = appTheme,
                             palette = palette,
                             aiChatRecords = aiChatRecords,
+                            aiIsSending = aiIsSending,
                             initialChatInput = chatInitialInput,
                             onConsumedInitialInput = { chatInitialInput = null },
-                            onAiChatRecordsChange = { aiChatRecords = it },
+                            onSendChatMessage = { text ->
+                                chatViewModel.sendMessage(
+                                    text = text,
+                                    aiConfig = aiConfig,
+                                    userName = userName,
+                                )
+                            },
+                            onDeleteChatMessage = { id -> chatViewModel.deleteMessage(id) },
                             onSearchClick = { navigateToSubPage(KeepAccountsDestination.SEARCH) },
                             onManualRecordClick = {
                                 manualEntryPrefill = null
                                 navigateToSubPage(KeepAccountsDestination.MANUAL_ENTRY)
                             },
                             onAiRecordClick = {
-                                chatInitialInput = "牛肉粉丝汤 22"
+                                chatInitialInput = null
                                 animateToTabRoute(KeepAccountsDestination.CHAT)
                             },
                             onViewLedger = { animateToTabRoute(KeepAccountsDestination.LEDGER) },
@@ -387,11 +402,17 @@ fun KeepAccountsApp() {
                                 val trimmed = newCategory.trim()
                                 if (trimmed.isNotBlank() && manualCategories.none { it == trimmed }) {
                                     manualCategories = manualCategories + trimmed
+                                    coroutineScope.launch {
+                                        userSettingsRepository.saveManualCategories(manualCategories)
+                                    }
                                 }
                             },
                             onDeleteCategory = { category ->
                                 if (manualCategories.size > 1) {
                                     manualCategories = manualCategories.filterNot { it == category }
+                                    coroutineScope.launch {
+                                        userSettingsRepository.saveManualCategories(manualCategories)
+                                    }
                                 }
                             },
                         )
@@ -418,9 +439,11 @@ private fun MainTabsPager(
     theme: AppThemePreset,
     palette: ThemePalette,
     aiChatRecords: List<AiChatRecord>,
+    aiIsSending: Boolean,
     initialChatInput: String?,
     onConsumedInitialInput: () -> Unit,
-    onAiChatRecordsChange: (List<AiChatRecord>) -> Unit,
+    onSendChatMessage: (String) -> Unit,
+    onDeleteChatMessage: (Long) -> Unit,
     onSearchClick: () -> Unit,
     onManualRecordClick: () -> Unit,
     onAiRecordClick: () -> Unit,
@@ -453,9 +476,11 @@ private fun MainTabsPager(
                 userAvatarUri = userAvatarUri,
                 palette = palette,
                 chatRecords = aiChatRecords,
+                isSending = aiIsSending,
                 initialInput = initialChatInput,
                 onConsumedInitialInput = onConsumedInitialInput,
-                onChatRecordsChange = onAiChatRecordsChange,
+                onSendMessage = onSendChatMessage,
+                onDeleteMessage = onDeleteChatMessage,
                 onBack = {},
                 onOpenAiSettings = onOpenAiSettings,
                 onOpenManualEntry = onEditRecord,

@@ -5,6 +5,7 @@ import androidx.room.Room
 import com.qcb.keepaccounts.BuildConfig
 import com.qcb.keepaccounts.data.local.AppDatabase
 import com.qcb.keepaccounts.data.local.preferences.UserSettingsRepository
+import com.qcb.keepaccounts.data.repository.ChatRepository
 import com.qcb.keepaccounts.data.remote.siliconflow.SiliconFlowApi
 import com.qcb.keepaccounts.data.repository.SiliconFlowAiGateway
 import com.qcb.keepaccounts.data.repository.TransactionRepository
@@ -16,6 +17,7 @@ import retrofit2.converter.moshi.MoshiConverterFactory
 
 interface AppContainer {
     val transactionRepository: TransactionRepository
+    val chatRepository: ChatRepository
     val aiChatGateway: AiChatGateway
     val userSettingsRepository: UserSettingsRepository
 }
@@ -56,6 +58,14 @@ class DefaultAppContainer(context: Context) : AppContainer {
 
     override val transactionRepository: TransactionRepository by lazy {
         TransactionRepository(database.transactionDao())
+    }
+
+    override val chatRepository: ChatRepository by lazy {
+        ChatRepository(
+            chatMessageDao = database.chatMessageDao(),
+            transactionDao = database.transactionDao(),
+            aiChatGateway = aiChatGateway,
+        )
     }
 
     override val aiChatGateway: AiChatGateway by lazy {
