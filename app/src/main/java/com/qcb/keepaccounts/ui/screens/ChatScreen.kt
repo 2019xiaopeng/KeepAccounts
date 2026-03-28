@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -801,15 +802,9 @@ private fun InputBar(
 ) {
     Row(
         modifier = modifier
-            .padding(horizontal = 10.dp, vertical = 6.dp)
-            .glassCard(
-                shape = RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp, bottomStart = 18.dp, bottomEnd = 18.dp),
-                backgroundColor = Color.White.copy(alpha = 0.82f),
-                glowColor = accentColor.copy(alpha = 0.18f),
-            )
-            .padding(horizontal = 10.dp, vertical = 8.dp),
+            .padding(horizontal = 10.dp, vertical = 6.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        verticalAlignment = Alignment.Top,
     ) {
         TextField(
             value = input,
@@ -823,14 +818,18 @@ private fun InputBar(
                 focusedIndicatorColor = Color.Transparent,
                 unfocusedIndicatorColor = Color.Transparent,
             ),
-            singleLine = true,
+            singleLine = false,
+            minLines = 1,
+            maxLines = 4,
             modifier = Modifier
                 .weight(1f)
-                .clip(RoundedCornerShape(999.dp)),
+                .heightIn(min = 40.dp)
+                .clip(RoundedCornerShape(18.dp)),
         )
 
         Box(
             modifier = Modifier
+                .align(Alignment.Top)
                 .height(40.dp)
                 .clip(RoundedCornerShape(999.dp))
                 .alpha(if (enabled) 1f else 0.5f)
