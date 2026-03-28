@@ -276,21 +276,28 @@ fun AppSettingsScreen(
                     }
                 }
                 item {
-                    TextField(
-                        value = localName,
-                        onValueChange = { localName = it },
-                        placeholder = { Text("例如：主人、宝宝") },
-                        singleLine = true,
-                        colors = TextFieldDefaults.colors(
-                            focusedContainerColor = Color.White.copy(alpha = 0.75f),
-                            unfocusedContainerColor = Color.White.copy(alpha = 0.6f),
-                            focusedIndicatorColor = Color.Transparent,
-                            unfocusedIndicatorColor = Color.Transparent,
-                        ),
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .glassCard(shape = RoundedCornerShape(18.dp), glowColor = accentColor.copy(alpha = 0.1f)),
-                    )
+                            .glassCard(shape = RoundedCornerShape(18.dp), glowColor = accentColor.copy(alpha = 0.1f))
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(text = "个人名称", color = WarmBrown, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        TextField(
+                            value = localName,
+                            onValueChange = { localName = it },
+                            placeholder = { Text("请输入您的名称") },
+                            singleLine = true,
+                            colors = TextFieldDefaults.colors(
+                                focusedContainerColor = Color.White.copy(alpha = 0.75f),
+                                unfocusedContainerColor = Color.White.copy(alpha = 0.6f),
+                                focusedIndicatorColor = Color.Transparent,
+                                unfocusedIndicatorColor = Color.Transparent,
+                            ),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
                 }
                 item {
                     ActionButton(icon = Icons.Rounded.CheckCircle, text = "保存个人设置", accentColor = accentColor) {

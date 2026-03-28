@@ -59,12 +59,18 @@ fun InitialSetupScreen(
     initialUserAvatarUri: String?,
     initialTheme: AppThemePreset,
     initialAiConfig: AiAssistantConfig,
-    onComplete: (String, String?, AppThemePreset, AiAssistantConfig) -> Unit,
+    initialMonthlyBudget: Double,
+    onComplete: (String, String?, AppThemePreset, AiAssistantConfig, Double) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var userName by rememberSaveable { mutableStateOf(initialUserName.ifBlank { "主人" }) }
+    var userName by rememberSaveable {
+        mutableStateOf(initialUserName.takeIf { it.isNotBlank() && it != "主人" } ?: "")
+    }
     var userAvatarUri by rememberSaveable { mutableStateOf(initialUserAvatarUri) }
     var theme by rememberSaveable { mutableStateOf(initialTheme) }
+    var monthlyBudgetInput by rememberSaveable(initialMonthlyBudget) {
+        mutableStateOf(normalizeBudgetInput(initialMonthlyBudget))
+    }
 
     var aiName by rememberSaveable { mutableStateOf(initialAiConfig.name) }
     var aiAvatar by rememberSaveable { mutableStateOf(initialAiConfig.avatar) }
@@ -174,7 +180,34 @@ fun InitialSetupScreen(
                 TextField(
                     value = userName,
                     onValueChange = { userName = it },
-                    placeholder = { Text("请输入你的称呼，例如：主人", color = WarmBrownMuted) },
+                    placeholder = { Text("请输入AI对您的称呼", color = WarmBrownMuted) },
+                    singleLine = true,
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = Color.White.copy(alpha = 0.75f),
+                        unfocusedContainerColor = Color.White.copy(alpha = 0.62f),
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent,
+                    ),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
+
+        item {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .glassCard(shape = RoundedCornerShape(22.dp), glowColor = selectedColor.copy(alpha = 0.14f))
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text(text = "初始化每月预算", color = WarmBrown, fontWeight = FontWeight.Bold)
+                TextField(
+                    value = monthlyBudgetInput,
+                    onValueChange = { value ->
+                        monthlyBudgetInput = value.filter { it.isDigit() || it == '.' }
+                    },
+                    placeholder = { Text("请输入每月预算，例如：2000", color = WarmBrownMuted) },
                     singleLine = true,
                     colors = TextFieldDefaults.colors(
                         focusedContainerColor = Color.White.copy(alpha = 0.75f),
@@ -311,8 +344,11 @@ fun InitialSetupScreen(
                         shape = RoundedCornerShape(999.dp),
                     )
                     .clickable {
+                        val setupBudget = monthlyBudgetInput.trim().toDoubleOrNull()
+                            ?.takeIf { it > 0.0 }
+                            ?: initialMonthlyBudget.coerceAtLeast(1.0)
                         onComplete(
-                            userName.ifBlank { "主人" },
+                            userName.trim().ifBlank { "我" },
                             userAvatarUri,
                             theme,
                             AiAssistantConfig(
@@ -323,6 +359,7 @@ fun InitialSetupScreen(
                                 chatBackground = initialAiConfig.chatBackground,
                                 customChatBackgroundUri = initialAiConfig.customChatBackgroundUri,
                             ),
+                            setupBudget,
                         )
                     }
                     .padding(vertical = 14.dp),
@@ -392,4 +429,9 @@ private fun ToneOptionRow(
     ) {
         Text(text = label, color = WarmBrown, fontWeight = FontWeight.Bold, fontSize = 13.sp)
     }
+}
+
+private fun normalizeBudgetInput(value: Double): String {
+    val normalized = String.format("%.2f", value)
+    return normalized.trimEnd('0').trimEnd('.')
 }

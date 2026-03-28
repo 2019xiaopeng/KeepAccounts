@@ -831,7 +831,7 @@ private fun InputBar(
         Box(
             modifier = Modifier
                 .align(Alignment.Top)
-                .width(72.dp)
+                .width(86.dp)
                 .height(56.dp)
                 .clip(RoundedCornerShape(999.dp))
                 .alpha(if (enabled) 1f else 0.5f)
@@ -855,6 +855,8 @@ private fun InputBar(
                     color = Color.White,
                     fontWeight = FontWeight.Bold,
                     fontSize = 13.sp,
+                    maxLines = 1,
+                    softWrap = false,
                 )
             }
         }

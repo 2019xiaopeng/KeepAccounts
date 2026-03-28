@@ -317,11 +317,13 @@ fun KeepAccountsApp() {
                             initialUserAvatarUri = userAvatarUri,
                             initialTheme = appTheme,
                             initialAiConfig = aiConfig,
-                            onComplete = { setupUserName, setupUserAvatarUri, setupTheme, setupAiConfig ->
+                            initialMonthlyBudget = monthlyBudget,
+                            onComplete = { setupUserName, setupUserAvatarUri, setupTheme, setupAiConfig, setupMonthlyBudget ->
                                 userName = setupUserName
                                 userAvatarUri = setupUserAvatarUri
                                 appTheme = setupTheme
                                 aiConfig = setupAiConfig
+                                monthlyBudget = setupMonthlyBudget
 
                                 coroutineScope.launch {
                                     userSettingsRepository.saveInitialSetup(
@@ -329,6 +331,12 @@ fun KeepAccountsApp() {
                                         userAvatarUri = setupUserAvatarUri,
                                         theme = setupTheme,
                                         aiConfig = setupAiConfig,
+                                    )
+                                    userSettingsRepository.saveLedgerSettings(
+                                        ledgerCurrency = ledgerCurrency,
+                                        defaultLedgerName = defaultLedgerName,
+                                        reminderTime = reminderTime,
+                                        monthlyBudget = setupMonthlyBudget,
                                     )
                                 }
 

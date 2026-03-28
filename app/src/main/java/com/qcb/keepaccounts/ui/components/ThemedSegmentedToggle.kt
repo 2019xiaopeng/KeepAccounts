@@ -3,9 +3,6 @@ package com.qcb.keepaccounts.ui.components
 import android.graphics.RenderEffect
 import android.graphics.Shader
 import android.os.Build
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -23,7 +20,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -69,28 +65,9 @@ fun ThemedSegmentedToggle(
     val itemWidths = remember(options) { mutableStateListOf(*Array(options.size) { 0.dp }) }
     var containerWidth by remember(options) { mutableStateOf(0.dp) }
     var containerHeight by remember(options) { mutableStateOf(0.dp) }
-    var disableInitialAnimation by remember(options) { mutableStateOf(true) }
 
-    val targetOffset = itemOffsets.getOrElse(safeIndex) { 0.dp }
-    val targetWidth = itemWidths.getOrElse(safeIndex) { 0.dp }
-    val animatedOffset by animateDpAsState(
-        targetValue = targetOffset,
-        animationSpec = spring(dampingRatio = 0.8f, stiffness = 300f),
-        label = "segmentedIndicatorOffset",
-    )
-    val animatedWidth by animateDpAsState(
-        targetValue = targetWidth,
-        animationSpec = spring(dampingRatio = 0.8f, stiffness = 300f),
-        label = "segmentedIndicatorWidth",
-    )
-    val indicatorOffset = if (disableInitialAnimation) targetOffset else animatedOffset
-    val indicatorWidth = if (disableInitialAnimation) targetWidth else animatedWidth
-
-    LaunchedEffect(targetWidth, disableInitialAnimation) {
-        if (disableInitialAnimation && targetWidth > 0.dp) {
-            disableInitialAnimation = false
-        }
-    }
+    val indicatorOffset = itemOffsets.getOrElse(safeIndex) { 0.dp }
+    val indicatorWidth = itemWidths.getOrElse(safeIndex) { 0.dp }
 
     Box(
         modifier = modifier
@@ -172,11 +149,7 @@ fun ThemedSegmentedToggle(
             options.forEachIndexed { index, label ->
                 val selected = index == safeIndex
                 val icon = icons.getOrNull(index)
-                val textColor by animateColorAsState(
-                    targetValue = if (selected) WarmBrown else WarmBrownMuted.copy(alpha = 0.8f),
-                    animationSpec = spring(dampingRatio = 0.85f, stiffness = 360f),
-                    label = "segmentedText$index",
-                )
+                val textColor = if (selected) WarmBrown else WarmBrownMuted.copy(alpha = 0.8f)
 
                 Box(
                     modifier = Modifier
