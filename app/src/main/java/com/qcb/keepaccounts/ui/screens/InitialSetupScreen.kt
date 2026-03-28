@@ -89,13 +89,26 @@ fun InitialSetupScreen(
         AppThemePreset.BLUE -> Color(0xFF8EB5F5)
     }
 
-    LazyColumn(
+    Box(
         modifier = modifier
             .fillMaxSize()
-            .navigationBarsPadding(),
-        contentPadding = PaddingValues(start = 14.dp, top = 8.dp, end = 14.dp, bottom = 18.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+            .background(
+                brush = Brush.verticalGradient(
+                    colors = listOf(
+                        selectedColor.copy(alpha = 0.24f),
+                        selectedColor.copy(alpha = 0.12f),
+                        Color.White,
+                    ),
+                ),
+            ),
     ) {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .navigationBarsPadding(),
+            contentPadding = PaddingValues(start = 14.dp, top = 8.dp, end = 14.dp, bottom = 18.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
         item {
             Column(
                 modifier = Modifier
@@ -319,6 +332,7 @@ fun InitialSetupScreen(
                 Icon(imageVector = Icons.Rounded.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
                 Text(text = "完成初始化并进入应用", color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 15.sp, modifier = Modifier.padding(start = 6.dp))
             }
+        }
         }
     }
 }

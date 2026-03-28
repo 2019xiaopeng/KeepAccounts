@@ -11,6 +11,7 @@ import com.qcb.keepaccounts.data.repository.SiliconFlowAiGateway
 import com.qcb.keepaccounts.data.repository.TransactionRepository
 import com.qcb.keepaccounts.domain.contract.AiChatGateway
 import com.squareup.moshi.Moshi
+import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
@@ -48,10 +49,13 @@ class DefaultAppContainer(context: Context) : AppContainer {
     }
 
     private val siliconFlowApi: SiliconFlowApi by lazy {
+        val moshi = Moshi.Builder()
+            .add(KotlinJsonAdapterFactory())
+            .build()
         Retrofit.Builder()
             .baseUrl(apiBaseUrl)
             .client(aiHttpClient)
-            .addConverterFactory(MoshiConverterFactory.create(Moshi.Builder().build()))
+            .addConverterFactory(MoshiConverterFactory.create(moshi))
             .build()
             .create(SiliconFlowApi::class.java)
     }

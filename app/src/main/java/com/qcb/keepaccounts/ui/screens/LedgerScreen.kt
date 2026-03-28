@@ -96,6 +96,11 @@ private data class CategoryStat(
     val icon: ImageVector,
 )
 
+private data class TrendChartData(
+    val labels: List<String>,
+    val values: List<Double>,
+)
+
 private enum class LedgerViewMode { CALENDAR, STATS }
 private enum class StatsPeriod { MONTH, YEAR }
 private enum class TrendMetric { EXPENSE, INCOME, BALANCE }
@@ -180,20 +185,14 @@ fun LedgerScreen(
     val categoryExpense = remember(scopeTransactions) { categoryStats(scopeTransactions.filter { it.type == 0 }) }
     val categoryIncome = remember(scopeTransactions) { categoryStats(scopeTransactions.filter { it.type == 1 }) }
     val rankList = if (rankType == RankType.EXPENSE) categoryExpense else categoryIncome
-    val trendXAxisLabels = remember(statsPeriod, month) {
-        if (statsPeriod == StatsPeriod.MONTH) {
-            val monthPrefix = String.format(Locale.CHINA, "%02d", month + 1)
-            listOf(
-                "$monthPrefix-01",
-                "$monthPrefix-06",
-                "$monthPrefix-11",
-                "$monthPrefix-16",
-                "$monthPrefix-21",
-                "$monthPrefix-26",
-            )
-        } else {
-            listOf("01月", "03月", "05月", "07月", "09月", "11月")
-        }
+    val trendChartData = remember(scopeTransactions, statsPeriod, year, month, trendMetric) {
+        buildTrendChartData(
+            statsPeriod = statsPeriod,
+            year = year,
+            month = month,
+            transactions = scopeTransactions,
+            metric = trendMetric,
+        )
     }
 
     val sortedRecords = remember(transactions, recordSortMode) {
@@ -348,7 +347,8 @@ fun LedgerScreen(
                         totalBalance = totalBalance,
                         trendMetric = trendMetric,
                         onTrendMetricChange = { trendMetric = it },
-                        xLabels = trendXAxisLabels,
+                        trendLabels = trendChartData.labels,
+                        trendValues = trendChartData.values,
                         categoryExpense = categoryExpense,
                         rankType = rankType,
                         onRankTypeChange = { rankType = it },
@@ -360,7 +360,7 @@ fun LedgerScreen(
         }
 
         item {
-            MockRecordPagerSection(
+            RecordPagerSection(
                 sortMode = recordSortMode,
                 onSortModeChange = {
                     recordSortMode = it
@@ -700,7 +700,8 @@ private fun StatsPanel(
     totalBalance: Double,
     trendMetric: TrendMetric,
     onTrendMetricChange: (TrendMetric) -> Unit,
-    xLabels: List<String>,
+    trendLabels: List<String>,
+    trendValues: List<Double>,
     categoryExpense: List<CategoryStat>,
     rankType: RankType,
     onRankTypeChange: (RankType) -> Unit,
@@ -824,7 +825,12 @@ private fun StatsPanel(
                         },
                         label = "trendMetricSwitch",
                     ) {
-                                TrendPlaceholderChart(xLabels = xLabels)
+                        TrendChart(
+                            labels = trendLabels,
+                            values = trendValues,
+                            metric = trendMetric,
+                            accentColor = accentColor,
+                        )
                     }
                 }
 
@@ -932,9 +938,22 @@ private fun DividerV() {
 }
 
 @Composable
-private fun TrendPlaceholderChart(xLabels: List<String>) {
-    val yLabels = listOf("2.0k", "1.5k", "1.0k", "500", "0")
-    val shownXLabels = if (xLabels.size >= 6) xLabels.take(6) else xLabels
+private fun TrendChart(
+    labels: List<String>,
+    values: List<Double>,
+    metric: TrendMetric,
+    accentColor: Color,
+) {
+    val shownLabels = if (labels.isEmpty()) listOf("-") else labels
+    val shownValues = if (values.isEmpty()) listOf(0.0) else values
+    val maxValue = shownValues.maxOrNull()?.coerceAtLeast(0.0) ?: 0.0
+    val axisMax = if (maxValue <= 0.0) 1.0 else maxValue
+    val yLabels = listOf(axisMax, axisMax * 0.75, axisMax * 0.5, axisMax * 0.25, 0.0)
+    val lineColor = when (metric) {
+        TrendMetric.EXPENSE -> WatermelonRed
+        TrendMetric.INCOME -> MintGreen
+        TrendMetric.BALANCE -> accentColor
+    }
 
     Box(
         modifier = Modifier
@@ -959,6 +978,37 @@ private fun TrendPlaceholderChart(xLabels: List<String>) {
                     cap = StrokeCap.Round,
                 )
             }
+
+            val points = shownValues.mapIndexed { index, value ->
+                val x = if (shownValues.size == 1) {
+                    size.width / 2f
+                } else {
+                    size.width * index / (shownValues.lastIndex.toFloat())
+                }
+                val ratio = (value / axisMax).toFloat().coerceIn(0f, 1f)
+                val y = size.height * (1f - ratio)
+                Offset(x, y)
+            }
+
+            if (points.size >= 2) {
+                for (i in 0 until points.lastIndex) {
+                    drawLine(
+                        color = lineColor,
+                        start = points[i],
+                        end = points[i + 1],
+                        strokeWidth = 4f,
+                        cap = StrokeCap.Round,
+                    )
+                }
+            }
+
+            points.forEach { point ->
+                drawCircle(
+                    color = lineColor,
+                    radius = 4.5f,
+                    center = point,
+                )
+            }
         }
 
         Column(
@@ -971,7 +1021,7 @@ private fun TrendPlaceholderChart(xLabels: List<String>) {
         ) {
             yLabels.forEach { label ->
                 Text(
-                    text = label,
+                    text = formatAxisLabel(label),
                     color = WarmBrownMuted.copy(alpha = 0.75f),
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Medium,
@@ -984,10 +1034,10 @@ private fun TrendPlaceholderChart(xLabels: List<String>) {
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
                 .padding(start = 34.dp, end = 6.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            horizontalArrangement = if (shownLabels.size == 1) Arrangement.Center else Arrangement.SpaceBetween,
             verticalAlignment = Alignment.Bottom,
         ) {
-            shownXLabels.forEach { label ->
+            shownLabels.forEach { label ->
                 Text(
                     text = label,
                     color = WarmBrownMuted.copy(alpha = 0.75f),
@@ -1041,7 +1091,7 @@ private fun DonutChart(categoryExpense: List<CategoryStat>, totalExpense: Double
 }
 
 @Composable
-private fun MockRecordPagerSection(
+private fun RecordPagerSection(
     sortMode: RecordSortMode,
     onSortModeChange: (RecordSortMode) -> Unit,
     records: List<TransactionEntity>,
@@ -1084,7 +1134,7 @@ private fun MockRecordPagerSection(
                         animationSpec = tween(300),
                     ) + fadeOut(tween(300))
             },
-            label = "mockPageSwitch",
+            label = "recordPageSwitch",
         ) {
             LazyColumn(
                 modifier = Modifier
@@ -1168,6 +1218,57 @@ private fun metricValue(list: List<TransactionEntity>, metric: TrendMetric): Dou
         TrendMetric.INCOME -> income
         TrendMetric.BALANCE -> income - expense
     }.coerceAtLeast(0.0)
+}
+
+private fun buildTrendChartData(
+    statsPeriod: StatsPeriod,
+    year: Int,
+    month: Int,
+    transactions: List<TransactionEntity>,
+    metric: TrendMetric,
+): TrendChartData {
+    return if (statsPeriod == StatsPeriod.MONTH) {
+        val daysInMonth = Calendar.getInstance().apply { set(year, month, 1) }.getActualMaximum(Calendar.DAY_OF_MONTH)
+        val bucketSize = kotlin.math.ceil(daysInMonth / 6.0).toInt().coerceAtLeast(1)
+        val byDay = transactions.groupBy { tx ->
+            Calendar.getInstance().apply { timeInMillis = tx.recordTimestamp }.get(Calendar.DAY_OF_MONTH)
+        }
+
+        val labels = mutableListOf<String>()
+        val values = mutableListOf<Double>()
+
+        var startDay = 1
+        while (startDay <= daysInMonth) {
+            val endDay = minOf(daysInMonth, startDay + bucketSize - 1)
+            val bucket = (startDay..endDay).flatMap { day -> byDay[day].orEmpty() }
+            labels += String.format(Locale.CHINA, "%02d-%02d", startDay, endDay)
+            values += metricValue(bucket, metric)
+            startDay = endDay + 1
+        }
+        TrendChartData(labels = labels, values = values)
+    } else {
+        val byMonth = transactions.groupBy { tx ->
+            Calendar.getInstance().apply { timeInMillis = tx.recordTimestamp }.get(Calendar.MONTH)
+        }
+        val labels = mutableListOf<String>()
+        val values = mutableListOf<Double>()
+
+        for (startMonth in 0..11 step 2) {
+            val endMonth = minOf(11, startMonth + 1)
+            val bucket = (startMonth..endMonth).flatMap { monthIndex -> byMonth[monthIndex].orEmpty() }
+            labels += String.format(Locale.CHINA, "%02d-%02d月", startMonth + 1, endMonth + 1)
+            values += metricValue(bucket, metric)
+        }
+        TrendChartData(labels = labels, values = values)
+    }
+}
+
+private fun formatAxisLabel(value: Double): String {
+    return when {
+        value >= 10_000.0 -> "${trimNumber(value / 10_000.0)}w"
+        value >= 1_000.0 -> "${trimNumber(value / 1_000.0)}k"
+        else -> trimNumber(value)
+    }
 }
 
 private fun categoryStats(list: List<TransactionEntity>): List<CategoryStat> {

@@ -570,7 +570,26 @@ private fun mapTransactionsToSections(transactions: List<TransactionEntity>): Li
     val dayDisplayFormat = SimpleDateFormat("MM月dd日", Locale.CHINA)
     val timeFormat = SimpleDateFormat("HH:mm", Locale.CHINA)
 
-    val grouped = transactions.groupBy { dayKeyFormat.format(Date(it.recordTimestamp)) }
+    val startCalendar = Calendar.getInstance().apply {
+        set(Calendar.HOUR_OF_DAY, 0)
+        set(Calendar.MINUTE, 0)
+        set(Calendar.SECOND, 0)
+        set(Calendar.MILLISECOND, 0)
+        add(Calendar.DAY_OF_MONTH, -2)
+    }
+    val startTimestamp = startCalendar.timeInMillis
+    val endTimestamp = System.currentTimeMillis()
+
+    val recentRecords = transactions
+        .asSequence()
+        .filter { it.recordTimestamp in startTimestamp..endTimestamp }
+        .sortedByDescending { it.recordTimestamp }
+        .take(10)
+        .toList()
+
+    if (recentRecords.isEmpty()) return emptyList()
+
+    val grouped = recentRecords.groupBy { dayKeyFormat.format(Date(it.recordTimestamp)) }
         .toSortedMap(reverseOrder())
 
     val todayKey = dayKeyFormat.format(Date())
