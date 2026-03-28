@@ -115,6 +115,9 @@ fun KeepAccountsApp() {
     var userName by remember { mutableStateOf("主人") }
     var userAvatarUri by remember { mutableStateOf<String?>(null) }
     var manualCategories by remember { mutableStateOf(defaultManualCategories) }
+    var ledgerCurrency by remember { mutableStateOf("CNY ¥") }
+    var defaultLedgerName by remember { mutableStateOf("日常账本") }
+    var reminderTime by remember { mutableStateOf("21:00") }
 
     LaunchedEffect(settings) {
         appTheme = settings.theme
@@ -122,6 +125,9 @@ fun KeepAccountsApp() {
         userName = settings.userName
         userAvatarUri = settings.userAvatarUri
         manualCategories = settings.manualCategories
+        ledgerCurrency = settings.ledgerCurrency
+        defaultLedgerName = settings.defaultLedgerName
+        reminderTime = settings.reminderTime
     }
 
     val palette = remember(appTheme) { paletteForTheme(appTheme) }
@@ -369,6 +375,9 @@ fun KeepAccountsApp() {
                             theme = appTheme,
                             userName = userName,
                             userAvatarUri = userAvatarUri,
+                            ledgerCurrency = ledgerCurrency,
+                            defaultLedgerName = defaultLedgerName,
+                            reminderTime = reminderTime,
                             accentColor = palette.primaryDark,
                             onBack = { navController.popBackStack() },
                             onThemeChange = {
@@ -387,6 +396,18 @@ fun KeepAccountsApp() {
                                 userAvatarUri = it
                                 coroutineScope.launch {
                                     userSettingsRepository.saveUserProfile(userName, userAvatarUri)
+                                }
+                            },
+                            onLedgerSettingsChange = { currency, ledgerName, time ->
+                                ledgerCurrency = currency
+                                defaultLedgerName = ledgerName
+                                reminderTime = time
+                                coroutineScope.launch {
+                                    userSettingsRepository.saveLedgerSettings(
+                                        ledgerCurrency = currency,
+                                        defaultLedgerName = ledgerName,
+                                        reminderTime = time,
+                                    )
                                 }
                             },
                         )

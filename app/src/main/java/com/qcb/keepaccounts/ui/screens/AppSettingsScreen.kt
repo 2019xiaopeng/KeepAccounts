@@ -58,15 +58,22 @@ fun AppSettingsScreen(
     theme: AppThemePreset,
     userName: String,
     userAvatarUri: String?,
+    ledgerCurrency: String,
+    defaultLedgerName: String,
+    reminderTime: String,
     accentColor: Color,
     onBack: () -> Unit,
     onThemeChange: (AppThemePreset) -> Unit,
     onUserNameChange: (String) -> Unit,
     onUserAvatarChange: (String?) -> Unit,
+    onLedgerSettingsChange: (String, String, String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var localName by rememberSaveable(userName) { mutableStateOf(userName) }
     var localAvatarUri by rememberSaveable(userAvatarUri) { mutableStateOf(userAvatarUri) }
+    var localLedgerCurrency by rememberSaveable(ledgerCurrency) { mutableStateOf(ledgerCurrency) }
+    var localDefaultLedgerName by rememberSaveable(defaultLedgerName) { mutableStateOf(defaultLedgerName) }
+    var localReminderTime by rememberSaveable(reminderTime) { mutableStateOf(reminderTime) }
     var hintText by remember { mutableStateOf<String?>(null) }
 
     val avatarPicker = rememberLauncherForActivityResult(
@@ -247,10 +254,82 @@ fun AppSettingsScreen(
             }
 
             KeepAccountsDestination.SETTINGS_TYPE_LEDGER -> {
-                item { GenericCard(title = "账本基础设置", desc = "默认账本、币种、提醒时间等") }
-                item { GenericCard(title = "默认币种", desc = "CNY ¥") }
-                item { GenericCard(title = "默认账本", desc = "日常账本") }
-                item { GenericCard(title = "记账提醒", desc = "每天 21:00") }
+                item {
+                    GenericCard(
+                        title = "账本基础设置",
+                        desc = "支持修改默认账本、币种和提醒时间（本地持久化）",
+                    )
+                }
+                item {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .glassCard(shape = RoundedCornerShape(18.dp), glowColor = accentColor.copy(alpha = 0.1f))
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Text(text = "默认币种", color = WarmBrown, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        TextField(
+                            value = localLedgerCurrency,
+                            onValueChange = { localLedgerCurrency = it },
+                            placeholder = { Text("例如：CNY ¥") },
+                            singleLine = true,
+                            colors = TextFieldDefaults.colors(
+                                focusedContainerColor = Color.White.copy(alpha = 0.75f),
+                                unfocusedContainerColor = Color.White.copy(alpha = 0.6f),
+                                focusedIndicatorColor = Color.Transparent,
+                                unfocusedIndicatorColor = Color.Transparent,
+                            ),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+
+                        Text(text = "默认账本", color = WarmBrown, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        TextField(
+                            value = localDefaultLedgerName,
+                            onValueChange = { localDefaultLedgerName = it },
+                            placeholder = { Text("例如：日常账本") },
+                            singleLine = true,
+                            colors = TextFieldDefaults.colors(
+                                focusedContainerColor = Color.White.copy(alpha = 0.75f),
+                                unfocusedContainerColor = Color.White.copy(alpha = 0.6f),
+                                focusedIndicatorColor = Color.Transparent,
+                                unfocusedIndicatorColor = Color.Transparent,
+                            ),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+
+                        Text(text = "记账提醒时间", color = WarmBrown, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        TextField(
+                            value = localReminderTime,
+                            onValueChange = { localReminderTime = it },
+                            placeholder = { Text("24小时制，例如：21:00") },
+                            singleLine = true,
+                            colors = TextFieldDefaults.colors(
+                                focusedContainerColor = Color.White.copy(alpha = 0.75f),
+                                unfocusedContainerColor = Color.White.copy(alpha = 0.6f),
+                                focusedIndicatorColor = Color.Transparent,
+                                unfocusedIndicatorColor = Color.Transparent,
+                            ),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
+                item {
+                    ActionButton(icon = Icons.Rounded.CheckCircle, text = "保存账本设置", accentColor = accentColor) {
+                        val normalizedReminder = localReminderTime.trim()
+                        if (!isValidReminderTime(normalizedReminder)) {
+                            hintText = "提醒时间格式需为 HH:mm，例如 21:00"
+                            return@ActionButton
+                        }
+
+                        onLedgerSettingsChange(
+                            localLedgerCurrency.trim().ifBlank { "CNY ¥" },
+                            localDefaultLedgerName.trim().ifBlank { "日常账本" },
+                            normalizedReminder,
+                        )
+                        hintText = "账本基础设置已保存"
+                    }
+                }
             }
 
             else -> {
@@ -367,4 +446,8 @@ private fun titleForType(type: String): String {
         KeepAccountsDestination.SETTINGS_TYPE_MY_NAME -> "个人设置"
         else -> "帮助与反馈"
     }
+}
+
+private fun isValidReminderTime(value: String): Boolean {
+    return Regex("^([01]\\d|2[0-3]):[0-5]\\d$").matches(value)
 }
