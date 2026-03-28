@@ -122,11 +122,13 @@ fun KeepAccountsApp() {
     var appTheme by remember { mutableStateOf(AppThemePreset.MINT) }
     var aiConfig by remember { mutableStateOf(AiAssistantConfig()) }
     var userName by remember { mutableStateOf("主人") }
+    var homeSlogan by remember { mutableStateOf("劳动最光荣 💼") }
     var userAvatarUri by remember { mutableStateOf<String?>(null) }
     var manualCategories by remember { mutableStateOf(defaultManualCategories) }
-    var ledgerCurrency by remember { mutableStateOf("CNY ¥") }
+    var ledgerCurrency by remember { mutableStateOf("人民币") }
     var defaultLedgerName by remember { mutableStateOf("日常账本") }
     var reminderTime by remember { mutableStateOf("21:00") }
+    var monthlyBudget by remember { mutableStateOf(2000.0) }
     var hasRequestedNotificationPermission by rememberSaveable { mutableStateOf(false) }
 
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
@@ -139,11 +141,13 @@ fun KeepAccountsApp() {
         appTheme = settings.theme
         aiConfig = settings.aiConfig
         userName = settings.userName
+        homeSlogan = settings.homeSlogan
         userAvatarUri = settings.userAvatarUri
         manualCategories = settings.manualCategories
         ledgerCurrency = settings.ledgerCurrency
         defaultLedgerName = settings.defaultLedgerName
         reminderTime = settings.reminderTime
+        monthlyBudget = settings.monthlyBudget
     }
 
     LaunchedEffect(settings.initialized, settings.reminderTime) {
@@ -195,7 +199,7 @@ fun KeepAccountsApp() {
             pagerState.animateScrollToPage(
                 page = index,
                 animationSpec = tween(
-                    durationMillis = 450,
+                    durationMillis = 280,
                     easing = FastOutSlowInEasing,
                 ),
             )
@@ -239,7 +243,7 @@ fun KeepAccountsApp() {
                 modifier = Modifier
                     .align(Alignment.TopStart)
                     .size(220.dp)
-                    .blur(95.dp)
+                    .blur(60.dp)
                     .background(
                         brush = Brush.radialGradient(
                             colors = listOf(
@@ -253,7 +257,7 @@ fun KeepAccountsApp() {
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .size(200.dp)
-                    .blur(90.dp)
+                    .blur(56.dp)
                     .background(
                         brush = Brush.radialGradient(
                             colors = listOf(
@@ -321,10 +325,12 @@ fun KeepAccountsApp() {
                             viewModel = mainViewModel,
                             aiConfig = aiConfig,
                             userName = userName,
+                            homeSlogan = homeSlogan,
                             userAvatarUri = userAvatarUri,
                             theme = appTheme,
                             ledgerCurrency = ledgerCurrency,
                             defaultLedgerName = defaultLedgerName,
+                            monthlyBudget = monthlyBudget,
                             palette = palette,
                             aiChatRecords = aiChatRecords,
                             aiIsSending = aiIsSending,
@@ -377,6 +383,7 @@ fun KeepAccountsApp() {
                             viewModel = mainViewModel,
                             onBack = { navController.popBackStack() },
                             ledgerCurrency = ledgerCurrency,
+                            accentColor = palette.primaryDark,
                             onOpenManualEntry = { prefill ->
                                 manualEntryPrefill = prefill
                                 navigateToSubPage(KeepAccountsDestination.MANUAL_ENTRY)
@@ -415,10 +422,12 @@ fun KeepAccountsApp() {
                             type = type,
                             theme = appTheme,
                             userName = userName,
+                            homeSlogan = homeSlogan,
                             userAvatarUri = userAvatarUri,
                             ledgerCurrency = ledgerCurrency,
                             defaultLedgerName = defaultLedgerName,
                             reminderTime = reminderTime,
+                            monthlyBudget = monthlyBudget,
                             accentColor = palette.primaryDark,
                             onBack = { navController.popBackStack() },
                             onThemeChange = {
@@ -439,16 +448,24 @@ fun KeepAccountsApp() {
                                     userSettingsRepository.saveUserProfile(userName, userAvatarUri)
                                 }
                             },
-                            onLedgerSettingsChange = { currency, ledgerName, time ->
+                            onHomeSloganChange = {
+                                homeSlogan = it
+                                coroutineScope.launch {
+                                    userSettingsRepository.saveHomeSlogan(it)
+                                }
+                            },
+                            onLedgerSettingsChange = { currency, ledgerName, time, budget ->
                                 ledgerCurrency = currency
                                 defaultLedgerName = ledgerName
                                 reminderTime = time
+                                monthlyBudget = budget
                                 LedgerReminderScheduler.scheduleDailyReminder(appContext, time)
                                 coroutineScope.launch {
                                     userSettingsRepository.saveLedgerSettings(
                                         ledgerCurrency = currency,
                                         defaultLedgerName = ledgerName,
                                         reminderTime = time,
+                                        monthlyBudget = budget,
                                     )
                                 }
                             },
@@ -498,10 +515,12 @@ private fun MainTabsPager(
     viewModel: MainViewModel,
     aiConfig: AiAssistantConfig,
     userName: String,
+    homeSlogan: String,
     userAvatarUri: String?,
     theme: AppThemePreset,
     ledgerCurrency: String,
     defaultLedgerName: String,
+    monthlyBudget: Double,
     palette: ThemePalette,
     aiChatRecords: List<AiChatRecord>,
     aiIsSending: Boolean,
@@ -527,8 +546,11 @@ private fun MainTabsPager(
                 viewModel = viewModel,
                 assistantName = aiConfig.name,
                 assistantAvatar = aiConfig.avatar,
+                homeSlogan = homeSlogan,
                 ledgerCurrency = ledgerCurrency,
                 defaultLedgerName = defaultLedgerName,
+                monthlyBudget = monthlyBudget,
+                accentColor = palette.primaryDark,
                 onSearchClick = onSearchClick,
                 onAiRecordClick = onAiRecordClick,
                 onManualRecordClick = onManualRecordClick,
@@ -557,6 +579,7 @@ private fun MainTabsPager(
                 viewModel = viewModel,
                 ledgerCurrency = ledgerCurrency,
                 defaultLedgerName = defaultLedgerName,
+                monthlyBudget = monthlyBudget,
                 onEditRecord = onEditRecord,
                 onDeleteRecord = onDeleteRecord,
                 accentColor = palette.primaryDark,

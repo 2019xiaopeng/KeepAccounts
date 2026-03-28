@@ -120,6 +120,7 @@ fun ManualEntryScreen(
         }
 
         item {
+            val currencySymbol = primaryCurrencySymbol(ledgerCurrency)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -128,12 +129,14 @@ fun ManualEntryScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                Text(
-                    text = primaryCurrencySymbol(ledgerCurrency),
-                    color = if (type == "expense") WatermelonRed else MintGreen,
-                    fontWeight = FontWeight.ExtraBold,
-                    fontSize = 34.sp,
-                )
+                if (currencySymbol.isNotBlank()) {
+                    Text(
+                        text = currencySymbol,
+                        color = if (type == "expense") WatermelonRed else MintGreen,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 34.sp,
+                    )
+                }
                 TextField(
                     value = amountInput,
                     onValueChange = { amountInput = it.filter { ch -> ch.isDigit() || ch == '.' } },
@@ -151,7 +154,7 @@ fun ManualEntryScreen(
                         fontWeight = FontWeight.ExtraBold,
                         fontSize = 42.sp,
                     ),
-                    modifier = Modifier.fillMaxWidth(0.84f),
+                    modifier = Modifier.fillMaxWidth(if (currencySymbol.isBlank()) 1f else 0.84f),
                 )
             }
         }

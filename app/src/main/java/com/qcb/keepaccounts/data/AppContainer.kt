@@ -25,7 +25,7 @@ interface AppContainer {
 
 class DefaultAppContainer(context: Context) : AppContainer {
 
-    private val apiKey = BuildConfig.SILICONFLOW_API_KEY.trim()
+    private val apiKey = normalizeApiKey(BuildConfig.SILICONFLOW_API_KEY)
     private val apiBaseUrl = normalizeBaseUrl(BuildConfig.SILICONFLOW_API_URL)
 
     private val database: AppDatabase = Room.databaseBuilder(
@@ -91,10 +91,18 @@ private fun normalizeBaseUrl(raw: String): String {
         "https://$raw"
     }
 
-    val withVersion = if (withScheme.contains("/v1")) {
-        withScheme
+    val normalizedHost = withScheme.replace("api.siliconflow.com", "api.siliconflow.cn")
+
+    val withVersion = if (normalizedHost.contains("/v1")) {
+        normalizedHost
     } else {
-        withScheme.trimEnd('/') + "/v1"
+        normalizedHost.trimEnd('/') + "/v1"
     }
     return withVersion.trimEnd('/') + "/"
+}
+
+private fun normalizeApiKey(raw: String): String {
+    return raw.trim()
+        .replace(Regex("^Bearer\\s+", RegexOption.IGNORE_CASE), "")
+        .trim()
 }

@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.MutablePreferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.doublePreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -22,6 +23,7 @@ private val Context.userSettingsDataStore by preferencesDataStore(name = "user_s
 data class UserSettingsState(
     val initialized: Boolean = false,
     val userName: String = "主人",
+    val homeSlogan: String = defaultHomeSlogan(),
     val userAvatarUri: String? = null,
     val theme: AppThemePreset = AppThemePreset.MINT,
     val aiConfig: AiAssistantConfig = AiAssistantConfig(),
@@ -29,6 +31,7 @@ data class UserSettingsState(
     val ledgerCurrency: String = defaultLedgerCurrency(),
     val defaultLedgerName: String = defaultLedgerName(),
     val reminderTime: String = defaultReminderTime(),
+    val monthlyBudget: Double = defaultMonthlyBudget(),
 )
 
 class UserSettingsRepository(
@@ -43,12 +46,14 @@ class UserSettingsRepository(
             UserSettingsState(
                 initialized = preferences[Keys.INITIALIZED] ?: false,
                 userName = preferences[Keys.USER_NAME] ?: "主人",
+                homeSlogan = preferences[Keys.HOME_SLOGAN] ?: defaultHomeSlogan(),
                 userAvatarUri = preferences[Keys.USER_AVATAR_URI],
                 theme = parseTheme(preferences[Keys.THEME]),
                 manualCategories = parseCategories(preferences[Keys.MANUAL_CATEGORIES]),
                 ledgerCurrency = preferences[Keys.LEDGER_CURRENCY] ?: defaultLedgerCurrency(),
                 defaultLedgerName = preferences[Keys.DEFAULT_LEDGER_NAME] ?: defaultLedgerName(),
                 reminderTime = preferences[Keys.REMINDER_TIME] ?: defaultReminderTime(),
+                monthlyBudget = preferences[Keys.MONTHLY_BUDGET] ?: defaultMonthlyBudget(),
                 aiConfig = AiAssistantConfig(
                     name = preferences[Keys.AI_NAME] ?: "Nanami",
                     avatar = preferences[Keys.AI_AVATAR] ?: "🌊",
@@ -91,6 +96,12 @@ class UserSettingsRepository(
         }
     }
 
+    suspend fun saveHomeSlogan(homeSlogan: String) {
+        context.userSettingsDataStore.edit { preferences ->
+            preferences[Keys.HOME_SLOGAN] = homeSlogan.ifBlank { defaultHomeSlogan() }
+        }
+    }
+
     suspend fun saveAiConfig(aiConfig: AiAssistantConfig) {
         context.userSettingsDataStore.edit { preferences ->
             writeAiConfig(preferences, aiConfig)
@@ -115,11 +126,15 @@ class UserSettingsRepository(
         ledgerCurrency: String,
         defaultLedgerName: String,
         reminderTime: String,
+        monthlyBudget: Double,
     ) {
         context.userSettingsDataStore.edit { preferences ->
             preferences[Keys.LEDGER_CURRENCY] = ledgerCurrency.ifBlank { defaultLedgerCurrency() }
             preferences[Keys.DEFAULT_LEDGER_NAME] = defaultLedgerName.ifBlank { defaultLedgerName() }
             preferences[Keys.REMINDER_TIME] = reminderTime.ifBlank { defaultReminderTime() }
+            preferences[Keys.MONTHLY_BUDGET] = monthlyBudget
+                .takeIf { it.isFinite() && it > 0.0 }
+                ?: defaultMonthlyBudget()
         }
     }
 
@@ -150,12 +165,14 @@ class UserSettingsRepository(
     private object Keys {
         val INITIALIZED = booleanPreferencesKey("initialized")
         val USER_NAME = stringPreferencesKey("user_name")
+        val HOME_SLOGAN = stringPreferencesKey("home_slogan")
         val USER_AVATAR_URI = stringPreferencesKey("user_avatar_uri")
         val THEME = stringPreferencesKey("theme")
         val MANUAL_CATEGORIES = stringPreferencesKey("manual_categories")
         val LEDGER_CURRENCY = stringPreferencesKey("ledger_currency")
         val DEFAULT_LEDGER_NAME = stringPreferencesKey("default_ledger_name")
         val REMINDER_TIME = stringPreferencesKey("reminder_time")
+        val MONTHLY_BUDGET = doublePreferencesKey("monthly_budget")
 
         val AI_NAME = stringPreferencesKey("ai_name")
         val AI_AVATAR = stringPreferencesKey("ai_avatar")
@@ -190,11 +207,15 @@ private fun defaultCategories(): List<String> {
     )
 }
 
-private fun defaultLedgerCurrency(): String = "CNY ¥"
+private fun defaultLedgerCurrency(): String = "人民币"
 
 private fun defaultLedgerName(): String = "日常账本"
 
 private fun defaultReminderTime(): String = "21:00"
+
+private fun defaultMonthlyBudget(): Double = 2000.0
+
+private fun defaultHomeSlogan(): String = "劳动最光荣 💼"
 
 private fun parseTheme(raw: String?): AppThemePreset {
     return AppThemePreset.entries.firstOrNull { it.name == raw } ?: AppThemePreset.MINT
@@ -205,5 +226,9 @@ private fun parseTone(raw: String?): AiTone {
 }
 
 private fun parseBackground(raw: String?): ChatBackgroundPreset {
-    return ChatBackgroundPreset.entries.firstOrNull { it.name == raw } ?: ChatBackgroundPreset.NONE
+    return if (raw == ChatBackgroundPreset.NONE.name) {
+        ChatBackgroundPreset.NONE
+    } else {
+        ChatBackgroundPreset.NONE
+    }
 }

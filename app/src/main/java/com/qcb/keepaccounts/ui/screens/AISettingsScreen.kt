@@ -10,10 +10,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -33,13 +33,14 @@ import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -47,10 +48,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.qcb.keepaccounts.data.local.media.persistImageForSlot
 import com.qcb.keepaccounts.ui.components.glassCard
 import com.qcb.keepaccounts.ui.model.AiAssistantConfig
 import com.qcb.keepaccounts.ui.model.AiChatRecord
@@ -59,6 +62,7 @@ import com.qcb.keepaccounts.ui.model.ChatBackgroundPreset
 import com.qcb.keepaccounts.ui.theme.WarmBrown
 import com.qcb.keepaccounts.ui.theme.WarmBrownMuted
 import com.qcb.keepaccounts.ui.theme.WatermelonRed
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -76,14 +80,19 @@ fun AISettingsScreen(
     onSave: (AiAssistantConfig) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
     var name by rememberSaveable { mutableStateOf(config.name) }
     var avatar by rememberSaveable { mutableStateOf(config.avatar) }
     var avatarUri by rememberSaveable { mutableStateOf(config.avatarUri) }
     var tone by rememberSaveable { mutableStateOf(config.tone) }
-    var background by rememberSaveable { mutableStateOf(config.chatBackground) }
+    var background by rememberSaveable { mutableStateOf(ChatBackgroundPreset.NONE) }
     var customBackgroundUri by rememberSaveable { mutableStateOf(config.customChatBackgroundUri) }
     var selectedDateMillis by rememberSaveable { mutableStateOf(System.currentTimeMillis()) }
     var showDatePicker by rememberSaveable { mutableStateOf(false) }
+    var showHistoryCalendar by rememberSaveable { mutableStateOf(false) }
+    var tipText by rememberSaveable { mutableStateOf<String?>(null) }
 
     val dayChatRecords = remember(chatRecords, selectedDateMillis) {
         chatRecords
@@ -94,15 +103,41 @@ fun AISettingsScreen(
     val avatarPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia(),
     ) { uri ->
-        if (uri != null) avatarUri = uri.toString()
+        if (uri != null) {
+            scope.launch {
+                val persisted = persistImageForSlot(
+                    context = context,
+                    sourceUri = uri,
+                    slot = "ai_avatar",
+                )
+                if (!persisted.isNullOrBlank()) {
+                    avatarUri = persisted
+                    tipText = "已保存管家头像"
+                } else {
+                    tipText = "头像保存失败，请重试"
+                }
+            }
+        }
     }
 
     val backgroundPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia(),
     ) { uri ->
         if (uri != null) {
-            customBackgroundUri = uri.toString()
-            background = ChatBackgroundPreset.NONE
+            scope.launch {
+                val persisted = persistImageForSlot(
+                    context = context,
+                    sourceUri = uri,
+                    slot = "ai_chat_background",
+                )
+                if (!persisted.isNullOrBlank()) {
+                    customBackgroundUri = persisted
+                    background = ChatBackgroundPreset.NONE
+                    tipText = "已保存自定义对话背景"
+                } else {
+                    tipText = "背景保存失败，请重试"
+                }
+            }
         }
     }
 
@@ -189,13 +224,18 @@ fun AISettingsScreen(
                         Text(text = avatar, fontSize = 34.sp)
                     }
                 }
+
                 LazyVerticalGrid(columns = GridCells.Fixed(5), modifier = Modifier.height(130.dp)) {
                     items(avatarOptions) { item ->
                         Box(
                             modifier = Modifier
                                 .padding(4.dp)
                                 .background(
-                                    color = if (avatar == item && avatarUri.isNullOrBlank()) accentColor.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.5f),
+                                    color = if (avatar == item && avatarUri.isNullOrBlank()) {
+                                        accentColor.copy(alpha = 0.2f)
+                                    } else {
+                                        Color.White.copy(alpha = 0.5f)
+                                    },
                                     shape = RoundedCornerShape(14.dp),
                                 )
                                 .clickable {
@@ -209,6 +249,7 @@ fun AISettingsScreen(
                         }
                     }
                 }
+
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -270,22 +311,16 @@ fun AISettingsScreen(
                     Icon(imageVector = Icons.Rounded.Wallpaper, contentDescription = null, tint = WarmBrown.copy(alpha = 0.7f), modifier = Modifier.size(16.dp))
                     Text(text = "对话背景", color = WarmBrown, fontWeight = FontWeight.Bold)
                 }
-                BackgroundChip("默认", selected = background == ChatBackgroundPreset.NONE) {
-                    background = ChatBackgroundPreset.NONE
-                    customBackgroundUri = null
-                }
-                BackgroundChip("海蓝渐变", selected = background == ChatBackgroundPreset.OCEAN) {
-                    background = ChatBackgroundPreset.OCEAN
-                    customBackgroundUri = null
-                }
-                BackgroundChip("森林薄荷", selected = background == ChatBackgroundPreset.FOREST) {
-                    background = ChatBackgroundPreset.FOREST
-                    customBackgroundUri = null
-                }
-                BackgroundChip("晚霞暖色", selected = background == ChatBackgroundPreset.SUNSET) {
-                    background = ChatBackgroundPreset.SUNSET
-                    customBackgroundUri = null
-                }
+
+                BackgroundChip(
+                    text = "默认随主题",
+                    selected = background == ChatBackgroundPreset.NONE && customBackgroundUri.isNullOrBlank(),
+                    onClick = {
+                        background = ChatBackgroundPreset.NONE
+                        customBackgroundUri = null
+                        tipText = "已切换为默认随主题"
+                    },
+                )
 
                 Row(
                     modifier = Modifier
@@ -302,6 +337,12 @@ fun AISettingsScreen(
                 }
 
                 if (!customBackgroundUri.isNullOrBlank()) {
+                    Text(
+                        text = "当前使用：自定义背景",
+                        color = WarmBrownMuted,
+                        fontWeight = FontWeight.Medium,
+                        fontSize = 12.sp,
+                    )
                     AsyncImage(
                         model = customBackgroundUri,
                         contentDescription = "custom-chat-background-preview",
@@ -323,72 +364,101 @@ fun AISettingsScreen(
                     .padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text(text = "对话记录日历", color = WarmBrown, fontWeight = FontWeight.Bold)
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(Color.White.copy(alpha = 0.78f), RoundedCornerShape(14.dp))
-                        .clickable { showDatePicker = true }
-                        .padding(horizontal = 10.dp, vertical = 9.dp),
+                    modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Rounded.CalendarMonth,
-                            contentDescription = "calendar",
-                            tint = WarmBrown.copy(alpha = 0.72f),
-                            modifier = Modifier.size(16.dp),
-                        )
-                        Text(
-                            text = formatDateText(selectedDateMillis),
-                            color = WarmBrown,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp,
-                        )
-                    }
-                    Text(text = "查看当天记录", color = WarmBrownMuted, fontSize = 12.sp)
+                    Text(text = "对话记录日历", color = WarmBrown, fontWeight = FontWeight.Bold)
+                    Text(
+                        text = if (showHistoryCalendar) "隐藏" else "展开",
+                        color = WarmBrownMuted,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp,
+                        modifier = Modifier.clickable { showHistoryCalendar = !showHistoryCalendar },
+                    )
                 }
 
-                if (dayChatRecords.isEmpty()) {
-                    Text(
-                        text = "当天暂无对话记录",
-                        color = WarmBrownMuted,
-                        fontWeight = FontWeight.Medium,
-                        fontSize = 12.sp,
-                    )
-                } else {
-                    dayChatRecords.forEach { record ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(Color.White.copy(alpha = 0.7f), RoundedCornerShape(14.dp))
-                                .padding(horizontal = 10.dp, vertical = 8.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.Top,
-                        ) {
-                            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                Text(
-                                    text = if (record.role == "user") "你" else "${name.ifBlank { "AI" }}",
-                                    color = if (record.role == "user") accentColor else WatermelonRed,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    fontSize = 12.sp,
-                                )
-                                Text(
-                                    text = record.content,
-                                    color = WarmBrown,
-                                    fontWeight = FontWeight.Medium,
-                                    fontSize = 12.sp,
-                                )
-                            }
+                if (showHistoryCalendar) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color.White.copy(alpha = 0.78f), RoundedCornerShape(14.dp))
+                            .clickable { showDatePicker = true }
+                            .padding(horizontal = 10.dp, vertical = 9.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Rounded.CalendarMonth,
+                                contentDescription = "calendar",
+                                tint = WarmBrown.copy(alpha = 0.72f),
+                                modifier = Modifier.size(16.dp),
+                            )
                             Text(
-                                text = formatTimeText(record.timestamp),
-                                color = WarmBrownMuted,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Medium,
+                                text = formatDateText(selectedDateMillis),
+                                color = WarmBrown,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
                             )
                         }
+                        Text(text = "查看当天记录", color = WarmBrownMuted, fontSize = 12.sp)
                     }
+
+                    if (dayChatRecords.isEmpty()) {
+                        Text(
+                            text = "当天暂无对话记录",
+                            color = WarmBrownMuted,
+                            fontWeight = FontWeight.Medium,
+                            fontSize = 12.sp,
+                        )
+                    } else {
+                        dayChatRecords.forEach { record ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(Color.White.copy(alpha = 0.7f), RoundedCornerShape(14.dp))
+                                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.Top,
+                            ) {
+                                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Text(
+                                        text = if (record.role == "user") "你" else "${name.ifBlank { "AI" }}",
+                                        color = if (record.role == "user") accentColor else WatermelonRed,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        fontSize = 12.sp,
+                                    )
+                                    Text(
+                                        text = record.content,
+                                        color = WarmBrown,
+                                        fontWeight = FontWeight.Medium,
+                                        fontSize = 12.sp,
+                                    )
+                                }
+                                Text(
+                                    text = formatTimeText(record.timestamp),
+                                    color = WarmBrownMuted,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (!tipText.isNullOrBlank()) {
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color.White.copy(alpha = 0.75f), RoundedCornerShape(14.dp))
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                ) {
+                    Text(text = tipText.orEmpty(), color = WarmBrownMuted, fontWeight = FontWeight.Medium, fontSize = 12.sp)
                 }
             }
         }

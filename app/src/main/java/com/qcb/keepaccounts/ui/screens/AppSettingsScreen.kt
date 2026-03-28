@@ -34,6 +34,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -41,46 +42,69 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.qcb.keepaccounts.data.local.media.persistImageForSlot
 import com.qcb.keepaccounts.ui.components.glassCard
 import com.qcb.keepaccounts.ui.model.AppThemePreset
 import com.qcb.keepaccounts.ui.navigation.KeepAccountsDestination
 import com.qcb.keepaccounts.ui.theme.MintGreen
 import com.qcb.keepaccounts.ui.theme.WarmBrown
 import com.qcb.keepaccounts.ui.theme.WarmBrownMuted
+import kotlinx.coroutines.launch
 
 @Composable
 fun AppSettingsScreen(
     type: String,
     theme: AppThemePreset,
     userName: String,
+    homeSlogan: String,
     userAvatarUri: String?,
     ledgerCurrency: String,
     defaultLedgerName: String,
     reminderTime: String,
+    monthlyBudget: Double,
     accentColor: Color,
     onBack: () -> Unit,
     onThemeChange: (AppThemePreset) -> Unit,
     onUserNameChange: (String) -> Unit,
     onUserAvatarChange: (String?) -> Unit,
-    onLedgerSettingsChange: (String, String, String) -> Unit,
+    onHomeSloganChange: (String) -> Unit,
+    onLedgerSettingsChange: (String, String, String, Double) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
     var localName by rememberSaveable(userName) { mutableStateOf(userName) }
+    var localHomeSlogan by rememberSaveable(homeSlogan) { mutableStateOf(homeSlogan) }
     var localAvatarUri by rememberSaveable(userAvatarUri) { mutableStateOf(userAvatarUri) }
     var localLedgerCurrency by rememberSaveable(ledgerCurrency) { mutableStateOf(ledgerCurrency) }
     var localDefaultLedgerName by rememberSaveable(defaultLedgerName) { mutableStateOf(defaultLedgerName) }
     var localReminderTime by rememberSaveable(reminderTime) { mutableStateOf(reminderTime) }
+    var localMonthlyBudget by rememberSaveable(monthlyBudget) { mutableStateOf(normalizeBudgetInput(monthlyBudget)) }
     var hintText by remember { mutableStateOf<String?>(null) }
 
     val avatarPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia(),
     ) { uri ->
         if (uri != null) {
-            localAvatarUri = uri.toString()
+            scope.launch {
+                val persisted = persistImageForSlot(
+                    context = context,
+                    sourceUri = uri,
+                    slot = "user_avatar",
+                )
+                if (!persisted.isNullOrBlank()) {
+                    localAvatarUri = persisted
+                    hintText = "头像已保存"
+                } else {
+                    hintText = "头像保存失败，请重试"
+                }
+            }
         }
     }
 
@@ -181,7 +205,7 @@ fun AppSettingsScreen(
 
             KeepAccountsDestination.SETTINGS_TYPE_MY_NAME -> {
                 item {
-                    GenericCard(title = "个人通用设置", desc = "设置你的昵称和头像")
+                    GenericCard(title = "个人通用设置", desc = "设置你的昵称、头像和首页标语")
                 }
                 item {
                     Row(
@@ -228,6 +252,30 @@ fun AppSettingsScreen(
                     }
                 }
                 item {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .glassCard(shape = RoundedCornerShape(18.dp), glowColor = accentColor.copy(alpha = 0.1f))
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(text = "首页 slogan", color = WarmBrown, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        TextField(
+                            value = localHomeSlogan,
+                            onValueChange = { localHomeSlogan = it },
+                            placeholder = { Text("例如：劳动最光荣 💼") },
+                            singleLine = true,
+                            colors = TextFieldDefaults.colors(
+                                focusedContainerColor = Color.White.copy(alpha = 0.75f),
+                                unfocusedContainerColor = Color.White.copy(alpha = 0.6f),
+                                focusedIndicatorColor = Color.Transparent,
+                                unfocusedIndicatorColor = Color.Transparent,
+                            ),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
+                item {
                     TextField(
                         value = localName,
                         onValueChange = { localName = it },
@@ -248,6 +296,7 @@ fun AppSettingsScreen(
                     ActionButton(icon = Icons.Rounded.CheckCircle, text = "保存个人设置", accentColor = accentColor) {
                         onUserNameChange(localName.ifBlank { "主人" })
                         onUserAvatarChange(localAvatarUri)
+                        onHomeSloganChange(localHomeSlogan.trim().ifBlank { "劳动最光荣 💼" })
                         hintText = "个人设置已更新"
                     }
                 }
@@ -257,7 +306,7 @@ fun AppSettingsScreen(
                 item {
                     GenericCard(
                         title = "账本基础设置",
-                        desc = "支持修改默认账本、币种和提醒时间（本地持久化）",
+                        desc = "支持修改默认账本、币种、月预算和提醒时间（本地持久化）",
                     )
                 }
                 item {
@@ -272,7 +321,7 @@ fun AppSettingsScreen(
                         TextField(
                             value = localLedgerCurrency,
                             onValueChange = { localLedgerCurrency = it },
-                            placeholder = { Text("例如：CNY ¥") },
+                            placeholder = { Text("例如：人民币") },
                             singleLine = true,
                             colors = TextFieldDefaults.colors(
                                 focusedContainerColor = Color.White.copy(alpha = 0.75f),
@@ -288,6 +337,23 @@ fun AppSettingsScreen(
                             value = localDefaultLedgerName,
                             onValueChange = { localDefaultLedgerName = it },
                             placeholder = { Text("例如：日常账本") },
+                            singleLine = true,
+                            colors = TextFieldDefaults.colors(
+                                focusedContainerColor = Color.White.copy(alpha = 0.75f),
+                                unfocusedContainerColor = Color.White.copy(alpha = 0.6f),
+                                focusedIndicatorColor = Color.Transparent,
+                                unfocusedIndicatorColor = Color.Transparent,
+                            ),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+
+                        Text(text = "每月预算", color = WarmBrown, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        TextField(
+                            value = localMonthlyBudget,
+                            onValueChange = { value ->
+                                localMonthlyBudget = value.filter { it.isDigit() || it == '.' }
+                            },
+                            placeholder = { Text("例如：2000") },
                             singleLine = true,
                             colors = TextFieldDefaults.colors(
                                 focusedContainerColor = Color.White.copy(alpha = 0.75f),
@@ -322,10 +388,17 @@ fun AppSettingsScreen(
                             return@ActionButton
                         }
 
+                        val normalizedBudget = localMonthlyBudget.trim().toDoubleOrNull()
+                        if (normalizedBudget == null || normalizedBudget <= 0.0) {
+                            hintText = "每月预算需为大于 0 的数字"
+                            return@ActionButton
+                        }
+
                         onLedgerSettingsChange(
-                            localLedgerCurrency.trim().ifBlank { "CNY ¥" },
+                            localLedgerCurrency.trim().ifBlank { "人民币" },
                             localDefaultLedgerName.trim().ifBlank { "日常账本" },
                             normalizedReminder,
+                            normalizedBudget,
                         )
                         hintText = "账本基础设置已保存"
                     }
@@ -450,4 +523,9 @@ private fun titleForType(type: String): String {
 
 private fun isValidReminderTime(value: String): Boolean {
     return Regex("^([01]\\d|2[0-3]):[0-5]\\d$").matches(value)
+}
+
+private fun normalizeBudgetInput(value: Double): String {
+    val normalized = String.format("%.2f", value)
+    return normalized.trimEnd('0').trimEnd('.')
 }

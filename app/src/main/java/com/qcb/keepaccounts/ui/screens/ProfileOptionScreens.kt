@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
@@ -30,17 +31,24 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.qcb.keepaccounts.ui.components.glassCard
 import com.qcb.keepaccounts.ui.theme.MintGreen
 import com.qcb.keepaccounts.ui.theme.WarmBrown
 import com.qcb.keepaccounts.ui.theme.WarmBrownMuted
+import com.qcb.keepaccounts.ui.theme.categoryRankColor
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
 
 data class OptionRowData(
     val icon: String,
@@ -126,6 +134,7 @@ fun CategoryManagementScreen(
 
         items(categories) { category ->
             val used = usedCategoryCount[category] ?: 0
+            val categoryColor = categoryRankColor(category)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -134,9 +143,16 @@ fun CategoryManagementScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(text = category, color = WarmBrown, fontWeight = FontWeight.Bold)
-                    Text(text = "关联账单：$used", color = WarmBrownMuted)
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Spacer(
+                        modifier = Modifier
+                            .size(14.dp)
+                            .background(categoryColor, CircleShape),
+                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(text = category, color = WarmBrown, fontWeight = FontWeight.Bold)
+                        Text(text = "关联账单：$used", color = WarmBrownMuted)
+                    }
                 }
                 Row(
                     modifier = Modifier
@@ -235,7 +251,7 @@ fun LedgerSettingsScreen(onBack: () -> Unit) {
         title = "账本基础设置",
         subtitle = "账本币种与记账默认项",
         rows = listOf(
-            OptionRowData("", "默认币种", value = "CNY "),
+            OptionRowData("", "默认币种", value = "人民币"),
             OptionRowData("", "默认账本", value = "日常账本"),
             OptionRowData("", "周起始日", value = "周一"),
             OptionRowData("", "记账提醒", value = "每天 21:00"),
@@ -264,9 +280,11 @@ fun CacheCleanupScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var clearThumb by remember { mutableStateOf(false) }
-    var cacheSize by remember { mutableStateOf("14.2 MB") }
-    var statusText by remember { mutableStateOf("包含缩略图、图表快照和日志片段") }
+    var cacheSize by remember { mutableStateOf(formatCacheSize(calculateDirectorySize(context.cacheDir))) }
+    var statusText by remember { mutableStateOf("包含应用缓存文件") }
 
     LazyColumn(
         modifier = modifier
@@ -318,8 +336,14 @@ fun CacheCleanupScreen(
                         shape = RoundedCornerShape(24.dp),
                     )
                     .clickable {
-                        cacheSize = if (clearThumb) "4.1 MB" else "0.0 MB"
-                        statusText = "缓存已清理完成，可继续正常使用"
+                        scope.launch {
+                            val updatedSize = withContext(Dispatchers.IO) {
+                                clearCacheDirectory(context.cacheDir, keepThumbnail = clearThumb)
+                                calculateDirectorySize(context.cacheDir)
+                            }
+                            cacheSize = formatCacheSize(updatedSize)
+                            statusText = "缓存已清理完成，可继续正常使用"
+                        }
                     }
                     .padding(vertical = 12.dp),
                 horizontalArrangement = Arrangement.Center,
@@ -327,6 +351,45 @@ fun CacheCleanupScreen(
                 Text(text = "立即清理缓存", color = Color(0xFFFF8B94), fontWeight = FontWeight.ExtraBold)
             }
         }
+    }
+}
+
+private fun calculateDirectorySize(file: File?): Long {
+    if (file == null || !file.exists()) return 0L
+    if (file.isFile) return file.length()
+    return file.listFiles()?.sumOf { calculateDirectorySize(it) } ?: 0L
+}
+
+private fun clearCacheDirectory(root: File?, keepThumbnail: Boolean) {
+    if (root == null || !root.exists() || !root.isDirectory) return
+
+    root.listFiles()?.forEach { child ->
+        if (child.isDirectory) {
+            clearCacheDirectory(child, keepThumbnail)
+            if (child.listFiles().isNullOrEmpty()) {
+                child.delete()
+            }
+        } else if (!(keepThumbnail && isThumbnailFile(child))) {
+            child.delete()
+        }
+    }
+}
+
+private fun isThumbnailFile(file: File): Boolean {
+    val name = file.name.lowercase()
+    return name.contains("thumb") || name.contains("thumbnail")
+}
+
+private fun formatCacheSize(bytes: Long): String {
+    val kb = 1024.0
+    val mb = kb * 1024
+    val gb = mb * 1024
+
+    return when {
+        bytes >= gb -> String.format("%.2f GB", bytes / gb)
+        bytes >= mb -> String.format("%.2f MB", bytes / mb)
+        bytes >= kb -> String.format("%.2f KB", bytes / kb)
+        else -> "$bytes B"
     }
 }
 

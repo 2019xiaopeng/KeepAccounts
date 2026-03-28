@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -22,8 +23,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -33,11 +32,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.qcb.keepaccounts.data.local.entity.TransactionEntity
 import com.qcb.keepaccounts.ui.components.glassCard
 import com.qcb.keepaccounts.ui.format.formatSignedCurrency
 import com.qcb.keepaccounts.ui.icons.resolveCategoryIcon
@@ -55,6 +55,7 @@ fun SearchScreen(
     viewModel: MainViewModel,
     onBack: () -> Unit,
     ledgerCurrency: String,
+    accentColor: Color = MintGreen,
     onOpenManualEntry: (ManualEntryPrefill) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -62,14 +63,16 @@ fun SearchScreen(
     val transactions by viewModel.transactions.collectAsStateWithLifecycle()
 
     val filtered = remember(transactions, query) {
-        val key = query.trim().lowercase(Locale.getDefault())
-        if (key.isBlank()) {
+        val terms = tokenizeSearchQuery(query)
+        if (terms.isEmpty()) {
             emptyList()
         } else {
-            transactions.filter {
-                it.categoryName.lowercase(Locale.getDefault()).contains(key) ||
-                    it.remark.lowercase(Locale.getDefault()).contains(key)
-            }
+            transactions
+                .filter { tx ->
+                    val fields = buildSearchFields(tx)
+                    terms.all { term -> fields.any { field -> field.contains(term) } }
+                }
+                .sortedByDescending { it.recordTimestamp }
         }
     }
 
@@ -85,7 +88,7 @@ fun SearchScreen(
                     .fillMaxWidth()
                     .statusBarsPadding()
                     .padding(top = 8.dp, start = 12.dp, end = 12.dp)
-                    .glassCard(shape = RoundedCornerShape(20.dp), glowColor = MintGreen.copy(alpha = 0.15f))
+                    .glassCard(shape = RoundedCornerShape(20.dp), glowColor = accentColor.copy(alpha = 0.15f))
                     .padding(horizontal = 8.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -104,36 +107,37 @@ fun SearchScreen(
                     tint = WarmBrown.copy(alpha = 0.45f),
                     modifier = Modifier.size(16.dp),
                 )
-                TextField(
+                BasicTextField(
                     value = query,
                     onValueChange = { query = it },
-                    placeholder = {
-                        Text(
-                            "搜索账单、备注、分类...",
-                            color = WarmBrown.copy(alpha = 0.5f),
-                            fontSize = 13.sp,
-                        )
-                    },
-                    textStyle = TextStyle(
+                    textStyle = androidx.compose.ui.text.TextStyle(
                         color = WarmBrown,
                         fontWeight = FontWeight.SemiBold,
                         fontSize = 14.sp,
+                        lineHeight = 18.sp,
                     ),
                     singleLine = true,
-                    colors = TextFieldDefaults.colors(
-                        focusedContainerColor = Color.Transparent,
-                        unfocusedContainerColor = Color.Transparent,
-                        focusedTextColor = WarmBrown,
-                        unfocusedTextColor = WarmBrown,
-                        cursorColor = WarmBrown,
-                        focusedPlaceholderColor = WarmBrown.copy(alpha = 0.5f),
-                        unfocusedPlaceholderColor = WarmBrown.copy(alpha = 0.5f),
-                        focusedIndicatorColor = Color.Transparent,
-                        unfocusedIndicatorColor = Color.Transparent,
-                    ),
+                    cursorBrush = SolidColor(WarmBrown),
                     modifier = Modifier
-                        .weight(1f)
-                        .height(46.dp),
+                        .weight(1f),
+                    decorationBox = { innerTextField ->
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 2.dp),
+                            contentAlignment = Alignment.CenterStart,
+                        ) {
+                            if (query.isBlank()) {
+                                Text(
+                                    text = "搜索时间、金额、分类、备注...",
+                                    color = WarmBrown.copy(alpha = 0.5f),
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Medium,
+                                )
+                            }
+                            innerTextField()
+                        }
+                    },
                 )
             }
         }
@@ -152,7 +156,7 @@ fun SearchScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 12.dp, vertical = 6.dp)
-                        .glassCard(shape = RoundedCornerShape(22.dp), glowColor = MintGreen.copy(alpha = 0.12f))
+                        .glassCard(shape = RoundedCornerShape(22.dp), glowColor = accentColor.copy(alpha = 0.12f))
                         .clickable {
                             onOpenManualEntry(
                                 ManualEntryPrefill(
@@ -194,7 +198,7 @@ fun SearchScreen(
 
                     Text(
                         text = formatSignedCurrency(ledgerCurrency, tx.amount, tx.type == 1),
-                        color = if (tx.type == 0) Color(0xFFFF8B94) else MintGreen,
+                        color = if (tx.type == 0) Color(0xFFFF8B94) else accentColor,
                         fontWeight = FontWeight.ExtraBold,
                         fontSize = 14.sp,
                     )
@@ -233,4 +237,54 @@ private fun EmptySearchHint(text: String) {
 
 private fun formatDateTime(timestamp: Long): String {
     return SimpleDateFormat("MM-dd HH:mm", Locale.CHINA).format(Date(timestamp))
+}
+
+private fun tokenizeSearchQuery(raw: String): List<String> {
+    return raw
+        .trim()
+        .split(Regex("[\\s,，;；]+"))
+        .map { normalizeSearchToken(it) }
+        .filter { it.isNotBlank() }
+        .distinct()
+}
+
+private fun buildSearchFields(tx: TransactionEntity): List<String> {
+    val date = Date(tx.recordTimestamp)
+    val amount = trimSearchAmount(tx.amount)
+    val signedAmount = if (tx.type == 1) "+$amount" else "-$amount"
+    val typeKeyword = if (tx.type == 1) "收入" else "支出"
+
+    val dateFormats = listOf(
+        SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.CHINA),
+        SimpleDateFormat("yyyy-MM-dd", Locale.CHINA),
+        SimpleDateFormat("MM-dd", Locale.CHINA),
+        SimpleDateFormat("M月d日", Locale.CHINA),
+        SimpleDateFormat("yyyy年M月d日", Locale.CHINA),
+        SimpleDateFormat("HH:mm", Locale.CHINA),
+    )
+
+    val dateTexts = dateFormats.map { formatter -> formatter.format(date) }
+
+    return buildList {
+        add(normalizeSearchToken(tx.categoryName))
+        add(normalizeSearchToken(tx.remark))
+        add(normalizeSearchToken(typeKeyword))
+        add(normalizeSearchToken(amount))
+        add(normalizeSearchToken(signedAmount))
+        dateTexts.forEach { add(normalizeSearchToken(it)) }
+    }
+}
+
+private fun normalizeSearchToken(raw: String): String {
+    return raw.lowercase(Locale.getDefault())
+        .replace("￥", "")
+        .replace("¥", "")
+        .replace("元", "")
+        .replace("块", "")
+        .trim()
+}
+
+private fun trimSearchAmount(value: Double): String {
+    val text = String.format(Locale.CHINA, "%.2f", value)
+    return text.trimEnd('0').trimEnd('.')
 }

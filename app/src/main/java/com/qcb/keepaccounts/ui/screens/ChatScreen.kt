@@ -23,15 +23,15 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.AttachMoney
 import androidx.compose.material.icons.rounded.Category
-import androidx.compose.material.icons.rounded.Image
-import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Today
@@ -42,7 +42,6 @@ import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -69,15 +68,28 @@ import com.qcb.keepaccounts.ui.theme.MintGreen
 import com.qcb.keepaccounts.ui.theme.WarmBrown
 import com.qcb.keepaccounts.ui.theme.WarmBrownMuted
 import com.qcb.keepaccounts.ui.theme.WatermelonRed
+import kotlinx.coroutines.delay
+import org.json.JSONObject
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Date
+import java.util.Locale
 
 private data class DemoMessage(
     val id: Long,
+    val timestamp: Long,
     val role: String,
     val text: String,
     val isReceipt: Boolean = false,
     val receiptCategory: String = "",
     val receiptAmount: String = "",
     val receiptRemark: String = "",
+)
+
+private data class ParsedReceiptPayload(
+    val amount: String,
+    val category: String,
+    val desc: String,
 )
 
 @Composable
@@ -97,13 +109,23 @@ fun ChatScreen(
     onOpenAiSettings: () -> Unit = {},
     onOpenManualEntry: (ManualEntryPrefill) -> Unit = {},
 ) {
-    val messages = remember { mutableStateListOf<DemoMessage>() }
-    var inputText by remember { mutableStateOf("") }
+    val messages = remember(chatRecords) { chatRecords.map { it.toDemoMessage() } }
+    var inputText by rememberSaveable { mutableStateOf("") }
     var topTip by remember { mutableStateOf("") }
+    val listState = rememberLazyListState()
 
-    LaunchedEffect(chatRecords) {
-        messages.clear()
-        messages.addAll(chatRecords.map { it.toDemoMessage() })
+    LaunchedEffect(messages.size, isSending) {
+        val targetIndex = messages.size + if (isSending) 1 else 0
+        if (targetIndex >= 0) {
+            listState.scrollToItem(targetIndex)
+        }
+    }
+
+    LaunchedEffect(topTip) {
+        if (topTip.isNotBlank()) {
+            delay(1800)
+            topTip = ""
+        }
     }
 
     LaunchedEffect(initialInput) {
@@ -149,6 +171,8 @@ fun ChatScreen(
                 assistantName = aiConfig.name,
                 assistantAvatar = aiConfig.avatar,
                 assistantAvatarUri = aiConfig.avatarUri,
+                palette = palette,
+                lastMessageTimestamp = messages.lastOrNull()?.timestamp,
             )
 
             if (topTip.isNotBlank()) {
@@ -176,6 +200,7 @@ fun ChatScreen(
             }
 
             LazyColumn(
+                state = listState,
                 modifier = Modifier.weight(1f),
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -228,7 +253,9 @@ fun ChatScreen(
             onInputChange = { inputText = it },
             assistantName = aiConfig.name,
             accentColor = palette.primaryDark,
+            enabled = !isSending,
             onSend = {
+                if (isSending) return@InputBar
                 val userText = inputText.trim()
                 if (userText.isEmpty()) return@InputBar
 
@@ -270,16 +297,24 @@ private fun chatBackgroundBrush(preset: ChatBackgroundPreset, palette: ThemePale
 
 private fun AiChatRecord.toDemoMessage(): DemoMessage {
     val normalizedRole = if (role == "assistant") "ai" else role
-    val parsedAmount = parseAmount(content).orEmpty()
-    val showReceipt = isReceipt && parsedAmount.isNotBlank()
+    val payload = parseReceiptPayload(content)
+    val pureText = stripReceiptPayload(content)
+    val visibleText = pureText.ifBlank {
+        if (isReceipt || payload != null) "已经帮主人记好啦，要好好照顾自己哦" else content.trim()
+    }
+    val parsedAmount = payload?.amount?.takeIf { it.isNotBlank() }
+        ?: parseAmount(visibleText)
+        ?: "0.00"
+    val showReceipt = isReceipt || payload != null
     return DemoMessage(
         id = id,
+        timestamp = timestamp,
         role = normalizedRole,
-        text = content,
+        text = visibleText,
         isReceipt = showReceipt,
-        receiptCategory = if (showReceipt) "已识别" else "",
+        receiptCategory = if (showReceipt) payload?.category?.ifBlank { "已识别" } ?: "已识别" else "",
         receiptAmount = parsedAmount,
-        receiptRemark = content,
+        receiptRemark = if (showReceipt) payload?.desc?.ifBlank { visibleText } ?: visibleText else "",
     )
 }
 
@@ -288,6 +323,45 @@ private fun parseAmount(text: String): String? {
     return regex.find(text)?.groupValues?.get(1)
 }
 
+private fun parseReceiptPayload(text: String): ParsedReceiptPayload? {
+    val payload = findPayload(text, "RECEIPT") ?: findPayload(text, "DATA") ?: return null
+    return runCatching {
+        val json = JSONObject(payload)
+        val amount = if (json.has("amount") && !json.isNull("amount")) {
+            String.format(Locale.CHINA, "%.2f", kotlin.math.abs(json.optDouble("amount")))
+        } else {
+            ""
+        }
+        ParsedReceiptPayload(
+            amount = amount,
+            category = json.optString("category").ifBlank { "已识别" },
+            desc = json.optString("desc").ifBlank { "" },
+        )
+    }.getOrNull()
+}
+
+private fun stripReceiptPayload(text: String): String {
+    return text
+        .replace(dataPayloadRegex, "")
+        .replace(receiptPayloadRegex, "")
+        .replace(leadingNullRegex, "")
+        .replace(lineNullRegex, "")
+        .replace(repeatedNullRegex, "")
+        .replace(Regex("\\n{3,}"), "\n\n")
+        .trim()
+}
+
+private fun findPayload(text: String, tag: String): String? {
+    val regex = Regex("<$tag>(.*?)</$tag>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
+    return regex.find(text)?.groupValues?.getOrNull(1)?.trim()?.takeIf { it.isNotBlank() }
+}
+
+private val dataPayloadRegex = Regex("<DATA>.*?</DATA>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
+private val receiptPayloadRegex = Regex("<RECEIPT>.*?</RECEIPT>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
+private val leadingNullRegex = Regex("(?is)^\\s*(?:null\\s*)+")
+private val lineNullRegex = Regex("(?im)^\\s*null\\s*$")
+private val repeatedNullRegex = Regex("(?i)(?:null\\s*){4,}")
+
 @Composable
 private fun ChatHeader(
     onBack: (() -> Unit)?,
@@ -295,56 +369,84 @@ private fun ChatHeader(
     assistantName: String,
     assistantAvatar: String,
     assistantAvatarUri: String?,
+    palette: ThemePalette,
+    lastMessageTimestamp: Long?,
 ) {
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .statusBarsPadding()
-            .padding(horizontal = 14.dp, vertical = 10.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
-            modifier = Modifier
-                .size(34.dp)
-                .clip(CircleShape)
-                .background(Color.White.copy(alpha = 0.78f))
-                .clickable { onBack?.invoke() },
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                contentDescription = "back",
-                tint = WarmBrown,
-                modifier = Modifier.size(20.dp),
+            .background(
+                brush = Brush.verticalGradient(
+                    colors = listOf(
+                        palette.backgroundLight.copy(alpha = 0.98f),
+                        palette.background.copy(alpha = 0.94f),
+                        palette.background.copy(alpha = 0.88f),
+                    ),
+                ),
             )
-        }
+            .statusBarsPadding()
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 4.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(34.dp)
+                    .clip(CircleShape)
+                    .clickable { onBack?.invoke() },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "back",
+                    tint = WarmBrown,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
 
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
                 text = "$assistantName${if (assistantAvatarUri.isNullOrBlank() && !assistantAvatar.startsWith("http")) assistantAvatar else ""}",
                 color = WarmBrown,
                 fontWeight = FontWeight.ExtraBold,
-                fontSize = 16.sp,
+                fontSize = 17.sp,
             )
-            Text(text = "今天 16:51", color = WarmBrown.copy(alpha = 0.62f), fontSize = 10.sp)
+
+            Box(
+                modifier = Modifier
+                    .size(34.dp)
+                    .clip(CircleShape)
+                    .clickable { onOpenAiSettings() },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.MoreHoriz,
+                    contentDescription = "more",
+                    tint = WarmBrown,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
         }
+
+        Text(
+            text = formatHeaderSubtitle(lastMessageTimestamp),
+            color = WarmBrown.copy(alpha = 0.64f),
+            fontWeight = FontWeight.Medium,
+            fontSize = 11.sp,
+            modifier = Modifier.align(Alignment.CenterHorizontally),
+        )
 
         Box(
             modifier = Modifier
-                .size(34.dp)
-                .clip(CircleShape)
-                .background(Color.White.copy(alpha = 0.78f))
-                .clickable { onOpenAiSettings() },
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                imageVector = Icons.Rounded.MoreHoriz,
-                contentDescription = "more",
-                tint = WarmBrown,
-                modifier = Modifier.size(20.dp),
-            )
-        }
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(palette.primaryDark.copy(alpha = 0.09f), RoundedCornerShape(999.dp)),
+        )
     }
 }
 
@@ -387,13 +489,25 @@ private fun MessageRow(
                     .background(if (isUser) palette.primaryDark.copy(alpha = 0.86f) else Color.White.copy(alpha = 0.98f))
                     .padding(horizontal = 14.dp, vertical = 10.dp),
             ) {
-                Text(
-                    text = message.text,
-                    color = if (isUser) Color.White else WarmBrown,
-                    fontWeight = FontWeight.Medium,
-                    fontSize = 14.sp,
-                    lineHeight = 20.sp,
-                )
+                if (isUser) {
+                    Text(
+                        text = message.text,
+                        color = Color.White,
+                        fontWeight = FontWeight.Medium,
+                        fontSize = 14.sp,
+                        lineHeight = 20.sp,
+                    )
+                } else {
+                    SelectionContainer {
+                        Text(
+                            text = message.text,
+                            color = WarmBrown,
+                            fontWeight = FontWeight.Medium,
+                            fontSize = 14.sp,
+                            lineHeight = 20.sp,
+                        )
+                    }
+                }
             }
 
             if (message.isReceipt) {
@@ -503,8 +617,8 @@ private fun ReceiptCard(
         ReceiptRow(icon = Icons.Rounded.Category, label = "📁 分类", value = message.receiptCategory)
         ReceiptRow(icon = Icons.Rounded.AttachMoney, label = "💰 金额", value = "-${message.receiptAmount}", valueColor = WatermelonRed)
         ReceiptRow(icon = Icons.Rounded.MoreHoriz, label = "📝 备注", value = message.receiptRemark)
-        ReceiptRow(icon = Icons.Rounded.Today, label = "📅 日期", value = "2026-03-25")
-        ReceiptRow(icon = Icons.Rounded.Schedule, label = "🕒 记录时间", value = "今天 14:08")
+        ReceiptRow(icon = Icons.Rounded.Today, label = "📅 日期", value = formatReceiptDate(message.timestamp))
+        ReceiptRow(icon = Icons.Rounded.Schedule, label = "🕒 记录时间", value = formatReceiptTime(message.timestamp))
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             if (confirmDelete) {
@@ -591,7 +705,9 @@ private fun ReceiptRow(
             )
             Text(text = label, color = WarmBrownMuted, fontWeight = FontWeight.Medium, fontSize = 12.sp)
         }
-        Text(text = value, color = valueColor, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+        SelectionContainer {
+            Text(text = value, color = valueColor, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+        }
     }
 }
 
@@ -680,68 +796,89 @@ private fun InputBar(
     onInputChange: (String) -> Unit,
     assistantName: String,
     accentColor: Color,
+    enabled: Boolean,
     onSend: () -> Unit,
 ) {
     Row(
         modifier = modifier
-            .padding(horizontal = 8.dp, vertical = 0.dp)
+            .padding(horizontal = 10.dp, vertical = 6.dp)
             .glassCard(
                 shape = RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp, bottomStart = 18.dp, bottomEnd = 18.dp),
-                backgroundColor = Color.White.copy(alpha = 0.74f),
+                backgroundColor = Color.White.copy(alpha = 0.82f),
                 glowColor = accentColor.copy(alpha = 0.18f),
             )
             .padding(horizontal = 10.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(
-            imageVector = Icons.Rounded.Mic,
-            contentDescription = "mic",
-            tint = WarmBrown.copy(alpha = 0.45f),
-            modifier = Modifier.size(22.dp),
+        TextField(
+            value = input,
+            onValueChange = onInputChange,
+            placeholder = {
+                Text(text = "和 $assistantName 说点什么...", color = WarmBrownMuted, fontSize = 13.sp)
+            },
+            colors = TextFieldDefaults.colors(
+                focusedContainerColor = Color(0xFFF3F4F6),
+                unfocusedContainerColor = Color(0xFFF3F4F6),
+                focusedIndicatorColor = Color.Transparent,
+                unfocusedIndicatorColor = Color.Transparent,
+            ),
+            singleLine = true,
+            modifier = Modifier
+                .weight(1f)
+                .clip(RoundedCornerShape(999.dp)),
         )
-        Box(modifier = Modifier.weight(1f)) {
-            TextField(
-                value = input,
-                onValueChange = onInputChange,
-                placeholder = {
-                    Text(text = "发送消息给 $assistantName...", color = WarmBrownMuted, fontSize = 13.sp)
-                },
-                colors = TextFieldDefaults.colors(
-                    focusedContainerColor = Color(0xFFF3F4F6),
-                    unfocusedContainerColor = Color(0xFFF3F4F6),
-                    focusedIndicatorColor = Color.Transparent,
-                    unfocusedIndicatorColor = Color.Transparent,
-                ),
-                singleLine = true,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(999.dp)),
-            )
-            Icon(
-                imageVector = Icons.Rounded.Image,
-                contentDescription = "image",
-                tint = WarmBrown.copy(alpha = 0.4f),
-                modifier = Modifier
-                    .align(Alignment.CenterEnd)
-                    .padding(end = 12.dp)
-                    .size(18.dp),
-            )
-        }
+
         Box(
             modifier = Modifier
-                .size(40.dp)
-                .clip(CircleShape)
+                .height(40.dp)
+                .clip(RoundedCornerShape(999.dp))
+                .alpha(if (enabled) 1f else 0.5f)
                 .background(brush = Brush.linearGradient(listOf(accentColor, accentColor.copy(alpha = 0.82f))))
-                .clickable { onSend() },
+                .clickable(enabled = enabled) { onSend() },
             contentAlignment = Alignment.Center,
         ) {
-            Icon(
-                imageVector = Icons.AutoMirrored.Rounded.Send,
-                contentDescription = "send",
-                tint = Color.White,
-                modifier = Modifier.size(20.dp),
-            )
+            Row(
+                modifier = Modifier.padding(horizontal = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Rounded.Send,
+                    contentDescription = "send",
+                    tint = Color.White,
+                    modifier = Modifier.size(18.dp),
+                )
+                Text(
+                    text = "发送",
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp,
+                )
+            }
         }
     }
+}
+
+private fun formatHeaderSubtitle(timestamp: Long?): String {
+    if (timestamp == null) return "开始聊聊吧"
+
+    val now = Calendar.getInstance()
+    val target = Calendar.getInstance().apply { timeInMillis = timestamp }
+    val sameDay = now.get(Calendar.YEAR) == target.get(Calendar.YEAR) &&
+        now.get(Calendar.DAY_OF_YEAR) == target.get(Calendar.DAY_OF_YEAR)
+
+    return if (sameDay) {
+        "今天 ${SimpleDateFormat("HH:mm", Locale.CHINA).format(Date(timestamp))}"
+    } else {
+        SimpleDateFormat("MM-dd HH:mm", Locale.CHINA).format(Date(timestamp))
+    }
+}
+
+private fun formatReceiptDate(timestamp: Long): String {
+    return SimpleDateFormat("yyyy-MM-dd", Locale.CHINA).format(Date(timestamp))
+}
+
+private fun formatReceiptTime(timestamp: Long): String {
+    return SimpleDateFormat("HH:mm", Locale.CHINA).format(Date(timestamp))
 }

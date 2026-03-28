@@ -11,9 +11,11 @@ import com.qcb.keepaccounts.domain.contract.AiReceiptDraft
 import com.qcb.keepaccounts.domain.contract.AiStreamEvent
 import com.qcb.keepaccounts.ui.model.AiAssistantConfig
 import com.qcb.keepaccounts.ui.model.AiChatRecord
-import kotlinx.coroutines.flow.collect
+import com.qcb.keepaccounts.ui.model.AiTone
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.map
+import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -73,12 +75,13 @@ class ChatRepository(
 
         val textBuffer = StringBuilder()
         var parsedReceipt: AiReceiptDraft? = null
+        var streamErrorMessage: String? = null
 
         aiChatGateway.streamReply(
             AiChatRequest(
                 model = "Pro/moonshotai/Kimi-K2.5",
                 messages = requestMessages,
-                temperature = 0.3,
+                temperature = resolveTemperature(aiConfig.tone),
                 stream = true,
             ),
         ).collect { event ->
@@ -86,37 +89,93 @@ class ChatRepository(
                 is AiStreamEvent.TextDelta -> textBuffer.append(event.text)
                 is AiStreamEvent.ReceiptParsed -> parsedReceipt = event.draft
                 is AiStreamEvent.Error -> {
-                    if (textBuffer.isNotEmpty()) textBuffer.append("\n")
-                    textBuffer.append("[AI错误] ${event.message}")
+                    streamErrorMessage = event.message.ifBlank { "AI 服务暂时不可用，请稍后重试。" }
                 }
 
                 AiStreamEvent.Completed -> Unit
             }
         }
 
+        val rawAssistantText = textBuffer.toString().trim()
+        val fallbackReceipt = extractReceiptDraftFromText(rawAssistantText)
+        val resolvedReceipt = if (parsedReceipt?.isReceipt == true) {
+            parsedReceipt
+        } else {
+            fallbackReceipt ?: parsedReceipt
+        }
+        val cleanedAssistantText = stripReceiptPayload(rawAssistantText)
+
         var linkedTransactionId: Long? = null
-        parsedReceipt?.let { draft ->
-            linkedTransactionId = tryCreateTransaction(draft, textBuffer.toString())
+        resolvedReceipt?.let { draft ->
+            linkedTransactionId = tryCreateTransaction(draft, cleanedAssistantText, userInput)
         }
 
-        val finalAssistantText = textBuffer.toString().trim().ifBlank {
-            if (linkedTransactionId != null) "已为你记录这笔账单。" else "收到，我在。"
+        val finalAssistantText = if (linkedTransactionId != null) {
+            cleanedAssistantText.ifBlank { "已为你记录这笔账单。" }
+        } else {
+            cleanedAssistantText.ifBlank {
+                streamErrorMessage?.trim().takeUnless { it.isNullOrBlank() } ?: "收到，我在。"
+            }
         }
 
-        chatMessageDao.insertMessage(
-            ChatMessageEntity(
-                role = "assistant",
-                content = finalAssistantText,
-                isReceipt = linkedTransactionId != null,
-                transactionId = linkedTransactionId,
-                timestamp = System.currentTimeMillis(),
-            ),
-        )
+        if (linkedTransactionId != null) {
+            val replyChunks = ensureReceiptConversationChunks(
+                chunks = splitAssistantReply(finalAssistantText),
+                draft = resolvedReceipt,
+            )
+            val baseTimestamp = System.currentTimeMillis()
+
+            replyChunks.dropLast(1).forEachIndexed { index, chunk ->
+                chatMessageDao.insertMessage(
+                    ChatMessageEntity(
+                        role = "assistant",
+                        content = chunk,
+                        isReceipt = false,
+                        transactionId = null,
+                        timestamp = baseTimestamp + index,
+                    ),
+                )
+            }
+
+            val receiptMeta = resolvedReceipt?.let { buildReceiptMetaTag(it) }.orEmpty()
+            val receiptText = replyChunks.lastOrNull()?.ifBlank { "已为你记录这笔账单。" } ?: "已为你记录这笔账单。"
+            val content = if (receiptMeta.isBlank()) {
+                receiptText
+            } else {
+                "$receiptText\n$receiptMeta"
+            }
+
+            chatMessageDao.insertMessage(
+                ChatMessageEntity(
+                    role = "assistant",
+                    content = content,
+                    isReceipt = true,
+                    transactionId = linkedTransactionId,
+                    timestamp = baseTimestamp + replyChunks.size,
+                ),
+            )
+            return
+        }
+
+        val chunks = splitAssistantReply(finalAssistantText)
+        val baseTimestamp = System.currentTimeMillis()
+        chunks.forEachIndexed { index, chunk ->
+            chatMessageDao.insertMessage(
+                ChatMessageEntity(
+                    role = "assistant",
+                    content = chunk,
+                    isReceipt = false,
+                    transactionId = null,
+                    timestamp = baseTimestamp + index,
+                ),
+            )
+        }
     }
 
     private suspend fun tryCreateTransaction(
         draft: AiReceiptDraft,
         assistantText: String,
+        userInput: String,
     ): Long? {
         if (!draft.isReceipt) return null
 
@@ -125,12 +184,11 @@ class ChatRepository(
         if (amount <= 0.0) return null
 
         val type = resolveTransactionType(draft, rawAmount)
-        val category = draft.category?.takeIf { it.isNotBlank() }
-            ?: if (type == 1) "收入" else "其他"
+        val category = normalizeCategory(draft.category, type)
         val remark = draft.desc?.takeIf { it.isNotBlank() }
             ?: assistantText.take(24)
 
-        val recordTimestamp = parseReceiptDateOrNow(draft.date)
+        val recordTimestamp = parseReceiptDateOrNow(draft.date, userInput)
         val now = System.currentTimeMillis()
 
         return transactionDao.insertTransaction(
@@ -154,7 +212,8 @@ class ChatRepository(
         return if (incomeHints.any { text.contains(it) }) 1 else 0
     }
 
-    private fun parseReceiptDateOrNow(rawDate: String?): Long {
+    private fun parseReceiptDateOrNow(rawDate: String?, userInput: String): Long {
+        if (!containsExplicitDateHint(userInput)) return System.currentTimeMillis()
         if (rawDate.isNullOrBlank()) return System.currentTimeMillis()
 
         return runCatching {
@@ -163,19 +222,88 @@ class ChatRepository(
         }.getOrElse { System.currentTimeMillis() }
     }
 
+    private fun containsExplicitDateHint(userInput: String): Boolean {
+        val text = userInput.trim()
+        if (text.isBlank()) return false
+
+        if (Regex("\\d{4}[-/.]\\d{1,2}[-/.]\\d{1,2}").containsMatchIn(text)) return true
+        if (Regex("\\d{1,2}月\\d{1,2}日").containsMatchIn(text)) return true
+
+        val relativeDayHints = listOf("今天", "昨日", "昨天", "前天", "大前天")
+        return relativeDayHints.any { text.contains(it) }
+    }
+
+    private fun normalizeCategory(rawCategory: String?, type: Int): String {
+        val input = rawCategory.orEmpty().trim()
+        if (input.isBlank()) return if (type == 1) "收入" else "其他"
+
+        val normalized = input
+            .replace("类别", "")
+            .replace("分类", "")
+            .replace("类", "")
+            .trim()
+
+        if (normalized in canonicalExpenseCategories) return normalized
+
+        if (type == 1) {
+            val incomeHints = listOf("工资", "薪资", "奖金", "报销", "收款", "收入", "兼职")
+            if (incomeHints.any { normalized.contains(it) }) return "收入"
+        }
+
+        val mapped = when {
+            normalized.contains("餐饮") || normalized.contains("美食") ||
+                normalized.contains("早餐") || normalized.contains("午餐") || normalized.contains("晚餐") ||
+                normalized.contains("饮品") || normalized.contains("奶茶") -> "餐饮美食"
+
+            normalized.contains("交通") || normalized.contains("出行") || normalized.contains("打车") ||
+                normalized.contains("地铁") || normalized.contains("公交") || normalized.contains("高铁") -> "交通出行"
+
+            normalized.contains("购物") || normalized.contains("消费") || normalized.contains("网购") ||
+                normalized.contains("服饰") || normalized.contains("数码") -> "购物消费"
+
+            normalized.contains("居家") || normalized.contains("家居") || normalized.contains("房租") ||
+                normalized.contains("水电") || normalized.contains("日用") -> "居家生活"
+
+            normalized.contains("娱乐") || normalized.contains("休闲") || normalized.contains("电影") ||
+                normalized.contains("游戏") || normalized.contains("旅游") -> "娱乐休闲"
+
+            normalized.contains("医疗") || normalized.contains("健康") || normalized.contains("药") ||
+                normalized.contains("医院") || normalized.contains("体检") -> "医疗健康"
+
+            normalized.contains("人情") || normalized.contains("交际") || normalized.contains("礼") ||
+                normalized.contains("社交") || normalized.contains("红包") -> "人情交际"
+
+            else -> null
+        }
+
+        return mapped ?: if (type == 1) "收入" else "其他"
+    }
+
     private fun buildSystemPrompt(
         aiConfig: AiAssistantConfig,
         userName: String,
     ): String {
+        val today = SimpleDateFormat("yyyy-MM-dd", Locale.CHINA).format(Date())
         val toneText = when (aiConfig.tone.name) {
             "TSUNDERE" -> "傲娇毒舌"
             "RATIONAL" -> "理智管家"
             else -> "贴心治愈"
         }
 
+        val toneGuide = when (aiConfig.tone) {
+            AiTone.HEALING -> "语气温柔、带一点关心和鼓励，像会倾听的朋友。"
+            AiTone.TSUNDERE -> "语气嘴硬心软，允许轻微吐槽，但不能攻击用户，不使用脏话。"
+            AiTone.RATIONAL -> "语气专业、简洁、逻辑清晰，给出明确建议。"
+        }
+
         return """
             你是一个名为${aiConfig.name}的AI记账管家，性格是${toneText}。用户的名字是${userName}。
+                        今天日期是${today}。
+            ${toneGuide}
             你的任务是陪用户聊天，并在用户提到消费或收入时，提取记账信息。
+            普通聊天时，尽量像真人发消息，可以分成1到3句短消息，每句不超过40字，避免长篇大论。
+            当识别到记账信息时，先输出2到3句简短关怀/确认语气（分句自然），最后再输出一句已记账确认，然后再附上 <DATA> JSON。
+                        如果用户没有明确提到具体日期，date 字段必须填写今天（${today}）。
             如果用户的话包含记账信息，你必须在回复最末尾严格输出 <DATA>...</DATA> JSON：
             {
               "isReceipt": true,
@@ -183,9 +311,152 @@ class ChatRepository(
               "amount": 30.0,
               "category": "交通",
               "desc": "打车",
-              "date": "2026-03-27"
+                            "date": "${today}"
             }
             如果只是普通闲聊，不要输出 <DATA> 标签。
         """.trimIndent()
+    }
+
+    private fun resolveTemperature(tone: AiTone): Double {
+        return when (tone) {
+            AiTone.HEALING -> 0.55
+            AiTone.TSUNDERE -> 0.70
+            AiTone.RATIONAL -> 0.25
+        }
+    }
+
+    private fun splitAssistantReply(text: String): List<String> {
+        val normalized = text
+            .replace("\r", "")
+            .trim()
+
+        if (normalized.isBlank()) return listOf("收到，我在。")
+
+        val lineParts = normalized
+            .split("\n")
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+
+        val sentenceRegex = Regex("(?<=[。！？!?])")
+        val sentenceParts = if (lineParts.size > 1) {
+            lineParts
+        } else {
+            normalized
+                .split(sentenceRegex)
+                .map { it.trim() }
+                .filter { it.isNotBlank() }
+        }
+
+        if (sentenceParts.isEmpty()) return listOf(normalized)
+
+        val merged = mutableListOf<String>()
+        var buffer = ""
+        sentenceParts.forEach { part ->
+            if (buffer.isBlank()) {
+                buffer = part
+            } else if ((buffer.length + part.length) <= 36) {
+                buffer += part
+            } else {
+                merged += buffer
+                buffer = part
+            }
+        }
+        if (buffer.isNotBlank()) merged += buffer
+
+        return merged
+            .take(3)
+            .ifEmpty { listOf(normalized) }
+    }
+
+    private fun ensureReceiptConversationChunks(
+        chunks: List<String>,
+        draft: AiReceiptDraft?,
+    ): List<String> {
+        val normalized = chunks
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+
+        val isHealthRelated = draft?.category.orEmpty().let { category ->
+            category.contains("医疗") || category.contains("健康") || category.contains("药")
+        }
+
+        val opening = if (isHealthRelated) "怎么啦？" else "收到啦。"
+        val caring = if (isHealthRelated) {
+            "是什么方面的药噢，要记得按时吃。"
+        } else {
+            "我来帮你把这笔账整理好。"
+        }
+        val ending = if (isHealthRelated) {
+            "已经记好了，希望快点好起来。"
+        } else {
+            "已经记好了。"
+        }
+
+        return when {
+            normalized.size >= 3 -> normalized.take(3)
+            normalized.size == 2 -> listOf(normalized[0], caring, normalized[1])
+            normalized.size == 1 -> listOf(opening, normalized[0], ending)
+            else -> listOf(opening, caring, ending)
+        }
+    }
+
+    private fun extractReceiptDraftFromText(text: String): AiReceiptDraft? {
+        val payload = findPayload(text, "DATA") ?: findPayload(text, "RECEIPT") ?: return null
+        return runCatching {
+            val json = JSONObject(payload)
+            AiReceiptDraft(
+                isReceipt = json.optBoolean("isReceipt", true),
+                action = json.optString("action", "create"),
+                amount = if (json.has("amount") && !json.isNull("amount")) json.optDouble("amount") else null,
+                category = json.optString("category").takeIf { it.isNotBlank() },
+                desc = json.optString("desc").takeIf { it.isNotBlank() },
+                date = json.optString("date").takeIf { it.isNotBlank() },
+            )
+        }.getOrNull()
+    }
+
+    private fun stripReceiptPayload(text: String): String {
+        return text
+            .replace(dataPayloadRegex, "")
+            .replace(receiptPayloadRegex, "")
+            .replace(leadingNullRegex, "")
+            .replace(lineNullRegex, "")
+            .replace(repeatedNullRegex, "")
+            .trim()
+    }
+
+    private fun buildReceiptMetaTag(draft: AiReceiptDraft): String {
+        val payload = JSONObject().apply {
+            put("isReceipt", true)
+            put("action", draft.action.ifBlank { "create" })
+            draft.amount?.let { put("amount", abs(it)) }
+            draft.category?.let { put("category", it) }
+            draft.desc?.let { put("desc", it) }
+            draft.date?.let { put("date", it) }
+        }
+        return "<RECEIPT>${payload}</RECEIPT>"
+    }
+
+    private fun findPayload(text: String, tag: String): String? {
+        val regex = Regex("<$tag>(.*?)</$tag>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
+        return regex.find(text)?.groupValues?.getOrNull(1)?.trim()?.takeIf { it.isNotBlank() }
+    }
+
+    private companion object {
+        val canonicalExpenseCategories = setOf(
+            "餐饮美食",
+            "交通出行",
+            "购物消费",
+            "居家生活",
+            "娱乐休闲",
+            "医疗健康",
+            "人情交际",
+            "其他",
+        )
+        val dataPayloadRegex = Regex("<DATA>.*?</DATA>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
+        val receiptPayloadRegex = Regex("<RECEIPT>.*?</RECEIPT>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
+        val leadingNullRegex = Regex("(?is)^\\s*(?:null\\s*)+")
+        val lineNullRegex = Regex("(?im)^\\s*null\\s*$")
+        val repeatedNullRegex = Regex("(?i)(?:null\\s*){4,}")
     }
 }

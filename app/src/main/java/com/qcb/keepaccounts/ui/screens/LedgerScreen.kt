@@ -3,8 +3,6 @@ package com.qcb.keepaccounts.ui.screens
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
@@ -74,10 +72,11 @@ import com.qcb.keepaccounts.ui.format.formatSignedCurrency
 import com.qcb.keepaccounts.ui.icons.resolveCategoryIcon
 import com.qcb.keepaccounts.ui.model.ManualEntryPrefill
 import com.qcb.keepaccounts.ui.theme.MintGreen
-import com.qcb.keepaccounts.ui.theme.PeachIncome
 import com.qcb.keepaccounts.ui.theme.WarmBrown
 import com.qcb.keepaccounts.ui.theme.WarmBrownMuted
 import com.qcb.keepaccounts.ui.theme.WatermelonRed
+import com.qcb.keepaccounts.ui.theme.canonicalCategoryName
+import com.qcb.keepaccounts.ui.theme.categoryRankColor
 import com.qcb.keepaccounts.ui.viewmodel.MainViewModel
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -114,6 +113,7 @@ fun LedgerScreen(
     viewModel: MainViewModel,
     ledgerCurrency: String,
     defaultLedgerName: String,
+    monthlyBudget: Double,
     onEditRecord: (ManualEntryPrefill) -> Unit = {},
     onDeleteRecord: (Long) -> Unit = {},
     accentColor: Color = MintGreen,
@@ -182,20 +182,22 @@ fun LedgerScreen(
     }
 
     val scopeTransactions = if (statsPeriod == StatsPeriod.MONTH) monthTransactions else yearTransactions
+    val periodOpeningBalance = if (statsPeriod == StatsPeriod.MONTH) monthlyBudget else monthlyBudget * 12.0
     val totalExpense = scopeTransactions.filter { it.type == 0 }.sumOf { it.amount }
     val totalIncome = scopeTransactions.filter { it.type == 1 }.sumOf { it.amount }
-    val totalBalance = totalIncome - totalExpense
+    val totalBalance = periodOpeningBalance + totalIncome - totalExpense
 
     val categoryExpense = remember(scopeTransactions) { categoryStats(scopeTransactions.filter { it.type == 0 }) }
     val categoryIncome = remember(scopeTransactions) { categoryStats(scopeTransactions.filter { it.type == 1 }) }
     val rankList = if (rankType == RankType.EXPENSE) categoryExpense else categoryIncome
-    val trendChartData = remember(scopeTransactions, statsPeriod, year, month, trendMetric) {
+    val trendChartData = remember(scopeTransactions, statsPeriod, year, month, trendMetric, periodOpeningBalance) {
         buildTrendChartData(
             statsPeriod = statsPeriod,
             year = year,
             month = month,
             transactions = scopeTransactions,
             metric = trendMetric,
+            openingBalance = periodOpeningBalance,
         )
     }
 
@@ -264,14 +266,8 @@ fun LedgerScreen(
             AnimatedContent(
                 targetState = viewMode.ordinal,
                 transitionSpec = {
-                    slideInHorizontally(
-                        initialOffsetX = { fullWidth -> if (targetState > initialState) fullWidth else -fullWidth },
-                        animationSpec = tween(300),
-                    ) + fadeIn(tween(300)) togetherWith
-                        slideOutHorizontally(
-                            targetOffsetX = { fullWidth -> if (targetState > initialState) -fullWidth else fullWidth },
-                            animationSpec = tween(300),
-                        ) + fadeOut(tween(300))
+                    fadeIn(animationSpec = tween(120)) togetherWith
+                        fadeOut(animationSpec = tween(90))
                 },
                 label = "ledgerModeSwitch",
             ) { modeIndex ->
@@ -303,6 +299,7 @@ fun LedgerScreen(
                             day = selectedDay,
                             records = dayRecords,
                             ledgerCurrency = ledgerCurrency,
+                            accentColor = accentColor,
                             expandedRecordId = expandedRecordId,
                             confirmDeleteId = confirmDeleteId,
                             onToggleExpand = { id ->
@@ -354,6 +351,8 @@ fun LedgerScreen(
                         onTrendMetricChange = { trendMetric = it },
                         trendLabels = trendChartData.labels,
                         trendValues = trendChartData.values,
+                        monthlyBudget = monthlyBudget,
+                        balanceOpening = periodOpeningBalance,
                         ledgerCurrency = ledgerCurrency,
                         categoryExpense = categoryExpense,
                         rankType = rankType,
@@ -557,6 +556,7 @@ private fun DailyRecordsCard(
     day: Int,
     records: List<TransactionEntity>,
     ledgerCurrency: String,
+    accentColor: Color,
     expandedRecordId: Long,
     confirmDeleteId: Long,
     onToggleExpand: (Long) -> Unit,
@@ -572,7 +572,7 @@ private fun DailyRecordsCard(
     } else {
         formatSignedCurrency(ledgerCurrency, dayExpense, false)
     }
-    val headerColor = if (dayIncome >= dayExpense) MintGreen else WatermelonRed
+    val headerColor = if (dayIncome >= dayExpense) accentColor else WatermelonRed
 
     Column(
         modifier = Modifier
@@ -623,7 +623,7 @@ private fun DailyRecordsCard(
                         }
                         Text(
                             text = formatSignedCurrency(ledgerCurrency, tx.amount, isIncome),
-                            color = if (isIncome) MintGreen else WatermelonRed,
+                            color = if (isIncome) accentColor else WatermelonRed,
                             fontWeight = FontWeight.ExtraBold,
                             fontSize = 17.sp,
                         )
@@ -714,6 +714,8 @@ private fun StatsPanel(
     onTrendMetricChange: (TrendMetric) -> Unit,
     trendLabels: List<String>,
     trendValues: List<Double>,
+    monthlyBudget: Double,
+    balanceOpening: Double,
     ledgerCurrency: String,
     categoryExpense: List<CategoryStat>,
     rankType: RankType,
@@ -739,14 +741,8 @@ private fun StatsPanel(
             AnimatedContent(
                 targetState = statsPeriod.ordinal,
                 transitionSpec = {
-                    slideInHorizontally(
-                        initialOffsetX = { fullWidth -> if (targetState > initialState) fullWidth else -fullWidth },
-                        animationSpec = tween(300),
-                    ) + fadeIn(tween(300)) togetherWith
-                        slideOutHorizontally(
-                            targetOffsetX = { fullWidth -> if (targetState > initialState) -fullWidth else fullWidth },
-                            animationSpec = tween(300),
-                        ) + fadeOut(tween(300))
+                    fadeIn(animationSpec = tween(120)) togetherWith
+                        fadeOut(animationSpec = tween(90))
                 },
                 label = "statsPeriodTitle",
             ) { periodIndex ->
@@ -763,14 +759,8 @@ private fun StatsPanel(
         AnimatedContent(
             targetState = statsPeriod.ordinal,
             transitionSpec = {
-                slideInHorizontally(
-                    initialOffsetX = { fullWidth -> if (targetState > initialState) fullWidth else -fullWidth },
-                    animationSpec = tween(300),
-                ) + fadeIn(tween(300)) togetherWith
-                    slideOutHorizontally(
-                        targetOffsetX = { fullWidth -> if (targetState > initialState) -fullWidth else fullWidth },
-                        animationSpec = tween(300),
-                    ) + fadeOut(tween(300))
+                fadeIn(animationSpec = tween(120)) togetherWith
+                    fadeOut(animationSpec = tween(90))
             },
             label = "statsBodySwitch",
         ) {
@@ -784,7 +774,7 @@ private fun StatsPanel(
                 ) {
                     StatsItem("总支出", formatCurrency(ledgerCurrency, totalExpense), WatermelonRed)
                     DividerV()
-                    StatsItem("总收入", formatCurrency(ledgerCurrency, totalIncome), PeachIncome)
+                    StatsItem("总收入", formatCurrency(ledgerCurrency, totalIncome), accentColor)
                     DividerV()
                     StatsItem("结余", formatCurrency(ledgerCurrency, totalBalance), WarmBrown)
                 }
@@ -819,7 +809,7 @@ private fun StatsPanel(
                                     },
                                 )
                             },
-                            accentColor = PeachIncome,
+                            accentColor = accentColor,
                             textSizeSp = 12,
                             horizontalPadding = 14.dp,
                         )
@@ -827,14 +817,8 @@ private fun StatsPanel(
                     AnimatedContent(
                         targetState = trendMetric.ordinal,
                         transitionSpec = {
-                            slideInHorizontally(
-                                initialOffsetX = { fullWidth -> if (targetState > initialState) fullWidth else -fullWidth },
-                                animationSpec = tween(300),
-                            ) + fadeIn(tween(300)) togetherWith
-                                slideOutHorizontally(
-                                    targetOffsetX = { fullWidth -> if (targetState > initialState) -fullWidth else fullWidth },
-                                    animationSpec = tween(300),
-                                ) + fadeOut(tween(300))
+                            fadeIn(animationSpec = tween(120)) togetherWith
+                                fadeOut(animationSpec = tween(90))
                         },
                         label = "trendMetricSwitch",
                     ) {
@@ -842,6 +826,11 @@ private fun StatsPanel(
                             labels = trendLabels,
                             values = trendValues,
                             metric = trendMetric,
+                            axisBaseline = if (trendMetric == TrendMetric.BALANCE) {
+                                balanceOpening
+                            } else {
+                                monthlyBudget
+                            },
                             accentColor = accentColor,
                         )
                     }
@@ -927,7 +916,7 @@ private fun StatsPanel(
                                         it.amount,
                                         rankType == RankType.INCOME,
                                     ),
-                                    color = if (rankType == RankType.EXPENSE) WatermelonRed else MintGreen,
+                                    color = if (rankType == RankType.EXPENSE) WatermelonRed else accentColor,
                                     fontWeight = FontWeight.ExtraBold,
                                     fontSize = 15.sp,
                                 )
@@ -963,24 +952,25 @@ private fun TrendChart(
     labels: List<String>,
     values: List<Double>,
     metric: TrendMetric,
+    axisBaseline: Double,
     accentColor: Color,
 ) {
     val shownLabels = if (labels.isEmpty()) listOf("-") else labels
     val shownValues = if (values.isEmpty()) listOf(0.0) else values
-    val maxValue = shownValues.maxOrNull()?.coerceAtLeast(0.0) ?: 0.0
-    val axisMax = if (maxValue <= 0.0) 1.0 else maxValue
+    val valueMax = shownValues.maxOrNull()?.coerceAtLeast(0.0) ?: 0.0
+    val axisMax = maxOf(axisBaseline.coerceAtLeast(1.0), valueMax, 1.0)
     val yLabels = listOf(axisMax, axisMax * 0.75, axisMax * 0.5, axisMax * 0.25, 0.0)
     val lineColor = when (metric) {
         TrendMetric.EXPENSE -> WatermelonRed
-        TrendMetric.INCOME -> MintGreen
-        TrendMetric.BALANCE -> accentColor
+        TrendMetric.INCOME -> accentColor
+        TrendMetric.BALANCE -> WarmBrown
     }
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .height(220.dp)
-            .background(Color(0xFFFCFDFE), RoundedCornerShape(22.dp))
+            .background(Color(0xFFF7F8FA), RoundedCornerShape(22.dp))
             .padding(start = 8.dp, top = 10.dp, end = 8.dp, bottom = 8.dp),
     ) {
         Canvas(
@@ -1017,18 +1007,10 @@ private fun TrendChart(
                         color = lineColor,
                         start = points[i],
                         end = points[i + 1],
-                        strokeWidth = 4f,
+                        strokeWidth = 5f,
                         cap = StrokeCap.Round,
                     )
                 }
-            }
-
-            points.forEach { point ->
-                drawCircle(
-                    color = lineColor,
-                    radius = 4.5f,
-                    center = point,
-                )
             }
         }
 
@@ -1151,14 +1133,8 @@ private fun RecordPagerSection(
         AnimatedContent(
             targetState = page,
             transitionSpec = {
-                slideInHorizontally(
-                    initialOffsetX = { fullWidth -> if (targetState > initialState) fullWidth else -fullWidth },
-                    animationSpec = tween(300),
-                ) + fadeIn(tween(300)) togetherWith
-                    slideOutHorizontally(
-                        targetOffsetX = { fullWidth -> if (targetState > initialState) -fullWidth else fullWidth },
-                        animationSpec = tween(300),
-                    ) + fadeOut(tween(300))
+                fadeIn(animationSpec = tween(120)) togetherWith
+                    fadeOut(animationSpec = tween(90))
             },
             label = "recordPageSwitch",
         ) {
@@ -1186,7 +1162,7 @@ private fun RecordPagerSection(
                         }
                         Text(
                             text = formatSignedCurrency(ledgerCurrency, record.amount, isIncome),
-                            color = if (isIncome) MintGreen else WatermelonRed,
+                            color = if (isIncome) accentColor else WatermelonRed,
                             fontWeight = FontWeight.ExtraBold,
                             fontSize = 14.sp,
                         )
@@ -1243,7 +1219,7 @@ private fun metricValue(list: List<TransactionEntity>, metric: TrendMetric): Dou
         TrendMetric.EXPENSE -> expense
         TrendMetric.INCOME -> income
         TrendMetric.BALANCE -> income - expense
-    }.coerceAtLeast(0.0)
+    }
 }
 
 private fun buildTrendChartData(
@@ -1252,6 +1228,7 @@ private fun buildTrendChartData(
     month: Int,
     transactions: List<TransactionEntity>,
     metric: TrendMetric,
+    openingBalance: Double,
 ): TrendChartData {
     return if (statsPeriod == StatsPeriod.MONTH) {
         val daysInMonth = Calendar.getInstance().apply { set(year, month, 1) }.getActualMaximum(Calendar.DAY_OF_MONTH)
@@ -1262,13 +1239,20 @@ private fun buildTrendChartData(
 
         val labels = mutableListOf<String>()
         val values = mutableListOf<Double>()
+        var runningBalance = openingBalance
 
         var startDay = 1
         while (startDay <= daysInMonth) {
             val endDay = minOf(daysInMonth, startDay + bucketSize - 1)
             val bucket = (startDay..endDay).flatMap { day -> byDay[day].orEmpty() }
-            labels += String.format(Locale.CHINA, "%02d-%02d", startDay, endDay)
-            values += metricValue(bucket, metric)
+            labels += String.format(Locale.CHINA, "%02d-%02d", month + 1, startDay)
+            if (metric == TrendMetric.BALANCE) {
+                val delta = metricValue(bucket, TrendMetric.BALANCE)
+                runningBalance += delta
+                values += runningBalance.coerceAtLeast(0.0)
+            } else {
+                values += metricValue(bucket, metric).coerceAtLeast(0.0)
+            }
             startDay = endDay + 1
         }
         TrendChartData(labels = labels, values = values)
@@ -1278,12 +1262,19 @@ private fun buildTrendChartData(
         }
         val labels = mutableListOf<String>()
         val values = mutableListOf<Double>()
+        var runningBalance = openingBalance
 
         for (startMonth in 0..11 step 2) {
             val endMonth = minOf(11, startMonth + 1)
             val bucket = (startMonth..endMonth).flatMap { monthIndex -> byMonth[monthIndex].orEmpty() }
             labels += String.format(Locale.CHINA, "%02d-%02d月", startMonth + 1, endMonth + 1)
-            values += metricValue(bucket, metric)
+            if (metric == TrendMetric.BALANCE) {
+                val delta = metricValue(bucket, TrendMetric.BALANCE)
+                runningBalance += delta
+                values += runningBalance.coerceAtLeast(0.0)
+            } else {
+                values += metricValue(bucket, metric).coerceAtLeast(0.0)
+            }
         }
         TrendChartData(labels = labels, values = values)
     }
@@ -1298,32 +1289,20 @@ private fun formatAxisLabel(value: Double): String {
 }
 
 private fun categoryStats(list: List<TransactionEntity>): List<CategoryStat> {
-    val grouped = list.groupBy { it.categoryName.ifBlank { "其他" } }
+    val grouped = list.groupBy { canonicalCategoryName(it.categoryName.ifBlank { "其他" }) }
         .mapValues { (_, txs) -> txs.sumOf { it.amount } }
         .toList()
         .sortedByDescending { it.second }
         .take(10)
 
     val total = grouped.sumOf { it.second }.coerceAtLeast(0.01)
-    val colors = listOf(
-        Color(0xFF1D2A52),
-        Color(0xFF3D4470),
-        MintGreen,
-        Color(0xFFFFC75F),
-        Color(0xFFFF7F9D),
-        Color(0xFF6A9CFF),
-        Color(0xFF8DD6A5),
-        Color(0xFFFF9F68),
-        Color(0xFF9FA0A6),
-        Color(0xFF6E6F75),
-    )
 
-    return grouped.mapIndexed { index, (name, amount) ->
+    return grouped.map { (name, amount) ->
         CategoryStat(
             name = name,
             amount = amount,
             percent = ((amount / total) * 100).toInt().coerceIn(0, 100),
-            color = colors[index % colors.size],
+            color = categoryRankColor(name),
             icon = resolveCategoryIcon(name, ""),
         )
     }

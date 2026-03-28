@@ -62,7 +62,6 @@ import com.qcb.keepaccounts.ui.model.ManualEntryPrefill
 import com.qcb.keepaccounts.ui.theme.MintGreen
 import com.qcb.keepaccounts.ui.theme.WarmBrown
 import com.qcb.keepaccounts.ui.theme.WarmBrownMuted
-import com.qcb.keepaccounts.ui.theme.WatermelonPink
 import com.qcb.keepaccounts.ui.theme.WatermelonRed
 import com.qcb.keepaccounts.ui.viewmodel.MainViewModel
 import java.text.SimpleDateFormat
@@ -92,8 +91,11 @@ fun HomeScreen(
     viewModel: MainViewModel,
     assistantName: String,
     assistantAvatar: String,
+    homeSlogan: String,
     ledgerCurrency: String,
     defaultLedgerName: String,
+    monthlyBudget: Double,
+    accentColor: Color = MintGreen,
     onSearchClick: () -> Unit,
     onAiRecordClick: () -> Unit,
     onManualRecordClick: () -> Unit,
@@ -113,7 +115,7 @@ fun HomeScreen(
     Column(modifier = modifier.fillMaxSize()) {
         CollapsibleTopBar(
             title = "$assistantName🌊营业中 ✨",
-            subtitle = "劳动最光荣 💼",
+            subtitle = homeSlogan.ifBlank { "劳动最光荣 💼" },
             progress = topBarProgress,
             trailingIcon = Icons.Rounded.Search,
             onTrailingClick = onSearchClick,
@@ -132,13 +134,15 @@ fun HomeScreen(
                 BudgetCard(
                     transactions = transactions,
                     ledgerCurrency = ledgerCurrency,
-                    defaultLedgerName = defaultLedgerName,
+                    monthlyBudget = monthlyBudget,
+                    accentColor = accentColor,
                 )
             }
 
             item {
                 ActionButtons(
                     assistantName = assistantName,
+                    accentColor = accentColor,
                     onAiRecordClick = onAiRecordClick,
                     onManualRecordClick = onManualRecordClick,
                 )
@@ -151,7 +155,7 @@ fun HomeScreen(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .glassCard(shape = RoundedCornerShape(24.dp), glowColor = MintGreen.copy(alpha = 0.15f))
+                                .glassCard(shape = RoundedCornerShape(24.dp), glowColor = accentColor.copy(alpha = 0.15f))
                             .padding(horizontal = 14.dp, vertical = 12.dp),
                     ) {
                         Text(
@@ -166,6 +170,7 @@ fun HomeScreen(
                 items(sections) { section ->
                     DaySectionCard(
                         section = section,
+                        accentColor = accentColor,
                         expandedRecordId = expandedRecordId,
                         confirmDeleteRecordId = confirmDeleteRecordId,
                         onToggleExpand = { id ->
@@ -226,12 +231,14 @@ private fun AssistantAvatar(assistantAvatar: String) {
 private fun BudgetCard(
     transactions: List<TransactionEntity>,
     ledgerCurrency: String,
-    defaultLedgerName: String,
+    monthlyBudget: Double,
+    accentColor: Color,
 ) {
     val monthExpense = remember(transactions) {
         val now = Calendar.getInstance()
         val year = now.get(Calendar.YEAR)
         val month = now.get(Calendar.MONTH)
+
         transactions.filter { tx ->
             if (tx.type != 0) return@filter false
             val cal = Calendar.getInstance().apply { timeInMillis = tx.recordTimestamp }
@@ -239,14 +246,14 @@ private fun BudgetCard(
         }.sumOf { it.amount }
     }
 
-    val budgetTotal = 2000.0
-    val usedRatio = (monthExpense / budgetTotal).coerceIn(0.0, 1.0)
-    val remain = budgetTotal - monthExpense
+    val safeBudget = monthlyBudget.coerceAtLeast(0.01)
+    val remaining = safeBudget - monthExpense
+    val usedRatio = (monthExpense / safeBudget).coerceIn(0.0, 1.0)
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .glassCard(shape = RoundedCornerShape(30.dp), glowColor = MintGreen.copy(alpha = 0.2f))
+            .glassCard(shape = RoundedCornerShape(30.dp), glowColor = accentColor.copy(alpha = 0.16f))
             .padding(horizontal = 18.dp, vertical = 16.dp),
     ) {
         Box(
@@ -256,14 +263,14 @@ private fun BudgetCard(
                 .blur(28.dp)
                 .background(
                     brush = Brush.radialGradient(
-                        colors = listOf(MintGreen.copy(alpha = 0.62f), Color.Transparent),
+                        colors = listOf(accentColor.copy(alpha = 0.42f), Color.Transparent),
                     ),
                     shape = CircleShape,
                 ),
         )
 
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(text = "本月预算 🎯 · $defaultLedgerName", color = Color(0xFF2B211E), fontWeight = FontWeight.ExtraBold, fontSize = 17.sp)
+            Text(text = "本月预算 🎯", color = Color(0xFF2B211E), fontWeight = FontWeight.ExtraBold, fontSize = 17.sp)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -278,15 +285,19 @@ private fun BudgetCard(
             ) {
                 Text(
                     text = formatCurrency(ledgerCurrency, monthExpense),
-                    color = WatermelonPink,
+                    color = Color(0xFFE98CA4),
                     fontWeight = FontWeight.ExtraBold,
-                    fontSize = 16.sp,
+                    fontSize = 23.sp,
                 )
                 Text(
-                    text = formatCurrency(ledgerCurrency, remain),
+                    text = formatSignedCurrency(
+                        currencyLabel = ledgerCurrency,
+                        value = kotlin.math.abs(remaining),
+                        isIncome = remaining >= 0,
+                    ),
                     color = WatermelonRed,
                     fontWeight = FontWeight.ExtraBold,
-                    fontSize = 16.sp,
+                    fontSize = 23.sp,
                 )
             }
 
@@ -299,9 +310,9 @@ private fun BudgetCard(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth(usedRatio.toFloat())
-                        .height(10.dp)
+                        .height(12.dp)
                         .background(
-                            brush = Brush.horizontalGradient(listOf(WatermelonRed, WatermelonPink)),
+                            brush = Brush.horizontalGradient(listOf(Color(0xFFFF4040), Color(0xFFE81D25))),
                             shape = RoundedCornerShape(999.dp),
                         ),
                 )
@@ -315,9 +326,17 @@ private fun BudgetCard(
                     fontSize = 12.sp,
                 )
                 Text(
-                    text = "总预算: ${formatCurrency(ledgerCurrency, budgetTotal)}",
+                    text = "总预算: ${formatCurrency(ledgerCurrency, safeBudget)}",
                     color = WarmBrown.copy(alpha = 0.55f),
                     fontWeight = FontWeight.Medium,
+                    fontSize = 12.sp,
+                )
+            }
+            if (monthExpense > safeBudget) {
+                Text(
+                    text = "本月已超预算 ${formatCurrency(ledgerCurrency, monthExpense - safeBudget)}",
+                    color = WatermelonRed,
+                    fontWeight = FontWeight.Bold,
                     fontSize = 12.sp,
                 )
             }
@@ -328,6 +347,7 @@ private fun BudgetCard(
 @Composable
 private fun ActionButtons(
     assistantName: String,
+    accentColor: Color,
     onAiRecordClick: () -> Unit,
     onManualRecordClick: () -> Unit,
 ) {
@@ -338,13 +358,15 @@ private fun ActionButtons(
         ActionButton(
             modifier = Modifier.weight(1f),
             text = "💬 和${assistantName}聊天",
-            textColor = Color(0xFF58BDB4),
+            textColor = accentColor,
+            accentColor = accentColor,
             onClick = onAiRecordClick,
         )
         ActionButton(
             modifier = Modifier.weight(1f),
             text = "✍️ 手动记账",
             textColor = Color(0xFF2C2320),
+            accentColor = accentColor,
             onClick = onManualRecordClick,
         )
     }
@@ -355,6 +377,7 @@ private fun ActionButton(
     modifier: Modifier,
     text: String,
     textColor: Color,
+    accentColor: Color,
     onClick: () -> Unit,
 ) {
     val interaction = remember { MutableInteractionSource() }
@@ -368,7 +391,7 @@ private fun ActionButton(
     Box(
         modifier = modifier
             .graphicsLayer(scaleX = scale, scaleY = scale)
-            .glassCard(shape = RoundedCornerShape(999.dp), glowColor = MintGreen.copy(alpha = 0.18f))
+            .glassCard(shape = RoundedCornerShape(999.dp), glowColor = accentColor.copy(alpha = 0.18f))
             .background(color = Color.White.copy(alpha = 0.95f), shape = RoundedCornerShape(999.dp))
             .clickable(interactionSource = interaction, indication = null) { onClick() }
             .padding(vertical = 14.dp, horizontal = 12.dp),
@@ -394,6 +417,7 @@ private fun RecentHeader(onViewAllClick: () -> Unit) {
 @Composable
 private fun DaySectionCard(
     section: DaySection,
+    accentColor: Color,
     expandedRecordId: Long,
     confirmDeleteRecordId: Long,
     onToggleExpand: (Long) -> Unit,
@@ -405,7 +429,7 @@ private fun DaySectionCard(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .glassCard(shape = RoundedCornerShape(26.dp), glowColor = MintGreen.copy(alpha = 0.12f))
+            .glassCard(shape = RoundedCornerShape(26.dp), glowColor = accentColor.copy(alpha = 0.12f))
             .padding(horizontal = 14.dp, vertical = 14.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
@@ -429,6 +453,7 @@ private fun DaySectionCard(
             section.records.forEachIndexed { index, record ->
                 ActivityItem(
                     record = record,
+                    accentColor = accentColor,
                     isExpanded = expandedRecordId == record.id,
                     isConfirmingDelete = confirmDeleteRecordId == record.id,
                     onToggle = { onToggleExpand(record.id) },
@@ -462,6 +487,7 @@ private fun DaySectionCard(
 @Composable
 private fun ActivityItem(
     record: ActivityRecord,
+    accentColor: Color,
     isExpanded: Boolean,
     isConfirmingDelete: Boolean,
     onToggle: () -> Unit,
@@ -470,7 +496,7 @@ private fun ActivityItem(
     onCancelDelete: () -> Unit,
     onConfirmDelete: () -> Unit,
 ) {
-    val amountColor = if (record.isIncome) MintGreen else WatermelonRed
+    val amountColor = if (record.isIncome) accentColor else WatermelonRed
 
     Column(
         modifier = Modifier

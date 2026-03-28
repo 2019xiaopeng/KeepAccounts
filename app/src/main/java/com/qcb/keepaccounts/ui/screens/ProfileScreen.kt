@@ -227,7 +227,7 @@ fun ProfileScreen(
                         null,
                         KeepAccountsDestination.settingsRoute(KeepAccountsDestination.SETTINGS_TYPE_EXPORT),
                     ),
-                    MenuEntry(Icons.Rounded.DeleteSweep, "清除缓存", null, "14.2 MB", KeepAccountsDestination.CLEAR_CACHE),
+                    MenuEntry(Icons.Rounded.DeleteSweep, "清除缓存", null, null, KeepAccountsDestination.CLEAR_CACHE),
                 ),
                 highlightColor = highlightColor,
                 onNavigate = onNavigateToOption,
