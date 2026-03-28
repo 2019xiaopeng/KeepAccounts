@@ -1,9 +1,14 @@
 package com.qcb.keepaccounts
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.os.Bundle
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -25,6 +30,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -43,7 +49,9 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import androidx.core.content.ContextCompat
 import com.google.accompanist.systemuicontroller.rememberSystemUiController
+import com.qcb.keepaccounts.reminder.LedgerReminderScheduler
 import com.qcb.keepaccounts.ui.components.BottomNavigationBar
 import com.qcb.keepaccounts.ui.model.AiAssistantConfig
 import com.qcb.keepaccounts.ui.model.AiChatRecord
@@ -86,6 +94,7 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun KeepAccountsApp() {
+    val appContext = LocalContext.current.applicationContext
     val appContainer = (LocalContext.current.applicationContext as KeepAccountsApplication).container
     val userSettingsRepository = appContainer.userSettingsRepository
     val storedSettings by produceState<com.qcb.keepaccounts.data.local.preferences.UserSettingsState?>(
@@ -118,6 +127,13 @@ fun KeepAccountsApp() {
     var ledgerCurrency by remember { mutableStateOf("CNY ¥") }
     var defaultLedgerName by remember { mutableStateOf("日常账本") }
     var reminderTime by remember { mutableStateOf("21:00") }
+    var hasRequestedNotificationPermission by rememberSaveable { mutableStateOf(false) }
+
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+    ) {
+        hasRequestedNotificationPermission = true
+    }
 
     LaunchedEffect(settings) {
         appTheme = settings.theme
@@ -128,6 +144,27 @@ fun KeepAccountsApp() {
         ledgerCurrency = settings.ledgerCurrency
         defaultLedgerName = settings.defaultLedgerName
         reminderTime = settings.reminderTime
+    }
+
+    LaunchedEffect(settings.initialized, settings.reminderTime) {
+        if (settings.initialized) {
+            LedgerReminderScheduler.scheduleDailyReminder(appContext, settings.reminderTime)
+        }
+    }
+
+    LaunchedEffect(settings.initialized) {
+        if (!settings.initialized) return@LaunchedEffect
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return@LaunchedEffect
+
+        val granted = ContextCompat.checkSelfPermission(
+            appContext,
+            Manifest.permission.POST_NOTIFICATIONS,
+        ) == PackageManager.PERMISSION_GRANTED
+
+        if (!granted && !hasRequestedNotificationPermission) {
+            hasRequestedNotificationPermission = true
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
     }
 
     val palette = remember(appTheme) { paletteForTheme(appTheme) }
@@ -286,6 +323,8 @@ fun KeepAccountsApp() {
                             userName = userName,
                             userAvatarUri = userAvatarUri,
                             theme = appTheme,
+                            ledgerCurrency = ledgerCurrency,
+                            defaultLedgerName = defaultLedgerName,
                             palette = palette,
                             aiChatRecords = aiChatRecords,
                             aiIsSending = aiIsSending,
@@ -327,6 +366,7 @@ fun KeepAccountsApp() {
                             onBack = { navController.popBackStack() },
                             categories = manualCategories,
                             selectedColor = palette.primaryDark,
+                            ledgerCurrency = ledgerCurrency,
                             initialData = manualEntryPrefill,
                             onConsumedInitialData = { manualEntryPrefill = null },
                         )
@@ -336,6 +376,7 @@ fun KeepAccountsApp() {
                         SearchScreen(
                             viewModel = mainViewModel,
                             onBack = { navController.popBackStack() },
+                            ledgerCurrency = ledgerCurrency,
                             onOpenManualEntry = { prefill ->
                                 manualEntryPrefill = prefill
                                 navigateToSubPage(KeepAccountsDestination.MANUAL_ENTRY)
@@ -402,6 +443,7 @@ fun KeepAccountsApp() {
                                 ledgerCurrency = currency
                                 defaultLedgerName = ledgerName
                                 reminderTime = time
+                                LedgerReminderScheduler.scheduleDailyReminder(appContext, time)
                                 coroutineScope.launch {
                                     userSettingsRepository.saveLedgerSettings(
                                         ledgerCurrency = currency,
@@ -458,6 +500,8 @@ private fun MainTabsPager(
     userName: String,
     userAvatarUri: String?,
     theme: AppThemePreset,
+    ledgerCurrency: String,
+    defaultLedgerName: String,
     palette: ThemePalette,
     aiChatRecords: List<AiChatRecord>,
     aiIsSending: Boolean,
@@ -483,6 +527,8 @@ private fun MainTabsPager(
                 viewModel = viewModel,
                 assistantName = aiConfig.name,
                 assistantAvatar = aiConfig.avatar,
+                ledgerCurrency = ledgerCurrency,
+                defaultLedgerName = defaultLedgerName,
                 onSearchClick = onSearchClick,
                 onAiRecordClick = onAiRecordClick,
                 onManualRecordClick = onManualRecordClick,
@@ -509,6 +555,8 @@ private fun MainTabsPager(
 
             2 -> LedgerScreen(
                 viewModel = viewModel,
+                ledgerCurrency = ledgerCurrency,
+                defaultLedgerName = defaultLedgerName,
                 onEditRecord = onEditRecord,
                 onDeleteRecord = onDeleteRecord,
                 accentColor = palette.primaryDark,

@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.qcb.keepaccounts.ui.components.glassCard
+import com.qcb.keepaccounts.ui.format.formatSignedCurrency
 import com.qcb.keepaccounts.ui.icons.resolveCategoryIcon
 import com.qcb.keepaccounts.ui.model.ManualEntryPrefill
 import com.qcb.keepaccounts.ui.theme.MintGreen
@@ -53,6 +54,7 @@ import java.util.Locale
 fun SearchScreen(
     viewModel: MainViewModel,
     onBack: () -> Unit,
+    ledgerCurrency: String,
     onOpenManualEntry: (ManualEntryPrefill) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -191,7 +193,7 @@ fun SearchScreen(
                     }
 
                     Text(
-                        text = (if (tx.type == 0) "-¥ " else "+¥ ") + String.format(Locale.CHINA, "%.2f", tx.amount),
+                        text = formatSignedCurrency(ledgerCurrency, tx.amount, tx.type == 1),
                         color = if (tx.type == 0) Color(0xFFFF8B94) else MintGreen,
                         fontWeight = FontWeight.ExtraBold,
                         fontSize = 14.sp,

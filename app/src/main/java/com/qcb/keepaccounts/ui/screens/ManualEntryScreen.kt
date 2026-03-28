@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.qcb.keepaccounts.ui.components.ThemedSegmentedToggle
 import com.qcb.keepaccounts.ui.components.glassCard
+import com.qcb.keepaccounts.ui.format.primaryCurrencySymbol
 import com.qcb.keepaccounts.ui.icons.resolveCategoryIcon
 import com.qcb.keepaccounts.ui.model.ManualEntryPrefill
 import com.qcb.keepaccounts.ui.theme.MintGreen
@@ -60,6 +61,7 @@ fun ManualEntryScreen(
     onBack: () -> Unit,
     categories: List<String>,
     selectedColor: Color,
+    ledgerCurrency: String,
     initialData: ManualEntryPrefill? = null,
     onConsumedInitialData: () -> Unit = {},
     modifier: Modifier = Modifier,
@@ -127,7 +129,7 @@ fun ManualEntryScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 Text(
-                    text = "¥",
+                    text = primaryCurrencySymbol(ledgerCurrency),
                     color = if (type == "expense") WatermelonRed else MintGreen,
                     fontWeight = FontWeight.ExtraBold,
                     fontSize = 34.sp,

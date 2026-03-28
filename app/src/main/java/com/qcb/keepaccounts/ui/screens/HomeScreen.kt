@@ -55,6 +55,8 @@ import com.qcb.keepaccounts.ui.components.CollapsibleTopBar
 import com.qcb.keepaccounts.data.local.entity.TransactionEntity
 import com.qcb.keepaccounts.ui.components.glassCard
 import com.qcb.keepaccounts.ui.components.rememberTopBarCollapseProgress
+import com.qcb.keepaccounts.ui.format.formatCurrency
+import com.qcb.keepaccounts.ui.format.formatSignedCurrency
 import com.qcb.keepaccounts.ui.icons.resolveCategoryIcon
 import com.qcb.keepaccounts.ui.model.ManualEntryPrefill
 import com.qcb.keepaccounts.ui.theme.MintGreen
@@ -90,6 +92,8 @@ fun HomeScreen(
     viewModel: MainViewModel,
     assistantName: String,
     assistantAvatar: String,
+    ledgerCurrency: String,
+    defaultLedgerName: String,
     onSearchClick: () -> Unit,
     onAiRecordClick: () -> Unit,
     onManualRecordClick: () -> Unit,
@@ -104,7 +108,7 @@ fun HomeScreen(
     val topBarProgress = rememberTopBarCollapseProgress(listState)
 
     val transactions by viewModel.transactions.collectAsStateWithLifecycle()
-    val sections = remember(transactions) { mapTransactionsToSections(transactions) }
+    val sections = remember(transactions, ledgerCurrency) { mapTransactionsToSections(transactions, ledgerCurrency) }
 
     Column(modifier = modifier.fillMaxSize()) {
         CollapsibleTopBar(
@@ -124,7 +128,13 @@ fun HomeScreen(
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 14.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            item { BudgetCard(transactions = transactions) }
+            item {
+                BudgetCard(
+                    transactions = transactions,
+                    ledgerCurrency = ledgerCurrency,
+                    defaultLedgerName = defaultLedgerName,
+                )
+            }
 
             item {
                 ActionButtons(
@@ -213,7 +223,11 @@ private fun AssistantAvatar(assistantAvatar: String) {
 }
 
 @Composable
-private fun BudgetCard(transactions: List<TransactionEntity>) {
+private fun BudgetCard(
+    transactions: List<TransactionEntity>,
+    ledgerCurrency: String,
+    defaultLedgerName: String,
+) {
     val monthExpense = remember(transactions) {
         val now = Calendar.getInstance()
         val year = now.get(Calendar.YEAR)
@@ -249,7 +263,7 @@ private fun BudgetCard(transactions: List<TransactionEntity>) {
         )
 
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(text = "本月预算 🎯", color = Color(0xFF2B211E), fontWeight = FontWeight.ExtraBold, fontSize = 17.sp)
+            Text(text = "本月预算 🎯 · $defaultLedgerName", color = Color(0xFF2B211E), fontWeight = FontWeight.ExtraBold, fontSize = 17.sp)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -263,13 +277,13 @@ private fun BudgetCard(transactions: List<TransactionEntity>) {
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 Text(
-                    text = "¥${money(monthExpense)}",
+                    text = formatCurrency(ledgerCurrency, monthExpense),
                     color = WatermelonPink,
                     fontWeight = FontWeight.ExtraBold,
                     fontSize = 16.sp,
                 )
                 Text(
-                    text = "¥${money(remain)}",
+                    text = formatCurrency(ledgerCurrency, remain),
                     color = WatermelonRed,
                     fontWeight = FontWeight.ExtraBold,
                     fontSize = 16.sp,
@@ -301,7 +315,7 @@ private fun BudgetCard(transactions: List<TransactionEntity>) {
                     fontSize = 12.sp,
                 )
                 Text(
-                    text = "总预算: ¥${money(budgetTotal)}",
+                    text = "总预算: ${formatCurrency(ledgerCurrency, budgetTotal)}",
                     color = WarmBrown.copy(alpha = 0.55f),
                     fontWeight = FontWeight.Medium,
                     fontSize = 12.sp,
@@ -563,7 +577,10 @@ private fun ActivityItem(
     }
 }
 
-private fun mapTransactionsToSections(transactions: List<TransactionEntity>): List<DaySection> {
+private fun mapTransactionsToSections(
+    transactions: List<TransactionEntity>,
+    ledgerCurrency: String,
+): List<DaySection> {
     if (transactions.isEmpty()) return emptyList()
 
     val dayKeyFormat = SimpleDateFormat("yyyyMMdd", Locale.CHINA)
@@ -606,7 +623,11 @@ private fun mapTransactionsToSections(transactions: List<TransactionEntity>): Li
 
         val expense = list.filter { it.type == 0 }.sumOf { it.amount }
         val income = list.filter { it.type == 1 }.sumOf { it.amount }
-        val summary = if (income > expense) "收入 ¥${money(income)}" else "支出 ¥${money(expense)}"
+        val summary = if (income > expense) {
+            "收入 ${formatCurrency(ledgerCurrency, income)}"
+        } else {
+            "支出 ${formatCurrency(ledgerCurrency, expense)}"
+        }
 
         val records = list.sortedByDescending { it.recordTimestamp }.map { tx ->
             val isIncome = tx.type == 1
@@ -616,7 +637,7 @@ private fun mapTransactionsToSections(transactions: List<TransactionEntity>): Li
                 category = tx.categoryName,
                 desc = tx.remark,
                 time = timeFormat.format(Date(tx.recordTimestamp)),
-                amount = (if (isIncome) "+¥ " else "-¥ ") + money(tx.amount),
+                amount = formatSignedCurrency(ledgerCurrency, tx.amount, isIncome),
                 amountRaw = String.format(Locale.CHINA, "%.2f", tx.amount),
                 isIncome = isIncome,
             )
@@ -646,6 +667,3 @@ private fun recentDailyExpense(transactions: List<TransactionEntity>, days: Int)
     }
 }
 
-private fun money(value: Double): String {
-    return String.format(Locale.CHINA, "%,.2f", value)
-}

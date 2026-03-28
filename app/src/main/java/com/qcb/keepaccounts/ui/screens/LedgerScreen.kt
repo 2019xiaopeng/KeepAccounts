@@ -69,6 +69,8 @@ import com.qcb.keepaccounts.data.local.entity.TransactionEntity
 import com.qcb.keepaccounts.ui.components.ThemedSegmentedToggle
 import com.qcb.keepaccounts.ui.components.glassCard
 import com.qcb.keepaccounts.ui.components.rememberTopBarCollapseProgress
+import com.qcb.keepaccounts.ui.format.formatCurrency
+import com.qcb.keepaccounts.ui.format.formatSignedCurrency
 import com.qcb.keepaccounts.ui.icons.resolveCategoryIcon
 import com.qcb.keepaccounts.ui.model.ManualEntryPrefill
 import com.qcb.keepaccounts.ui.theme.MintGreen
@@ -110,6 +112,8 @@ private enum class RecordSortMode { TIME, AMOUNT }
 @Composable
 fun LedgerScreen(
     viewModel: MainViewModel,
+    ledgerCurrency: String,
+    defaultLedgerName: String,
     onEditRecord: (ManualEntryPrefill) -> Unit = {},
     onDeleteRecord: (Long) -> Unit = {},
     accentColor: Color = MintGreen,
@@ -226,7 +230,7 @@ fun LedgerScreen(
     ) {
         CollapsibleTopBar(
             title = "账本 📒",
-            subtitle = "记录与统计",
+            subtitle = "$defaultLedgerName · 记录与统计",
             progress = topBarProgress,
             modifier = Modifier
                 .statusBarsPadding()
@@ -298,6 +302,7 @@ fun LedgerScreen(
                             month = month + 1,
                             day = selectedDay,
                             records = dayRecords,
+                            ledgerCurrency = ledgerCurrency,
                             expandedRecordId = expandedRecordId,
                             confirmDeleteId = confirmDeleteId,
                             onToggleExpand = { id ->
@@ -349,6 +354,7 @@ fun LedgerScreen(
                         onTrendMetricChange = { trendMetric = it },
                         trendLabels = trendChartData.labels,
                         trendValues = trendChartData.values,
+                        ledgerCurrency = ledgerCurrency,
                         categoryExpense = categoryExpense,
                         rankType = rankType,
                         onRankTypeChange = { rankType = it },
@@ -369,6 +375,7 @@ fun LedgerScreen(
                 records = pageRecords,
                 page = safePage,
                 totalPages = totalPages,
+                ledgerCurrency = ledgerCurrency,
                 accentColor = accentColor,
                 onPrevPage = {
                     if (safePage > 0) currentPage = safePage - 1
@@ -549,6 +556,7 @@ private fun DailyRecordsCard(
     month: Int,
     day: Int,
     records: List<TransactionEntity>,
+    ledgerCurrency: String,
     expandedRecordId: Long,
     confirmDeleteId: Long,
     onToggleExpand: (Long) -> Unit,
@@ -559,7 +567,11 @@ private fun DailyRecordsCard(
 ) {
     val dayExpense = records.filter { it.type == 0 }.sumOf { it.amount }
     val dayIncome = records.filter { it.type == 1 }.sumOf { it.amount }
-    val headerAmount = if (dayIncome >= dayExpense) "+¥${money(dayIncome)}" else "-¥${money(dayExpense)}"
+    val headerAmount = if (dayIncome >= dayExpense) {
+        formatSignedCurrency(ledgerCurrency, dayIncome, true)
+    } else {
+        formatSignedCurrency(ledgerCurrency, dayExpense, false)
+    }
     val headerColor = if (dayIncome >= dayExpense) MintGreen else WatermelonRed
 
     Column(
@@ -610,7 +622,7 @@ private fun DailyRecordsCard(
                             }
                         }
                         Text(
-                            text = (if (isIncome) "+¥ " else "-¥ ") + money(tx.amount),
+                            text = formatSignedCurrency(ledgerCurrency, tx.amount, isIncome),
                             color = if (isIncome) MintGreen else WatermelonRed,
                             fontWeight = FontWeight.ExtraBold,
                             fontSize = 17.sp,
@@ -702,6 +714,7 @@ private fun StatsPanel(
     onTrendMetricChange: (TrendMetric) -> Unit,
     trendLabels: List<String>,
     trendValues: List<Double>,
+    ledgerCurrency: String,
     categoryExpense: List<CategoryStat>,
     rankType: RankType,
     onRankTypeChange: (RankType) -> Unit,
@@ -769,11 +782,11 @@ private fun StatsPanel(
                         .padding(horizontal = 10.dp, vertical = 14.dp),
                     horizontalArrangement = Arrangement.SpaceEvenly,
                 ) {
-                    StatsItem("总支出", money(totalExpense), WatermelonRed)
+                    StatsItem("总支出", formatCurrency(ledgerCurrency, totalExpense), WatermelonRed)
                     DividerV()
-                    StatsItem("总收入", money(totalIncome), PeachIncome)
+                    StatsItem("总收入", formatCurrency(ledgerCurrency, totalIncome), PeachIncome)
                     DividerV()
-                    StatsItem("结余", money(totalBalance), WarmBrown)
+                    StatsItem("结余", formatCurrency(ledgerCurrency, totalBalance), WarmBrown)
                 }
 
                 Column(
@@ -846,7 +859,11 @@ private fun StatsPanel(
                         Text(text = "分类排行榜 🍰", color = WarmBrown, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
                     }
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-                        DonutChart(categoryExpense = categoryExpense, totalExpense = totalExpense)
+                        DonutChart(
+                            categoryExpense = categoryExpense,
+                            totalExpense = totalExpense,
+                            ledgerCurrency = ledgerCurrency,
+                        )
                     }
                     categoryExpense.forEach { item ->
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -862,7 +879,7 @@ private fun StatsPanel(
                                 Text(text = item.name, color = WarmBrown, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                                 Text(text = "${item.percent}%", color = WarmBrownMuted, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                             }
-                            Text(text = "¥ ${money(item.amount)}", color = WarmBrown, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp)
+                            Text(text = formatCurrency(ledgerCurrency, item.amount), color = WarmBrown, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp)
                         }
                         Box(
                             modifier = Modifier
@@ -905,7 +922,11 @@ private fun StatsPanel(
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                 Text(text = it.name, color = WarmBrown, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                                 Text(
-                                    text = (if (rankType == RankType.EXPENSE) "-¥ " else "+¥ ") + money(it.amount),
+                                    text = formatSignedCurrency(
+                                        ledgerCurrency,
+                                        it.amount,
+                                        rankType == RankType.INCOME,
+                                    ),
                                     color = if (rankType == RankType.EXPENSE) WatermelonRed else MintGreen,
                                     fontWeight = FontWeight.ExtraBold,
                                     fontSize = 15.sp,
@@ -1050,7 +1071,11 @@ private fun TrendChart(
 }
 
 @Composable
-private fun DonutChart(categoryExpense: List<CategoryStat>, totalExpense: Double) {
+private fun DonutChart(
+    categoryExpense: List<CategoryStat>,
+    totalExpense: Double,
+    ledgerCurrency: String,
+) {
     Box(contentAlignment = Alignment.Center) {
         Canvas(modifier = Modifier.size(200.dp)) {
             val stroke = Stroke(width = 24f, cap = StrokeCap.Round)
@@ -1085,7 +1110,7 @@ private fun DonutChart(categoryExpense: List<CategoryStat>, totalExpense: Double
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(text = "总支出", color = WarmBrownMuted, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-            Text(text = money(totalExpense), color = WarmBrown, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp)
+            Text(text = formatCurrency(ledgerCurrency, totalExpense), color = WarmBrown, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp)
         }
     }
 }
@@ -1097,6 +1122,7 @@ private fun RecordPagerSection(
     records: List<TransactionEntity>,
     page: Int,
     totalPages: Int,
+    ledgerCurrency: String,
     accentColor: Color,
     onPrevPage: () -> Unit,
     onNextPage: () -> Unit,
@@ -1159,7 +1185,7 @@ private fun RecordPagerSection(
                             Text(text = "${record.remark} · ${formatDate(record.recordTimestamp)}", color = WarmBrownMuted, fontSize = 11.sp)
                         }
                         Text(
-                            text = (if (isIncome) "+¥ " else "-¥ ") + money(record.amount),
+                            text = formatSignedCurrency(ledgerCurrency, record.amount, isIncome),
                             color = if (isIncome) MintGreen else WatermelonRed,
                             fontWeight = FontWeight.ExtraBold,
                             fontSize = 14.sp,
