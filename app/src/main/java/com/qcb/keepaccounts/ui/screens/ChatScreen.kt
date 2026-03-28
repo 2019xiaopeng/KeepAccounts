@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -823,14 +824,15 @@ private fun InputBar(
             maxLines = 4,
             modifier = Modifier
                 .weight(1f)
-                .heightIn(min = 40.dp)
+                .heightIn(min = 56.dp)
                 .clip(RoundedCornerShape(18.dp)),
         )
 
         Box(
             modifier = Modifier
                 .align(Alignment.Top)
-                .height(40.dp)
+                .width(72.dp)
+                .height(56.dp)
                 .clip(RoundedCornerShape(999.dp))
                 .alpha(if (enabled) 1f else 0.5f)
                 .background(brush = Brush.linearGradient(listOf(accentColor, accentColor.copy(alpha = 0.82f))))

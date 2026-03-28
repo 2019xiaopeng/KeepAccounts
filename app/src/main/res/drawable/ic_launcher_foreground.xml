@@ -1,5 +1,9 @@
-<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item
-        android:drawable="@drawable/splash_launch"
-        android:gravity="center" />
-</layer-list>
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:insetLeft="12dp"
+    android:insetTop="12dp"
+    android:insetRight="12dp"
+    android:insetBottom="12dp">
+    <bitmap
+        android:gravity="fill"
+        android:src="@drawable/splash_launch" />
+</inset>

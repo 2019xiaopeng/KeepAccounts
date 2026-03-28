@@ -23,6 +23,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -65,22 +66,31 @@ fun ThemedSegmentedToggle(
     val safeIndex = selectedIndex.coerceIn(0, options.lastIndex)
     val shape = RoundedCornerShape(999.dp)
     val itemOffsets = remember(options) { mutableStateListOf(*Array(options.size) { 0.dp }) }
-    val itemWidths = remember(options) { mutableStateListOf(*Array(options.size) { 72.dp }) }
+    val itemWidths = remember(options) { mutableStateListOf(*Array(options.size) { 0.dp }) }
     var containerWidth by remember(options) { mutableStateOf(0.dp) }
     var containerHeight by remember(options) { mutableStateOf(0.dp) }
+    var disableInitialAnimation by remember(options) { mutableStateOf(true) }
 
     val targetOffset = itemOffsets.getOrElse(safeIndex) { 0.dp }
-    val targetWidth = itemWidths.getOrElse(safeIndex) { 72.dp }
-    val indicatorOffset by animateDpAsState(
+    val targetWidth = itemWidths.getOrElse(safeIndex) { 0.dp }
+    val animatedOffset by animateDpAsState(
         targetValue = targetOffset,
         animationSpec = spring(dampingRatio = 0.8f, stiffness = 300f),
         label = "segmentedIndicatorOffset",
     )
-    val indicatorWidth by animateDpAsState(
+    val animatedWidth by animateDpAsState(
         targetValue = targetWidth,
         animationSpec = spring(dampingRatio = 0.8f, stiffness = 300f),
         label = "segmentedIndicatorWidth",
     )
+    val indicatorOffset = if (disableInitialAnimation) targetOffset else animatedOffset
+    val indicatorWidth = if (disableInitialAnimation) targetWidth else animatedWidth
+
+    LaunchedEffect(targetWidth, disableInitialAnimation) {
+        if (disableInitialAnimation && targetWidth > 0.dp) {
+            disableInitialAnimation = false
+        }
+    }
 
     Box(
         modifier = modifier

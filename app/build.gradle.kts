@@ -36,6 +36,8 @@ android {
 
         buildConfigField("String", "SILICONFLOW_API_KEY", "\"${localProp("SILICONFLOW_API_KEY", "")}\"")
         buildConfigField("String", "SILICONFLOW_API_URL", "\"${localProp("SILICONFLOW_API_URL", "https://api.siliconflow.cn/v1")}\"")
+        buildConfigField("String", "GITHUB_OWNER", "\"${localProp("GITHUB_OWNER", "2019xiaopeng")}\"")
+        buildConfigField("String", "GITHUB_REPO", "\"${localProp("GITHUB_REPO", "KeepAccounts")}\"")
     }
 
     buildTypes {

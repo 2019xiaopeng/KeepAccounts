@@ -1,7 +1,9 @@
 package com.qcb.keepaccounts
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Bundle
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -24,6 +26,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
@@ -181,6 +186,7 @@ fun KeepAccountsApp() {
     val chatViewModel: ChatViewModel = viewModel(
         factory = ChatViewModel.provideFactory(appContainer.chatRepository),
     )
+    val appUpdateRepository = appContainer.appUpdateRepository
     val transactions by mainViewModel.transactions.collectAsStateWithLifecycle()
     val aiChatRecords by chatViewModel.chatRecords.collectAsStateWithLifecycle()
     val aiIsSending by chatViewModel.isSending.collectAsStateWithLifecycle()
@@ -194,6 +200,8 @@ fun KeepAccountsApp() {
         initialPage = 0,
         pageCount = { KeepAccountsDestination.bottomNavItems.size },
     )
+    var pendingUpdateVersionTag by rememberSaveable { mutableStateOf<String?>(null) }
+    var pendingUpdateReleaseUrl by rememberSaveable { mutableStateOf<String?>(null) }
 
     fun animateToTab(index: Int) {
         if (index < 0 || index >= KeepAccountsDestination.bottomNavItems.size) return
@@ -219,6 +227,17 @@ fun KeepAccountsApp() {
                 saveState = true
             }
             launchSingleTop = true
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        val updateInfo = runCatching {
+            appUpdateRepository.checkForUpdate(BuildConfig.VERSION_NAME)
+        }.getOrNull()
+
+        if (updateInfo != null) {
+            pendingUpdateVersionTag = updateInfo.latestVersionTag
+            pendingUpdateReleaseUrl = updateInfo.releaseUrl
         }
     }
 
@@ -505,6 +524,49 @@ fun KeepAccountsApp() {
                             onBack = { navController.popBackStack() },
                         )
                     }
+                }
+
+                if (!pendingUpdateVersionTag.isNullOrBlank() && !pendingUpdateReleaseUrl.isNullOrBlank()) {
+                    AlertDialog(
+                        onDismissRequest = {
+                            pendingUpdateVersionTag = null
+                            pendingUpdateReleaseUrl = null
+                        },
+                        title = { Text(text = "发现新版本") },
+                        text = {
+                            Text(
+                                text = "有新版本啦：${pendingUpdateVersionTag}，当前版本 ${BuildConfig.VERSION_NAME}。是否去看看更新内容？",
+                            )
+                        },
+                        confirmButton = {
+                            TextButton(
+                                onClick = {
+                                    val url = pendingUpdateReleaseUrl
+                                    if (!url.isNullOrBlank()) {
+                                        runCatching {
+                                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                            appContext.startActivity(intent)
+                                        }
+                                    }
+                                    pendingUpdateVersionTag = null
+                                    pendingUpdateReleaseUrl = null
+                                },
+                            ) {
+                                Text(text = "去看看")
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(
+                                onClick = {
+                                    pendingUpdateVersionTag = null
+                                    pendingUpdateReleaseUrl = null
+                                },
+                            ) {
+                                Text(text = "稍后")
+                            }
+                        },
+                    )
                 }
             }
         }

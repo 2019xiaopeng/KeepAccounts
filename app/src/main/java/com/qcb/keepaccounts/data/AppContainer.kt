@@ -5,6 +5,8 @@ import androidx.room.Room
 import com.qcb.keepaccounts.BuildConfig
 import com.qcb.keepaccounts.data.local.AppDatabase
 import com.qcb.keepaccounts.data.local.preferences.UserSettingsRepository
+import com.qcb.keepaccounts.data.remote.github.GitHubReleaseApi
+import com.qcb.keepaccounts.data.repository.AppUpdateRepository
 import com.qcb.keepaccounts.data.repository.ChatRepository
 import com.qcb.keepaccounts.data.remote.siliconflow.SiliconFlowApi
 import com.qcb.keepaccounts.data.repository.SiliconFlowAiGateway
@@ -21,12 +23,15 @@ interface AppContainer {
     val chatRepository: ChatRepository
     val aiChatGateway: AiChatGateway
     val userSettingsRepository: UserSettingsRepository
+    val appUpdateRepository: AppUpdateRepository
 }
 
 class DefaultAppContainer(context: Context) : AppContainer {
 
     private val apiKey = normalizeApiKey(BuildConfig.SILICONFLOW_API_KEY)
     private val apiBaseUrl = normalizeBaseUrl(BuildConfig.SILICONFLOW_API_URL)
+    private val githubOwner = BuildConfig.GITHUB_OWNER
+    private val githubRepo = BuildConfig.GITHUB_REPO
 
     private val database: AppDatabase = Room.databaseBuilder(
         context,
@@ -60,6 +65,17 @@ class DefaultAppContainer(context: Context) : AppContainer {
             .create(SiliconFlowApi::class.java)
     }
 
+    private val gitHubReleaseApi: GitHubReleaseApi by lazy {
+        val moshi = Moshi.Builder()
+            .add(KotlinJsonAdapterFactory())
+            .build()
+        Retrofit.Builder()
+            .baseUrl("https://api.github.com/")
+            .addConverterFactory(MoshiConverterFactory.create(moshi))
+            .build()
+            .create(GitHubReleaseApi::class.java)
+    }
+
     override val transactionRepository: TransactionRepository by lazy {
         TransactionRepository(database.transactionDao())
     }
@@ -78,6 +94,14 @@ class DefaultAppContainer(context: Context) : AppContainer {
 
     override val userSettingsRepository: UserSettingsRepository by lazy {
         UserSettingsRepository(context)
+    }
+
+    override val appUpdateRepository: AppUpdateRepository by lazy {
+        AppUpdateRepository(
+            api = gitHubReleaseApi,
+            owner = githubOwner,
+            repo = githubRepo,
+        )
     }
 }
 
