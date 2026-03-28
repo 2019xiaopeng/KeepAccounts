@@ -55,10 +55,12 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.qcb.keepaccounts.data.local.entity.TransactionEntity
+import com.qcb.keepaccounts.ui.components.ThemedSegmentedToggle
 import com.qcb.keepaccounts.ui.components.glassCard
 import com.qcb.keepaccounts.ui.icons.resolveCategoryIcon
 import com.qcb.keepaccounts.ui.model.ManualEntryPrefill
@@ -109,6 +111,7 @@ fun LedgerScreen(
     viewModel: MainViewModel,
     onEditRecord: (ManualEntryPrefill) -> Unit = {},
     onDeleteRecord: (Long) -> Unit = {},
+    accentColor: Color = MintGreen,
     modifier: Modifier = Modifier,
 ) {
     val transactions by viewModel.transactions.collectAsStateWithLifecycle()
@@ -160,7 +163,7 @@ fun LedgerScreen(
 
     val calendarCells = remember(dateVersion, dailyMap) {
         val firstDayCalendar = Calendar.getInstance().apply { set(year, month, 1) }
-        val weekOffset = ((firstDayCalendar.get(Calendar.DAY_OF_WEEK) + 5) % 7)
+        val weekOffset = firstDayCalendar.get(Calendar.DAY_OF_WEEK) - 1
         val cells = mutableListOf<DayCell>()
         repeat(weekOffset) { cells.add(DayCell(day = null)) }
         for (day in 1..daysInMonth) {
@@ -240,27 +243,17 @@ fun LedgerScreen(
 
         item {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.Center,
             ) {
-                Row(
-                    modifier = Modifier
-                        .glassCard(shape = RoundedCornerShape(999.dp), backgroundColor = Color.White.copy(alpha = 0.56f))
-                        .padding(horizontal = 6.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    TopToggle(
-                        selected = viewMode == LedgerViewMode.CALENDAR,
-                        iconText = "📅",
-                        text = "日历记账",
-                    ) { viewMode = LedgerViewMode.CALENDAR }
-                    TopToggle(
-                        selected = viewMode == LedgerViewMode.STATS,
-                        iconText = "📊",
-                        text = "统计报表",
-                    ) { viewMode = LedgerViewMode.STATS }
-                }
+                ThemedSegmentedToggle(
+                    options = listOf("📅 日历记账", "📊 统计报表"),
+                    selectedIndex = viewMode.ordinal,
+                    onSelectedChange = { index ->
+                        viewMode = if (index == 0) LedgerViewMode.CALENDAR else LedgerViewMode.STATS
+                    },
+                    accentColor = accentColor,
+                )
             }
         }
 
@@ -299,6 +292,7 @@ fun LedgerScreen(
                         CalendarPanel(
                             cells = calendarCells,
                             selectedDay = selectedDay,
+                            accentColor = accentColor,
                             onSelectDay = { selectedDay = it },
                         )
 
@@ -361,6 +355,7 @@ fun LedgerScreen(
                         rankType = rankType,
                         onRankTypeChange = { rankType = it },
                         rankList = rankList,
+                        accentColor = accentColor,
                     )
                 }
             }
@@ -376,6 +371,7 @@ fun LedgerScreen(
                 records = pageRecords,
                 page = safePage,
                 totalPages = totalPages,
+                accentColor = accentColor,
                 onPrevPage = {
                     if (safePage > 0) currentPage = safePage - 1
                 },
@@ -385,38 +381,6 @@ fun LedgerScreen(
             )
         }
 
-    }
-}
-
-@Composable
-private fun TopToggle(
-    selected: Boolean,
-    iconText: String,
-    text: String,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit,
-) {
-    Row(
-        modifier = modifier
-            .background(
-                color = if (selected) MintGreen.copy(alpha = 0.9f) else Color.Transparent,
-                shape = RoundedCornerShape(999.dp),
-            )
-            .clickable { onClick() }
-            .padding(horizontal = 12.dp, vertical = 7.dp),
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        if (iconText.isNotBlank()) {
-            Text(text = iconText, fontSize = 12.sp)
-            Spacer(modifier = Modifier.width(4.dp))
-        }
-        Text(
-            text = text,
-            color = if (selected) WarmBrown else WarmBrown.copy(alpha = 0.62f),
-            fontWeight = FontWeight.ExtraBold,
-            fontSize = 12.sp,
-        )
     }
 }
 
@@ -438,38 +402,60 @@ private fun CalendarPeriodHeader(
 private fun CalendarPanel(
     cells: List<DayCell>,
     selectedDay: Int,
+    accentColor: Color,
     onSelectDay: (Int) -> Unit,
 ) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .glassCard(shape = RoundedCornerShape(24.dp), backgroundColor = Color.White.copy(alpha = 0.72f))
-            .padding(horizontal = 8.dp, vertical = 6.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+            .padding(horizontal = 8.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
 
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            listOf("一", "二", "三", "四", "五", "六", "日").forEach {
-                Text(text = it, color = WarmBrown.copy(alpha = 0.66f), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+        Row(modifier = Modifier.fillMaxWidth()) {
+            listOf("日", "一", "二", "三", "四", "五", "六").forEach { label ->
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(18.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = label,
+                        color = WarmBrown.copy(alpha = 0.66f),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 11.sp,
+                    )
+                }
             }
         }
 
+        Spacer(modifier = Modifier.height(16.dp))
+
         cells.chunked(7).forEach { week ->
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Row(modifier = Modifier.fillMaxWidth()) {
                 week.forEach { cell ->
+                    Box(
+                        modifier = Modifier.weight(1f),
+                        contentAlignment = Alignment.Center,
+                    ) {
                     if (cell.day == null) {
                         Spacer(
                             modifier = Modifier
-                                .width(38.dp)
-                                .height(54.dp),
+                                .fillMaxWidth()
+                                .height(48.dp),
                         )
                     } else {
                         val selected = cell.day == selectedDay
                         DayCellView(
                             cell = cell,
                             selected = selected,
+                            accentColor = accentColor,
+                            modifier = Modifier.fillMaxWidth(),
                             onClick = { onSelectDay(cell.day) },
                         )
+                    }
                     }
                 }
             }
@@ -481,43 +467,58 @@ private fun CalendarPanel(
 private fun DayCellView(
     cell: DayCell,
     selected: Boolean,
+    accentColor: Color,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
     Column(
-        modifier = Modifier
-            .width(38.dp)
-            .height(54.dp)
+        modifier = modifier
+            .height(56.dp)
+            .padding(horizontal = 1.dp)
             .clickable { onClick() },
-        verticalArrangement = Arrangement.spacedBy(2.dp),
+        verticalArrangement = Arrangement.spacedBy(0.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Box(
             modifier = Modifier
                 .size(24.dp)
                 .background(
-                    color = if (selected) Color(0xFFF8A85C) else Color.Transparent,
+                    color = if (selected) accentColor else Color.Transparent,
                     shape = CircleShape,
                 ),
             contentAlignment = Alignment.Center,
         ) {
             Text(
                 text = cell.day.toString(),
-                color = if (selected) Color.White else WarmBrown,
+                color = WarmBrown,
                 fontWeight = FontWeight.ExtraBold,
-                fontSize = 16.sp,
+                fontSize = 13.sp,
+                lineHeight = 13.sp,
             )
         }
-        Text(
-            text = if (cell.expense > 0) "-${trimNumber(cell.expense)}" else "",
-            color = WatermelonRed,
-            fontWeight = FontWeight.Bold,
-            fontSize = 10.sp,
-        )
         Text(
             text = if (cell.income > 0) "+${trimNumber(cell.income)}" else "",
             color = MintGreen,
             fontWeight = FontWeight.Bold,
             fontSize = 10.sp,
+            lineHeight = 10.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 1.dp),
+        )
+        Text(
+            text = if (cell.expense > 0) "-${trimNumber(cell.expense)}" else "",
+            color = WatermelonRed,
+            fontWeight = FontWeight.Bold,
+            fontSize = 10.sp,
+            lineHeight = 10.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 1.dp),
         )
     }
 }
@@ -697,31 +698,20 @@ private fun StatsPanel(
     rankType: RankType,
     onRankTypeChange: (RankType) -> Unit,
     rankList: List<CategoryStat>,
+    accentColor: Color,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth(),
-            horizontalArrangement = Arrangement.Center,
-        ) {
-            Row(
-                modifier = Modifier
-                    .glassCard(shape = RoundedCornerShape(999.dp), backgroundColor = Color.White.copy(alpha = 0.7f))
-                    .padding(horizontal = 6.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                TopToggle(
-                    selected = statsPeriod == StatsPeriod.MONTH,
-                    iconText = "",
-                    text = "月度",
-                ) { onStatsPeriodChange(StatsPeriod.MONTH) }
-                TopToggle(
-                    selected = statsPeriod == StatsPeriod.YEAR,
-                    iconText = "",
-                    text = "年度",
-                ) { onStatsPeriodChange(StatsPeriod.YEAR) }
-            }
-        }
+        ThemedSegmentedToggle(
+            options = listOf("月度", "年度"),
+            selectedIndex = statsPeriod.ordinal,
+            onSelectedChange = { index ->
+                onStatsPeriodChange(if (index == 0) StatsPeriod.MONTH else StatsPeriod.YEAR)
+            },
+            accentColor = accentColor,
+            modifier = Modifier.align(Alignment.CenterHorizontally),
+            textSizeSp = 14,
+            horizontalPadding = 24.dp,
+        )
 
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             ArrowButton(icon = Icons.Rounded.ChevronLeft, onClick = onPrev)
@@ -785,21 +775,29 @@ private fun StatsPanel(
                         .padding(14.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start, verticalAlignment = Alignment.CenterVertically) {
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                             Icon(imageVector = Icons.AutoMirrored.Rounded.ShowChart, contentDescription = null, tint = WarmBrown.copy(alpha = 0.74f), modifier = Modifier.size(16.dp))
                             Text(text = "每日趋势 📈", color = WarmBrown, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
                         }
-                        Row(
-                            modifier = Modifier
-                                .background(Color(0xFFF3F4F6), RoundedCornerShape(999.dp))
-                                .padding(2.dp),
-                        ) {
-                            MetricChip("支出", trendMetric == TrendMetric.EXPENSE) { onTrendMetricChange(TrendMetric.EXPENSE) }
-                            MetricChip("收入", trendMetric == TrendMetric.INCOME) { onTrendMetricChange(TrendMetric.INCOME) }
-                            MetricChip("结余", trendMetric == TrendMetric.BALANCE) { onTrendMetricChange(TrendMetric.BALANCE) }
-                        }
                     }
+                    ThemedSegmentedToggle(
+                        options = listOf("支出", "收入", "结余"),
+                        selectedIndex = trendMetric.ordinal,
+                        onSelectedChange = { index ->
+                            onTrendMetricChange(
+                                when (index) {
+                                    0 -> TrendMetric.EXPENSE
+                                    1 -> TrendMetric.INCOME
+                                    else -> TrendMetric.BALANCE
+                                },
+                            )
+                        },
+                        accentColor = accentColor,
+                        modifier = Modifier.align(Alignment.CenterHorizontally),
+                        textSizeSp = 12,
+                        horizontalPadding = 14.dp,
+                    )
                     AnimatedContent(
                         targetState = trendMetric.ordinal,
                         transitionSpec = {
@@ -871,17 +869,20 @@ private fun StatsPanel(
                         .padding(14.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start, verticalAlignment = Alignment.CenterVertically) {
                         Text(text = "明细排行榜 🏆", color = WarmBrown, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
-                        Row(
-                            modifier = Modifier
-                                .background(Color(0xFFF3F4F6), RoundedCornerShape(999.dp))
-                                .padding(2.dp),
-                        ) {
-                            MetricChip("支出", rankType == RankType.EXPENSE) { onRankTypeChange(RankType.EXPENSE) }
-                            MetricChip("收入", rankType == RankType.INCOME) { onRankTypeChange(RankType.INCOME) }
-                        }
                     }
+                    ThemedSegmentedToggle(
+                        options = listOf("支出", "收入"),
+                        selectedIndex = rankType.ordinal,
+                        onSelectedChange = { index ->
+                            onRankTypeChange(if (index == 0) RankType.EXPENSE else RankType.INCOME)
+                        },
+                        accentColor = accentColor,
+                        modifier = Modifier.align(Alignment.CenterHorizontally),
+                        textSizeSp = 13,
+                        horizontalPadding = 16.dp,
+                    )
                     AnimatedContent(
                         targetState = rankType.ordinal,
                         transitionSpec = {
@@ -932,26 +933,6 @@ private fun DividerV() {
             .height(44.dp)
             .background(WarmBrown.copy(alpha = 0.14f)),
     )
-}
-
-@Composable
-private fun MetricChip(text: String, selected: Boolean, onClick: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .background(
-                color = if (selected) Color(0xFFF4C86A) else Color.Transparent,
-                shape = RoundedCornerShape(999.dp),
-            )
-            .clickable { onClick() }
-            .padding(horizontal = 11.dp, vertical = 5.dp),
-    ) {
-        Text(
-            text = text,
-            color = if (selected) WarmBrown else WarmBrown.copy(alpha = 0.56f),
-            fontWeight = FontWeight.ExtraBold,
-            fontSize = 12.sp,
-        )
-    }
 }
 
 @Composable
@@ -1074,6 +1055,7 @@ private fun MockRecordPagerSection(
     records: List<MockRecord>,
     page: Int,
     totalPages: Int,
+    accentColor: Color,
     onPrevPage: () -> Unit,
     onNextPage: () -> Unit,
 ) {
@@ -1086,18 +1068,17 @@ private fun MockRecordPagerSection(
     ) {
         Text(text = "账本明细", color = WarmBrown, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
 
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SortChip(
-                text = "按时间排序",
-                selected = sortMode == RecordSortMode.TIME,
-                onClick = { onSortModeChange(RecordSortMode.TIME) },
-            )
-            SortChip(
-                text = "按金额排序",
-                selected = sortMode == RecordSortMode.AMOUNT,
-                onClick = { onSortModeChange(RecordSortMode.AMOUNT) },
-            )
-        }
+        ThemedSegmentedToggle(
+            options = listOf("按时间排序", "按金额排序"),
+            selectedIndex = if (sortMode == RecordSortMode.TIME) 0 else 1,
+            onSelectedChange = { index ->
+                onSortModeChange(if (index == 0) RecordSortMode.TIME else RecordSortMode.AMOUNT)
+            },
+            accentColor = accentColor,
+            modifier = Modifier.align(Alignment.CenterHorizontally),
+            textSizeSp = 12,
+            horizontalPadding = 14.dp,
+        )
 
         AnimatedContent(
             targetState = page,
@@ -1159,26 +1140,6 @@ private fun MockRecordPagerSection(
             )
             PaginationButton(text = "下一页", enabled = page < totalPages - 1, onClick = onNextPage)
         }
-    }
-}
-
-@Composable
-private fun SortChip(text: String, selected: Boolean, onClick: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .background(
-                color = if (selected) MintGreen.copy(alpha = 0.24f) else Color.White.copy(alpha = 0.72f),
-                shape = RoundedCornerShape(999.dp),
-            )
-            .clickable { onClick() }
-            .padding(horizontal = 12.dp, vertical = 7.dp),
-    ) {
-        Text(
-            text = text,
-            color = if (selected) WarmBrown else WarmBrown.copy(alpha = 0.6f),
-            fontWeight = FontWeight.Bold,
-            fontSize = 12.sp,
-        )
     }
 }
 

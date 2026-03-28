@@ -44,6 +44,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.qcb.keepaccounts.ui.components.ThemedSegmentedToggle
 import com.qcb.keepaccounts.ui.components.glassCard
 import com.qcb.keepaccounts.ui.icons.resolveCategoryIcon
 import com.qcb.keepaccounts.ui.model.ManualEntryPrefill
@@ -154,22 +155,20 @@ fun ManualEntryScreen(
         }
 
         item {
-            Row(
+            Box(
                 modifier = Modifier
-                    .background(Color.White.copy(alpha = 0.6f), RoundedCornerShape(999.dp))
-                    .padding(4.dp),
+                    .fillMaxWidth(),
+                contentAlignment = Alignment.Center,
             ) {
-                ToggleChip(
-                    text = "支出",
-                    selected = type == "expense",
-                    selectedColor = WatermelonRed,
-                    onClick = { type = "expense" },
-                )
-                ToggleChip(
-                    text = "收入",
-                    selected = type == "income",
-                    selectedColor = MintGreen,
-                    onClick = { type = "income" },
+                ThemedSegmentedToggle(
+                    options = listOf("支出", "收入"),
+                    selectedIndex = if (type == "expense") 0 else 1,
+                    onSelectedChange = { index ->
+                        type = if (index == 0) "expense" else "income"
+                    },
+                    accentColor = selectedColor,
+                    textSizeSp = 14,
+                    horizontalPadding = 24.dp,
                 )
             }
         }
@@ -330,31 +329,6 @@ private fun CategoryFlow(
                 onClick = { onSelect(option) },
             )
         }
-    }
-}
-
-@Composable
-private fun ToggleChip(
-    text: String,
-    selected: Boolean,
-    selectedColor: Color,
-    onClick: () -> Unit,
-) {
-    Box(
-        modifier = Modifier
-            .background(
-                color = if (selected) selectedColor else Color.Transparent,
-                shape = RoundedCornerShape(999.dp),
-            )
-            .clickable { onClick() }
-            .padding(horizontal = 20.dp, vertical = 8.dp),
-    ) {
-        Text(
-            text = text,
-            color = if (selected) Color.White else WarmBrown.copy(alpha = 0.5f),
-            fontWeight = FontWeight.Bold,
-            fontSize = 13.sp,
-        )
     }
 }
 

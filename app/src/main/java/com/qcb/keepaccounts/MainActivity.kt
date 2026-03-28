@@ -384,6 +384,7 @@ private fun MainTabsPager(
                 viewModel = viewModel,
                 onEditRecord = onEditRecord,
                 onDeleteRecord = onDeleteRecord,
+                accentColor = palette.primaryDark,
             )
 
             else -> ProfileScreen(
