@@ -318,7 +318,7 @@ fun KeepAccountsApp() {
                                 }
                             },
                             onDeleteCategory = { category ->
-                                if (manualCategories.size > 1 && (usedCategoryCount[category] ?: 0) == 0) {
+                                if (manualCategories.size > 1) {
                                     manualCategories = manualCategories.filterNot { it == category }
                                 }
                             },

@@ -33,6 +33,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -83,7 +84,7 @@ fun SearchScreen(
                     .statusBarsPadding()
                     .padding(top = 8.dp, start = 12.dp, end = 12.dp)
                     .glassCard(shape = RoundedCornerShape(20.dp), glowColor = MintGreen.copy(alpha = 0.15f))
-                    .padding(horizontal = 6.dp, vertical = 4.dp),
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
@@ -104,17 +105,33 @@ fun SearchScreen(
                 TextField(
                     value = query,
                     onValueChange = { query = it },
-                    placeholder = { Text("搜索账单、备注、分类...", color = WarmBrownMuted, fontSize = 13.sp) },
+                    placeholder = {
+                        Text(
+                            "搜索账单、备注、分类...",
+                            color = WarmBrown.copy(alpha = 0.5f),
+                            fontSize = 13.sp,
+                        )
+                    },
+                    textStyle = TextStyle(
+                        color = WarmBrown,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 14.sp,
+                    ),
                     singleLine = true,
                     colors = TextFieldDefaults.colors(
                         focusedContainerColor = Color.Transparent,
                         unfocusedContainerColor = Color.Transparent,
+                        focusedTextColor = WarmBrown,
+                        unfocusedTextColor = WarmBrown,
+                        cursorColor = WarmBrown,
+                        focusedPlaceholderColor = WarmBrown.copy(alpha = 0.5f),
+                        unfocusedPlaceholderColor = WarmBrown.copy(alpha = 0.5f),
                         focusedIndicatorColor = Color.Transparent,
                         unfocusedIndicatorColor = Color.Transparent,
                     ),
                     modifier = Modifier
                         .weight(1f)
-                        .height(44.dp),
+                        .height(46.dp),
                 )
             }
         }

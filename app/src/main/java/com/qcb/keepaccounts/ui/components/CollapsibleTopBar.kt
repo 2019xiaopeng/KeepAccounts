@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -26,7 +25,6 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.qcb.keepaccounts.ui.theme.MintGreen
 import com.qcb.keepaccounts.ui.theme.WarmBrown
 
 @Composable
@@ -66,11 +64,6 @@ fun CollapsibleTopBar(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .glassCard(
-                shape = RoundedCornerShape(24.dp),
-                backgroundColor = Color.White.copy(alpha = 0.66f),
-                glowColor = MintGreen.copy(alpha = 0.16f),
-            )
             .padding(horizontal = 12.dp, vertical = verticalPadding),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,

@@ -61,15 +61,24 @@ fun ProfileScreen(
     val listState = rememberLazyListState()
     val topBarProgress = rememberTopBarCollapseProgress(listState)
 
-    Box(modifier = modifier.fillMaxSize()) {
-    LazyColumn(
-        state = listState,
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp),
-        contentPadding = PaddingValues(top = 118.dp, bottom = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
+    Column(modifier = modifier.fillMaxSize()) {
+        CollapsibleTopBar(
+            title = "设置 ⚙️",
+            subtitle = "个性化与偏好",
+            progress = topBarProgress,
+            modifier = Modifier
+                .statusBarsPadding()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+        )
+
+        LazyColumn(
+            state = listState,
+            modifier = Modifier
+                .weight(1f)
+                .padding(horizontal = 16.dp),
+            contentPadding = PaddingValues(top = 8.dp, bottom = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
         item {
             Box(
                 modifier = Modifier
@@ -256,17 +265,7 @@ fun ProfileScreen(
                 onNavigate = onNavigateToOption,
             )
         }
-    }
-
-        CollapsibleTopBar(
-            title = "设置 ⚙️",
-            subtitle = "个性化与偏好",
-            progress = topBarProgress,
-            trailingIcon = Icons.Rounded.Palette,
-            modifier = Modifier
-                .statusBarsPadding()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-        )
+        }
     }
 }
 

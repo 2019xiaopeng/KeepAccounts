@@ -58,6 +58,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -220,7 +221,7 @@ fun LedgerScreen(
         sortedMockRecords.drop(safePage * pageSize).take(pageSize)
     }
 
-    Box(
+    Column(
         modifier = modifier
             .fillMaxSize()
             .background(
@@ -233,12 +234,21 @@ fun LedgerScreen(
                 ),
             ),
     ) {
-    LazyColumn(
-        state = listState,
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 16.dp, top = 116.dp, end = 16.dp, bottom = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
+        CollapsibleTopBar(
+            title = "账本 📒",
+            subtitle = "记录与统计",
+            progress = topBarProgress,
+            modifier = Modifier
+                .statusBarsPadding()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+        )
+
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.weight(1f),
+            contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
         item {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -378,17 +388,7 @@ fun LedgerScreen(
             )
         }
 
-    }
-
-        CollapsibleTopBar(
-            title = "账本 📒",
-            subtitle = "记录与统计",
-            progress = topBarProgress,
-            trailingIcon = Icons.Rounded.DateRange,
-            modifier = Modifier
-                .statusBarsPadding()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-        )
+        }
     }
 }
 
@@ -479,7 +479,7 @@ private fun DayCellView(
     Column(
         modifier = modifier
             .height(58.dp)
-            .padding(horizontal = 1.dp)
+            .padding(horizontal = 0.dp)
             .clickable { onClick() },
         verticalArrangement = Arrangement.spacedBy(0.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -501,30 +501,42 @@ private fun DayCellView(
                 lineHeight = 16.sp,
             )
         }
-        Text(
-            text = if (cell.expense > 0) "-${trimNumber(cell.expense)}" else "",
-            color = WatermelonRed,
-            fontWeight = FontWeight.Bold,
-            fontSize = 10.sp,
-            lineHeight = 10.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 1.dp),
-        )
-        Text(
-            text = if (cell.income > 0) "+${trimNumber(cell.income)}" else "",
-            color = MintGreen,
-            fontWeight = FontWeight.Bold,
-            fontSize = 10.sp,
-            lineHeight = 10.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+                .height(11.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = if (cell.expense > 0) "-${trimNumber(cell.expense)}" else "",
+                color = WatermelonRed,
+                fontWeight = FontWeight.Bold,
+                fontSize = 10.sp,
+                lineHeight = 10.sp,
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 1.dp),
-        )
+                .height(11.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = if (cell.income > 0) "+${trimNumber(cell.income)}" else "",
+                color = MintGreen,
+                fontWeight = FontWeight.Bold,
+                fontSize = 10.sp,
+                lineHeight = 10.sp,
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
     }
 }
 

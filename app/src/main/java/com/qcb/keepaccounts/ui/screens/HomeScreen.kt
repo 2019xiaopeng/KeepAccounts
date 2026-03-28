@@ -106,73 +106,7 @@ fun HomeScreen(
     val transactions by viewModel.transactions.collectAsStateWithLifecycle()
     val sections = remember(transactions) { mapTransactionsToSections(transactions) }
 
-    Box(modifier = modifier.fillMaxSize()) {
-    LazyColumn(
-        state = listState,
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 126.dp, bottom = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
-        item { BudgetCard(transactions = transactions) }
-
-        item {
-            ActionButtons(
-                assistantName = assistantName,
-                onAiRecordClick = onAiRecordClick,
-                onManualRecordClick = onManualRecordClick,
-            )
-        }
-
-        item { RecentHeader(onViewAllClick = onViewAllClick) }
-
-        if (sections.isEmpty()) {
-            item {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .glassCard(shape = RoundedCornerShape(24.dp), glowColor = MintGreen.copy(alpha = 0.15f))
-                        .padding(horizontal = 14.dp, vertical = 12.dp),
-                ) {
-                    Text(
-                        text = "暂无账单，去记一笔吧",
-                        color = WarmBrownMuted,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 13.sp,
-                    )
-                }
-            }
-        } else {
-            items(sections) { section ->
-                DaySectionCard(
-                    section = section,
-                    expandedRecordId = expandedRecordId,
-                    confirmDeleteRecordId = confirmDeleteRecordId,
-                    onToggleExpand = { id ->
-                        if (expandedRecordId == id) {
-                            expandedRecordId = -1L
-                            confirmDeleteRecordId = -1L
-                        } else {
-                            expandedRecordId = id
-                            confirmDeleteRecordId = -1L
-                        }
-                    },
-                    onBeginDelete = { id -> confirmDeleteRecordId = id },
-                    onCancelDelete = { confirmDeleteRecordId = -1L },
-                    onConfirmDelete = { id ->
-                        onDeleteRecord(id)
-                        if (expandedRecordId == id) expandedRecordId = -1L
-                        if (confirmDeleteRecordId == id) confirmDeleteRecordId = -1L
-                    },
-                    onEditRecord = { prefill ->
-                        expandedRecordId = -1L
-                        confirmDeleteRecordId = -1L
-                        onEditRecord(prefill)
-                    },
-                )
-            }
-        }
-    }
-
+    Column(modifier = modifier.fillMaxSize()) {
         CollapsibleTopBar(
             title = "$assistantName🌊营业中 ✨",
             subtitle = "劳动最光荣 💼",
@@ -183,6 +117,72 @@ fun HomeScreen(
                 .statusBarsPadding()
                 .padding(horizontal = 16.dp, vertical = 8.dp),
         )
+
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.weight(1f),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            item { BudgetCard(transactions = transactions) }
+
+            item {
+                ActionButtons(
+                    assistantName = assistantName,
+                    onAiRecordClick = onAiRecordClick,
+                    onManualRecordClick = onManualRecordClick,
+                )
+            }
+
+            item { RecentHeader(onViewAllClick = onViewAllClick) }
+
+            if (sections.isEmpty()) {
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .glassCard(shape = RoundedCornerShape(24.dp), glowColor = MintGreen.copy(alpha = 0.15f))
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                    ) {
+                        Text(
+                            text = "暂无账单，去记一笔吧",
+                            color = WarmBrownMuted,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                        )
+                    }
+                }
+            } else {
+                items(sections) { section ->
+                    DaySectionCard(
+                        section = section,
+                        expandedRecordId = expandedRecordId,
+                        confirmDeleteRecordId = confirmDeleteRecordId,
+                        onToggleExpand = { id ->
+                            if (expandedRecordId == id) {
+                                expandedRecordId = -1L
+                                confirmDeleteRecordId = -1L
+                            } else {
+                                expandedRecordId = id
+                                confirmDeleteRecordId = -1L
+                            }
+                        },
+                        onBeginDelete = { id -> confirmDeleteRecordId = id },
+                        onCancelDelete = { confirmDeleteRecordId = -1L },
+                        onConfirmDelete = { id ->
+                            onDeleteRecord(id)
+                            if (expandedRecordId == id) expandedRecordId = -1L
+                            if (confirmDeleteRecordId == id) confirmDeleteRecordId = -1L
+                        },
+                        onEditRecord = { prefill ->
+                            expandedRecordId = -1L
+                            confirmDeleteRecordId = -1L
+                            onEditRecord(prefill)
+                        },
+                    )
+                }
+            }
+        }
     }
 }
 
