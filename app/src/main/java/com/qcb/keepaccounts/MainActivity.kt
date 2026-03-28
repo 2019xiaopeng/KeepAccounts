@@ -83,6 +83,7 @@ import com.qcb.keepaccounts.ui.viewmodel.ChatViewModel
 import com.qcb.keepaccounts.ui.viewmodel.MainViewModel
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import java.util.Calendar
 
 private const val MAIN_TABS_ROUTE = "main_tabs"
 
@@ -196,6 +197,21 @@ fun KeepAccountsApp() {
             .groupingBy { tx -> tx.categoryName.ifBlank { "其他" } }
             .eachCount()
     }
+    val recordedDays = remember(transactions) {
+        transactions
+            .asSequence()
+            .map { tx ->
+                Calendar.getInstance().apply {
+                    timeInMillis = tx.recordTimestamp
+                    set(Calendar.HOUR_OF_DAY, 0)
+                    set(Calendar.MINUTE, 0)
+                    set(Calendar.SECOND, 0)
+                    set(Calendar.MILLISECOND, 0)
+                }.timeInMillis
+            }
+            .toSet()
+            .size
+    }
     val pagerState = rememberPagerState(
         initialPage = 0,
         pageCount = { KeepAccountsDestination.bottomNavItems.size },
@@ -230,9 +246,14 @@ fun KeepAccountsApp() {
         }
     }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(settings.initialized) {
+        if (!settings.initialized) return@LaunchedEffect
+
         val updateInfo = runCatching {
-            appUpdateRepository.checkForUpdate(BuildConfig.VERSION_NAME)
+            appUpdateRepository.checkForUpdate(
+                currentVersion = BuildConfig.VERSION_NAME,
+                minIntervalHours = 12,
+            )
         }.getOrNull()
 
         if (updateInfo != null) {
@@ -356,6 +377,7 @@ fun KeepAccountsApp() {
                             userName = userName,
                             homeSlogan = homeSlogan,
                             userAvatarUri = userAvatarUri,
+                            recordedDays = recordedDays,
                             theme = appTheme,
                             ledgerCurrency = ledgerCurrency,
                             defaultLedgerName = defaultLedgerName,
@@ -537,6 +559,7 @@ fun KeepAccountsApp() {
                 if (!pendingUpdateVersionTag.isNullOrBlank() && !pendingUpdateReleaseUrl.isNullOrBlank()) {
                     AlertDialog(
                         onDismissRequest = {
+                            pendingUpdateVersionTag?.let { appUpdateRepository.markVersionPrompted(it) }
                             pendingUpdateVersionTag = null
                             pendingUpdateReleaseUrl = null
                         },
@@ -557,6 +580,7 @@ fun KeepAccountsApp() {
                                             appContext.startActivity(intent)
                                         }
                                     }
+                                    pendingUpdateVersionTag?.let { appUpdateRepository.markVersionPrompted(it) }
                                     pendingUpdateVersionTag = null
                                     pendingUpdateReleaseUrl = null
                                 },
@@ -567,6 +591,7 @@ fun KeepAccountsApp() {
                         dismissButton = {
                             TextButton(
                                 onClick = {
+                                    pendingUpdateVersionTag?.let { appUpdateRepository.markVersionPrompted(it) }
                                     pendingUpdateVersionTag = null
                                     pendingUpdateReleaseUrl = null
                                 },
@@ -589,6 +614,7 @@ private fun MainTabsPager(
     userName: String,
     homeSlogan: String,
     userAvatarUri: String?,
+    recordedDays: Int,
     theme: AppThemePreset,
     ledgerCurrency: String,
     defaultLedgerName: String,
@@ -661,6 +687,7 @@ private fun MainTabsPager(
                 aiConfig = aiConfig,
                 userName = userName,
                 userAvatarUri = userAvatarUri,
+                recordedDays = recordedDays,
                 theme = theme,
                 highlightColor = palette.primaryDark,
                 onNavigateToOption = onOpenProfileRoute,

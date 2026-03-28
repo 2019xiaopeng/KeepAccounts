@@ -32,6 +32,7 @@ import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -39,10 +40,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.qcb.keepaccounts.data.local.media.persistImageForSlot
 import com.qcb.keepaccounts.ui.components.glassCard
 import com.qcb.keepaccounts.ui.model.AiAssistantConfig
 import com.qcb.keepaccounts.ui.model.AiTone
@@ -50,6 +53,7 @@ import com.qcb.keepaccounts.ui.model.AppThemePreset
 import com.qcb.keepaccounts.ui.theme.MintGreen
 import com.qcb.keepaccounts.ui.theme.WarmBrown
 import com.qcb.keepaccounts.ui.theme.WarmBrownMuted
+import kotlinx.coroutines.launch
 
 private val onboardingAvatarOptions = listOf("🌊", "🐶", "🐱", "🐰", "🦊", "🐼", "🌸", "✨", "🤖")
 
@@ -63,6 +67,9 @@ fun InitialSetupScreen(
     onComplete: (String, String?, AppThemePreset, AiAssistantConfig, Double) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
     var userName by rememberSaveable {
         mutableStateOf(initialUserName.takeIf { it.isNotBlank() && it != "主人" } ?: "")
     }
@@ -80,13 +87,35 @@ fun InitialSetupScreen(
     val userAvatarPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia(),
     ) { uri ->
-        if (uri != null) userAvatarUri = uri.toString()
+        if (uri != null) {
+            scope.launch {
+                val persisted = persistImageForSlot(
+                    context = context,
+                    sourceUri = uri,
+                    slot = "user_avatar",
+                )
+                if (!persisted.isNullOrBlank()) {
+                    userAvatarUri = persisted
+                }
+            }
+        }
     }
 
     val aiAvatarPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia(),
     ) { uri ->
-        if (uri != null) aiAvatarUri = uri.toString()
+        if (uri != null) {
+            scope.launch {
+                val persisted = persistImageForSlot(
+                    context = context,
+                    sourceUri = uri,
+                    slot = "ai_avatar",
+                )
+                if (!persisted.isNullOrBlank()) {
+                    aiAvatarUri = persisted
+                }
+            }
+        }
     }
 
     val selectedColor = when (theme) {

@@ -101,6 +101,7 @@ class DefaultAppContainer(context: Context) : AppContainer {
             api = gitHubReleaseApi,
             owner = githubOwner,
             repo = githubRepo,
+            context = context,
         )
     }
 }

@@ -53,6 +53,7 @@ fun ProfileScreen(
     aiConfig: AiAssistantConfig,
     userName: String,
     userAvatarUri: String?,
+    recordedDays: Int,
     theme: AppThemePreset,
     highlightColor: Color,
     onNavigateToOption: (String) -> Unit,
@@ -113,7 +114,16 @@ fun ProfileScreen(
                         }
                         Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
                             Text(text = userName, color = WarmBrown, fontWeight = FontWeight.ExtraBold, fontSize = 17.sp)
-                            Text(text = "已坚持记账 128 天", color = WarmBrownMuted, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                            Text(
+                                text = if (recordedDays > 0) {
+                                    "已坚持记账 ${recordedDays} 天"
+                                } else {
+                                    "开始记账吧"
+                                },
+                                color = WarmBrownMuted,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.sp,
+                            )
                         }
                     }
 

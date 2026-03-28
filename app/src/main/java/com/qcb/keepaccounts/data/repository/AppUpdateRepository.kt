@@ -1,5 +1,6 @@
 package com.qcb.keepaccounts.data.repository
 
+import android.content.Context
 import com.qcb.keepaccounts.data.remote.github.GitHubReleaseApi
 import kotlin.math.max
 
@@ -12,9 +13,21 @@ class AppUpdateRepository(
     private val api: GitHubReleaseApi,
     private val owner: String,
     private val repo: String,
+    context: Context,
 ) {
-    suspend fun checkForUpdate(currentVersion: String): AppUpdateInfo? {
+    private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+    suspend fun checkForUpdate(
+        currentVersion: String,
+        minIntervalHours: Long = 12,
+    ): AppUpdateInfo? {
         if (owner.isBlank() || repo.isBlank()) return null
+
+        val now = System.currentTimeMillis()
+        val minIntervalMillis = (minIntervalHours.coerceAtLeast(1L) * 60L * 60L * 1000L)
+        val lastCheckAt = prefs.getLong(KEY_LAST_CHECK_AT, 0L)
+        if (now - lastCheckAt < minIntervalMillis) return null
+        prefs.edit().putLong(KEY_LAST_CHECK_AT, now).apply()
 
         val latestRelease = api.latestRelease(owner = owner, repo = repo)
         val latestTag = latestRelease.tagName.trim()
@@ -23,11 +36,19 @@ class AppUpdateRepository(
 
         if (!isNewerVersion(latestVersion, current)) return null
 
+        val lastPromptedTag = prefs.getString(KEY_LAST_PROMPTED_TAG, null)
+        if (latestTag.equals(lastPromptedTag, ignoreCase = true)) return null
+
         val fallback = "https://github.com/$owner/$repo/releases/latest"
         return AppUpdateInfo(
             latestVersionTag = latestTag,
             releaseUrl = latestRelease.htmlUrl?.takeIf { it.isNotBlank() } ?: fallback,
         )
+    }
+
+    fun markVersionPrompted(versionTag: String) {
+        if (versionTag.isBlank()) return
+        prefs.edit().putString(KEY_LAST_PROMPTED_TAG, versionTag.trim()).apply()
     }
 
     private fun normalizeVersion(raw: String): List<Int> {
@@ -50,5 +71,11 @@ class AppUpdateRepository(
             if (latestPart < currentPart) return false
         }
         return false
+    }
+
+    private companion object {
+        const val PREFS_NAME = "app_update_preferences"
+        const val KEY_LAST_CHECK_AT = "last_check_at"
+        const val KEY_LAST_PROMPTED_TAG = "last_prompted_tag"
     }
 }

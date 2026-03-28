@@ -1,5 +1,8 @@
 package com.qcb.keepaccounts.ui.screens
 
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -47,6 +50,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.qcb.keepaccounts.BuildConfig
 import com.qcb.keepaccounts.data.local.media.persistImageForSlot
 import com.qcb.keepaccounts.ui.components.glassCard
 import com.qcb.keepaccounts.ui.model.AppThemePreset
@@ -413,10 +417,43 @@ fun AppSettingsScreen(
             }
 
             else -> {
-                item { GenericCard(title = "帮助与反馈", desc = "常见问题 / 版本日志 / 功能建议") }
-                item { GenericCard(title = "常见问题", desc = "记账失败、分类缺失、同步说明") }
-                item { GenericCard(title = "问题反馈", desc = "提交截图与日志") }
-                item { GenericCard(title = "功能建议", desc = "告诉我们你想要的新能力") }
+                val issuesBaseUrl = "https://github.com/${BuildConfig.GITHUB_OWNER}/${BuildConfig.GITHUB_REPO}/issues"
+                val newIssueUrl = "$issuesBaseUrl/new/choose"
+                val featureIssueUrl = "$issuesBaseUrl/new?labels=enhancement&title=%5BFeature%5D%20"
+
+                item {
+                    GenericCard(
+                        title = "帮助与反馈",
+                        desc = "统一通过 GitHub Issues 追踪问题与需求",
+                    )
+                }
+                item {
+                    ActionButton(icon = Icons.Rounded.CheckCircle, text = "打开 Issues 列表", accentColor = accentColor) {
+                        hintText = if (openExternalLink(context, issuesBaseUrl)) {
+                            "已打开 GitHub Issues"
+                        } else {
+                            "打开链接失败，请稍后重试"
+                        }
+                    }
+                }
+                item {
+                    ActionButton(icon = Icons.Rounded.Save, text = "提交问题反馈", accentColor = accentColor) {
+                        hintText = if (openExternalLink(context, newIssueUrl)) {
+                            "已跳转到新建 Issue 页面"
+                        } else {
+                            "打开链接失败，请稍后重试"
+                        }
+                    }
+                }
+                item {
+                    ActionButton(icon = Icons.Rounded.Download, text = "提交功能建议", accentColor = accentColor) {
+                        hintText = if (openExternalLink(context, featureIssueUrl)) {
+                            "已跳转到功能建议页面"
+                        } else {
+                            "打开链接失败，请稍后重试"
+                        }
+                    }
+                }
             }
         }
 
@@ -535,4 +572,13 @@ private fun isValidReminderTime(value: String): Boolean {
 private fun normalizeBudgetInput(value: Double): String {
     val normalized = String.format("%.2f", value)
     return normalized.trimEnd('0').trimEnd('.')
+}
+
+private fun openExternalLink(context: Context, url: String): Boolean {
+    return runCatching {
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(intent)
+    }.isSuccess
 }
