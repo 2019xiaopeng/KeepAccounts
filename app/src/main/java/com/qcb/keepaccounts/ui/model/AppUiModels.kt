@@ -81,6 +81,13 @@ data class ManualEntryPrefill(
     val amount: String = "",
 )
 
+data class AiChatRecord(
+    val id: Long,
+    val timestamp: Long,
+    val role: String,
+    val content: String,
+)
+
 val defaultManualCategories = listOf(
     "餐饮美食",
     "交通出行",

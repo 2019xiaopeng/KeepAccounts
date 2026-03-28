@@ -61,6 +61,7 @@ fun CategoryManagementScreen(
 ) {
     var input by remember { mutableStateOf("") }
     var hint by remember { mutableStateOf<String?>(null) }
+    var pendingDeleteCategory by remember { mutableStateOf<String?>(null) }
 
     LazyColumn(
         modifier = modifier
@@ -147,10 +148,7 @@ fun CategoryManagementScreen(
                             when {
                                 categories.size <= 1 -> hint = "至少保留一个分类"
                                 used > 0 -> hint = "该分类已关联账单，暂不可删除"
-                                else -> {
-                                    onDeleteCategory(category)
-                                    hint = "已删除分类：$category"
-                                }
+                                else -> pendingDeleteCategory = category
                             }
                         },
                     horizontalArrangement = Arrangement.Center,
@@ -161,6 +159,43 @@ fun CategoryManagementScreen(
                         contentDescription = "delete-category",
                         tint = if (used == 0 && categories.size > 1) Color(0xFFFF8B94) else WarmBrownMuted,
                     )
+                }
+            }
+        }
+
+        if (!pendingDeleteCategory.isNullOrBlank()) {
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .glassCard(shape = RoundedCornerShape(20.dp), glowColor = accentColor.copy(alpha = 0.14f))
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(text = "确认删除分类？", color = WarmBrown, fontWeight = FontWeight.ExtraBold)
+                        Text(text = pendingDeleteCategory ?: "", color = WarmBrownMuted, fontWeight = FontWeight.Bold)
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "取消",
+                            color = WarmBrownMuted,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.clickable { pendingDeleteCategory = null },
+                        )
+                        Text(
+                            text = "删除",
+                            color = Color(0xFFFF8B94),
+                            fontWeight = FontWeight.ExtraBold,
+                            modifier = Modifier.clickable {
+                                val toDelete = pendingDeleteCategory ?: return@clickable
+                                onDeleteCategory(toDelete)
+                                hint = "已删除分类：$toDelete"
+                                pendingDeleteCategory = null
+                            },
+                        )
+                    }
                 }
             }
         }

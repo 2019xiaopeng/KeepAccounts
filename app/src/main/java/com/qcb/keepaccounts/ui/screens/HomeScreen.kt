@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -50,8 +51,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import com.qcb.keepaccounts.ui.components.CollapsibleTopBar
 import com.qcb.keepaccounts.data.local.entity.TransactionEntity
 import com.qcb.keepaccounts.ui.components.glassCard
+import com.qcb.keepaccounts.ui.components.rememberTopBarCollapseProgress
 import com.qcb.keepaccounts.ui.icons.resolveCategoryIcon
 import com.qcb.keepaccounts.ui.model.ManualEntryPrefill
 import com.qcb.keepaccounts.ui.theme.MintGreen
@@ -97,24 +100,19 @@ fun HomeScreen(
 ) {
     var expandedRecordId by rememberSaveable { mutableLongStateOf(-1L) }
     var confirmDeleteRecordId by rememberSaveable { mutableLongStateOf(-1L) }
+    val listState = rememberLazyListState()
+    val topBarProgress = rememberTopBarCollapseProgress(listState)
 
     val transactions by viewModel.transactions.collectAsStateWithLifecycle()
     val sections = remember(transactions) { mapTransactionsToSections(transactions) }
 
+    Box(modifier = modifier.fillMaxSize()) {
     LazyColumn(
-        modifier = modifier
-            .fillMaxSize()
-            .statusBarsPadding(),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 14.dp),
+        state = listState,
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 126.dp, bottom = 14.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        item {
-            HomeHeader(
-                assistantName = assistantName,
-                onOpenSearchPage = onSearchClick,
-            )
-        }
-
         item { BudgetCard(transactions = transactions) }
 
         item {
@@ -174,48 +172,17 @@ fun HomeScreen(
             }
         }
     }
-}
 
-@Composable
-private fun HomeHeader(
-    assistantName: String,
-    onOpenSearchPage: () -> Unit,
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
-            Text(
-                text = "$assistantName🌊营业中 ✨",
-                color = Color(0xFF2B211E),
-                fontWeight = FontWeight.ExtraBold,
-                fontSize = 33.sp,
-            )
-            Text(
-                text = "劳动最光荣 💼",
-                color = WarmBrown.copy(alpha = 0.62f),
-                fontWeight = FontWeight.Bold,
-                fontSize = 16.sp,
-            )
-        }
-
-        Box(
+        CollapsibleTopBar(
+            title = "$assistantName🌊营业中 ✨",
+            subtitle = "劳动最光荣 💼",
+            progress = topBarProgress,
+            trailingIcon = Icons.Rounded.Search,
+            onTrailingClick = onSearchClick,
             modifier = Modifier
-                .size(48.dp)
-                .clip(CircleShape)
-                .background(Color.White.copy(alpha = 0.92f))
-                .clickable { onOpenSearchPage() },
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                imageVector = Icons.Rounded.Search,
-                contentDescription = "search-page",
-                tint = Color(0xFF3B3531),
-                modifier = Modifier.size(24.dp),
-            )
-        }
+                .statusBarsPadding()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+        )
     }
 }
 

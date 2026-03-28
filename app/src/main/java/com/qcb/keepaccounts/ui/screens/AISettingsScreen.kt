@@ -25,12 +25,17 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Wallpaper
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -48,16 +53,24 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.qcb.keepaccounts.ui.components.glassCard
 import com.qcb.keepaccounts.ui.model.AiAssistantConfig
+import com.qcb.keepaccounts.ui.model.AiChatRecord
 import com.qcb.keepaccounts.ui.model.AiTone
 import com.qcb.keepaccounts.ui.model.ChatBackgroundPreset
 import com.qcb.keepaccounts.ui.theme.WarmBrown
 import com.qcb.keepaccounts.ui.theme.WarmBrownMuted
+import com.qcb.keepaccounts.ui.theme.WatermelonRed
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Date
+import java.util.Locale
 
 private val avatarOptions = listOf("🌊", "🐶", "🐱", "🐰", "🦊", "🐼", "🌸", "✨", "🤖")
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AISettingsScreen(
     config: AiAssistantConfig,
+    chatRecords: List<AiChatRecord>,
     accentColor: Color,
     onBack: () -> Unit,
     onSave: (AiAssistantConfig) -> Unit,
@@ -69,6 +82,14 @@ fun AISettingsScreen(
     var tone by rememberSaveable { mutableStateOf(config.tone) }
     var background by rememberSaveable { mutableStateOf(config.chatBackground) }
     var customBackgroundUri by rememberSaveable { mutableStateOf(config.customChatBackgroundUri) }
+    var selectedDateMillis by rememberSaveable { mutableStateOf(System.currentTimeMillis()) }
+    var showDatePicker by rememberSaveable { mutableStateOf(false) }
+
+    val dayChatRecords = remember(chatRecords, selectedDateMillis) {
+        chatRecords
+            .filter { isSameDay(it.timestamp, selectedDateMillis) }
+            .sortedByDescending { it.timestamp }
+    }
 
     val avatarPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia(),
@@ -295,6 +316,84 @@ fun AISettingsScreen(
         }
 
         item {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .glassCard(shape = RoundedCornerShape(24.dp), glowColor = accentColor.copy(alpha = 0.16f))
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(text = "对话记录日历", color = WarmBrown, fontWeight = FontWeight.Bold)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color.White.copy(alpha = 0.78f), RoundedCornerShape(14.dp))
+                        .clickable { showDatePicker = true }
+                        .padding(horizontal = 10.dp, vertical = 9.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Rounded.CalendarMonth,
+                            contentDescription = "calendar",
+                            tint = WarmBrown.copy(alpha = 0.72f),
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Text(
+                            text = formatDateText(selectedDateMillis),
+                            color = WarmBrown,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                        )
+                    }
+                    Text(text = "查看当天记录", color = WarmBrownMuted, fontSize = 12.sp)
+                }
+
+                if (dayChatRecords.isEmpty()) {
+                    Text(
+                        text = "当天暂无对话记录",
+                        color = WarmBrownMuted,
+                        fontWeight = FontWeight.Medium,
+                        fontSize = 12.sp,
+                    )
+                } else {
+                    dayChatRecords.forEach { record ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Color.White.copy(alpha = 0.7f), RoundedCornerShape(14.dp))
+                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.Top,
+                        ) {
+                            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(
+                                    text = if (record.role == "user") "你" else "${name.ifBlank { "AI" }}",
+                                    color = if (record.role == "user") accentColor else WatermelonRed,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 12.sp,
+                                )
+                                Text(
+                                    text = record.content,
+                                    color = WarmBrown,
+                                    fontWeight = FontWeight.Medium,
+                                    fontSize = 12.sp,
+                                )
+                            }
+                            Text(
+                                text = formatTimeText(record.timestamp),
+                                color = WarmBrownMuted,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        item {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -323,6 +422,44 @@ fun AISettingsScreen(
             }
         }
     }
+
+    if (showDatePicker) {
+        val pickerState = androidx.compose.material3.rememberDatePickerState(initialSelectedDateMillis = selectedDateMillis)
+        DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        selectedDateMillis = pickerState.selectedDateMillis ?: selectedDateMillis
+                        showDatePicker = false
+                    },
+                ) {
+                    Text(text = "确定")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDatePicker = false }) {
+                    Text(text = "取消")
+                }
+            },
+        ) {
+            DatePicker(state = pickerState, showModeToggle = false)
+        }
+    }
+}
+
+private fun isSameDay(timestamp: Long, selectedDateMillis: Long): Boolean {
+    val lhs = Calendar.getInstance().apply { timeInMillis = timestamp }
+    val rhs = Calendar.getInstance().apply { timeInMillis = selectedDateMillis }
+    return lhs.get(Calendar.YEAR) == rhs.get(Calendar.YEAR) && lhs.get(Calendar.DAY_OF_YEAR) == rhs.get(Calendar.DAY_OF_YEAR)
+}
+
+private fun formatDateText(timestamp: Long): String {
+    return SimpleDateFormat("yyyy年MM月dd日", Locale.CHINA).format(Date(timestamp))
+}
+
+private fun formatTimeText(timestamp: Long): String {
+    return SimpleDateFormat("HH:mm", Locale.CHINA).format(Date(timestamp))
 }
 
 @Composable

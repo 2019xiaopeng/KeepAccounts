@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Category
@@ -37,7 +38,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.qcb.keepaccounts.ui.components.CollapsibleTopBar
 import com.qcb.keepaccounts.ui.components.glassCard
+import com.qcb.keepaccounts.ui.components.rememberTopBarCollapseProgress
 import com.qcb.keepaccounts.ui.model.AiAssistantConfig
 import com.qcb.keepaccounts.ui.model.AppThemePreset
 import com.qcb.keepaccounts.ui.navigation.KeepAccountsDestination
@@ -55,23 +58,18 @@ fun ProfileScreen(
     onNavigateToOption: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val listState = rememberLazyListState()
+    val topBarProgress = rememberTopBarCollapseProgress(listState)
+
+    Box(modifier = modifier.fillMaxSize()) {
     LazyColumn(
-        modifier = modifier
+        state = listState,
+        modifier = Modifier
             .fillMaxSize()
             .padding(horizontal = 16.dp),
-        contentPadding = PaddingValues(top = 8.dp, bottom = 14.dp),
+        contentPadding = PaddingValues(top = 118.dp, bottom = 14.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item {
-            Text(
-                text = "设置 ⚙️",
-                color = WarmBrown,
-                fontWeight = FontWeight.ExtraBold,
-                fontSize = 22.sp,
-                modifier = Modifier.statusBarsPadding(),
-            )
-        }
-
         item {
             Box(
                 modifier = Modifier
@@ -258,6 +256,17 @@ fun ProfileScreen(
                 onNavigate = onNavigateToOption,
             )
         }
+    }
+
+        CollapsibleTopBar(
+            title = "设置 ⚙️",
+            subtitle = "个性化与偏好",
+            progress = topBarProgress,
+            trailingIcon = Icons.Rounded.Palette,
+            modifier = Modifier
+                .statusBarsPadding()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+        )
     }
 }
 

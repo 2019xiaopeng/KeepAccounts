@@ -53,14 +53,15 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.qcb.keepaccounts.ui.components.glassCard
 import com.qcb.keepaccounts.ui.model.AiAssistantConfig
+import com.qcb.keepaccounts.ui.model.AiChatRecord
 import com.qcb.keepaccounts.ui.model.ChatBackgroundPreset
 import com.qcb.keepaccounts.ui.model.ManualEntryPrefill
 import com.qcb.keepaccounts.ui.model.ThemePalette
@@ -80,21 +81,23 @@ private data class DemoMessage(
     val receiptRemark: String = "",
 )
 
-private val initialChatMessages = listOf(
-    DemoMessage(id = 1, role = "user", text = "牛肉粉丝汤 22"),
-    DemoMessage(id = 2, role = "ai", text = "已经帮你记在账上了"),
-    DemoMessage(id = 3, role = "ai", text = "喝点热汤对肠胃很好，慢点喝别烫到"),
-    DemoMessage(id = 4, role = "ai", text = "吃饱之后稍微站起来走动一下"),
-    DemoMessage(
-        id = 5,
-        role = "ai",
-        text = "如果眼睛觉得累了，就放下手机休息一会",
-        isReceipt = true,
-        receiptCategory = "餐饮",
-        receiptAmount = "22",
-        receiptRemark = "牛肉粉丝汤",
-    ),
-)
+private fun buildInitialChatMessages(now: Long = System.currentTimeMillis()): List<DemoMessage> {
+    return listOf(
+        DemoMessage(id = now - 6 * 60_000L, role = "user", text = "牛肉粉丝汤 22"),
+        DemoMessage(id = now - 5 * 60_000L, role = "ai", text = "已经帮你记在账上了"),
+        DemoMessage(id = now - 4 * 60_000L, role = "ai", text = "喝点热汤对肠胃很好，慢点喝别烫到"),
+        DemoMessage(id = now - 3 * 60_000L, role = "ai", text = "吃饱之后稍微站起来走动一下"),
+        DemoMessage(
+            id = now - 2 * 60_000L,
+            role = "ai",
+            text = "如果眼睛觉得累了，就放下手机休息一会",
+            isReceipt = true,
+            receiptCategory = "餐饮",
+            receiptAmount = "22",
+            receiptRemark = "牛肉粉丝汤",
+        ),
+    )
+}
 
 @Composable
 fun ChatScreen(
@@ -102,17 +105,30 @@ fun ChatScreen(
     userName: String,
     userAvatarUri: String?,
     palette: ThemePalette,
+    chatRecords: List<AiChatRecord>,
     modifier: Modifier = Modifier,
     initialInput: String? = null,
     onConsumedInitialInput: () -> Unit = {},
+    onChatRecordsChange: (List<AiChatRecord>) -> Unit = {},
     onBack: (() -> Unit)? = null,
     onOpenAiSettings: () -> Unit = {},
     onOpenManualEntry: (ManualEntryPrefill) -> Unit = {},
 ) {
-    val messages = remember { mutableStateListOf<DemoMessage>().apply { addAll(initialChatMessages) } }
+    val messages = remember { mutableStateListOf<DemoMessage>() }
     var inputText by remember { mutableStateOf("") }
     var isTyping by remember { mutableStateOf(false) }
     var topTip by remember { mutableStateOf("") }
+
+    LaunchedEffect(Unit) {
+        if (messages.isNotEmpty()) return@LaunchedEffect
+        if (chatRecords.isNotEmpty()) {
+            messages.addAll(chatRecords.map { it.toDemoMessage() })
+        } else {
+            val seeded = buildInitialChatMessages()
+            messages.addAll(seeded)
+            onChatRecordsChange(seeded.map { it.toChatRecord() })
+        }
+    }
 
     LaunchedEffect(initialInput) {
         if (!initialInput.isNullOrBlank() && inputText.isBlank()) {
@@ -198,6 +214,7 @@ fun ChatScreen(
                         palette = palette,
                         onDelete = {
                             messages.removeAll { it.id == message.id }
+                            onChatRecordsChange(messages.map { it.toChatRecord() })
                             topTip = "已删除这条回执"
                         },
                         onEdit = {
@@ -231,8 +248,7 @@ fun ChatScreen(
         InputBar(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .padding(bottom = 0.dp),
+                .fillMaxWidth(),
             input = inputText,
             onInputChange = { inputText = it },
             assistantName = aiConfig.name,
@@ -249,6 +265,7 @@ fun ChatScreen(
                         text = userText,
                     ),
                 )
+                onChatRecordsChange(messages.map { it.toChatRecord() })
                 isTyping = true
             },
         )
@@ -278,6 +295,7 @@ fun ChatScreen(
             )
         }
         messages.add(aiReply)
+        onChatRecordsChange(messages.map { it.toChatRecord() })
         topTip = if (amount != null) "已识别金额并生成回执" else topTip
         isTyping = false
     }
@@ -315,6 +333,23 @@ private fun chatBackgroundBrush(preset: ChatBackgroundPreset, palette: ThemePale
 private fun parseAmount(text: String): String? {
     val regex = Regex("(\\d+(?:\\.\\d{1,2})?)")
     return regex.find(text)?.groupValues?.get(1)
+}
+
+private fun DemoMessage.toChatRecord(): AiChatRecord {
+    return AiChatRecord(
+        id = id,
+        timestamp = id,
+        role = role,
+        content = text,
+    )
+}
+
+private fun AiChatRecord.toDemoMessage(): DemoMessage {
+    return DemoMessage(
+        id = id,
+        role = role,
+        text = content,
+    )
 }
 
 @Composable
@@ -461,15 +496,6 @@ private fun AssistantAvatarBubble(
         if (!assistantAvatarUri.isNullOrBlank()) {
             AsyncImage(
                 model = assistantAvatarUri,
-                contentDescription = "assistant-avatar",
-                modifier = Modifier
-                    .fillMaxSize()
-                    .clip(CircleShape),
-                contentScale = ContentScale.Crop,
-            )
-        } else if (assistantAvatar.startsWith("http://") || assistantAvatar.startsWith("https://")) {
-            AsyncImage(
-                model = assistantAvatar,
                 contentDescription = "assistant-avatar",
                 modifier = Modifier
                     .fillMaxSize()

@@ -44,6 +44,7 @@ import androidx.navigation.navArgument
 import com.google.accompanist.systemuicontroller.rememberSystemUiController
 import com.qcb.keepaccounts.ui.components.BottomNavigationBar
 import com.qcb.keepaccounts.ui.model.AiAssistantConfig
+import com.qcb.keepaccounts.ui.model.AiChatRecord
 import com.qcb.keepaccounts.ui.model.AppThemePreset
 import com.qcb.keepaccounts.ui.model.ManualEntryPrefill
 import com.qcb.keepaccounts.ui.model.ThemePalette
@@ -90,6 +91,7 @@ fun KeepAccountsApp() {
     var manualEntryPrefill by remember { mutableStateOf<ManualEntryPrefill?>(null) }
     var appTheme by remember { mutableStateOf(AppThemePreset.MINT) }
     var aiConfig by remember { mutableStateOf(AiAssistantConfig()) }
+    var aiChatRecords by remember { mutableStateOf<List<AiChatRecord>>(emptyList()) }
     var userName by remember { mutableStateOf("主人") }
     var userAvatarUri by remember { mutableStateOf<String?>(null) }
     var manualCategories by remember { mutableStateOf(defaultManualCategories) }
@@ -218,8 +220,10 @@ fun KeepAccountsApp() {
                             userAvatarUri = userAvatarUri,
                             theme = appTheme,
                             palette = palette,
+                            aiChatRecords = aiChatRecords,
                             initialChatInput = chatInitialInput,
                             onConsumedInitialInput = { chatInitialInput = null },
+                            onAiChatRecordsChange = { aiChatRecords = it },
                             onSearchClick = { navigateToSubPage(KeepAccountsDestination.SEARCH) },
                             onManualRecordClick = {
                                 manualEntryPrefill = null
@@ -267,6 +271,7 @@ fun KeepAccountsApp() {
                     composable(KeepAccountsDestination.AI_SETTINGS) {
                         AISettingsScreen(
                             config = aiConfig,
+                            chatRecords = aiChatRecords,
                             accentColor = palette.primaryDark,
                             onBack = { navController.popBackStack() },
                             onSave = {
@@ -340,8 +345,10 @@ private fun MainTabsPager(
     userAvatarUri: String?,
     theme: AppThemePreset,
     palette: ThemePalette,
+    aiChatRecords: List<AiChatRecord>,
     initialChatInput: String?,
     onConsumedInitialInput: () -> Unit,
+    onAiChatRecordsChange: (List<AiChatRecord>) -> Unit,
     onSearchClick: () -> Unit,
     onManualRecordClick: () -> Unit,
     onAiRecordClick: () -> Unit,
@@ -373,8 +380,10 @@ private fun MainTabsPager(
                 userName = userName,
                 userAvatarUri = userAvatarUri,
                 palette = palette,
+                chatRecords = aiChatRecords,
                 initialInput = initialChatInput,
                 onConsumedInitialInput = onConsumedInitialInput,
+                onChatRecordsChange = onAiChatRecordsChange,
                 onBack = {},
                 onOpenAiSettings = onOpenAiSettings,
                 onOpenManualEntry = onEditRecord,

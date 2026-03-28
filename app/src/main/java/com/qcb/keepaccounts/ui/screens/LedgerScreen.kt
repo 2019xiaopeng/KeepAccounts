@@ -25,12 +25,14 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ShowChart
 import androidx.compose.material.icons.rounded.ChevronLeft
 import androidx.compose.material.icons.rounded.ChevronRight
+import androidx.compose.material.icons.rounded.DateRange
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.PieChart
@@ -46,11 +48,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -59,9 +62,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.qcb.keepaccounts.ui.components.CollapsibleTopBar
 import com.qcb.keepaccounts.data.local.entity.TransactionEntity
 import com.qcb.keepaccounts.ui.components.ThemedSegmentedToggle
 import com.qcb.keepaccounts.ui.components.glassCard
+import com.qcb.keepaccounts.ui.components.rememberTopBarCollapseProgress
 import com.qcb.keepaccounts.ui.icons.resolveCategoryIcon
 import com.qcb.keepaccounts.ui.model.ManualEntryPrefill
 import com.qcb.keepaccounts.ui.theme.MintGreen
@@ -74,7 +79,6 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
-import kotlin.math.max
 import kotlin.random.Random
 
 private data class DayCell(
@@ -115,6 +119,8 @@ fun LedgerScreen(
     modifier: Modifier = Modifier,
 ) {
     val transactions by viewModel.transactions.collectAsStateWithLifecycle()
+    val listState = rememberLazyListState()
+    val topBarProgress = rememberTopBarCollapseProgress(listState)
     var viewMode by rememberSaveable { mutableStateOf(LedgerViewMode.CALENDAR) }
     var statsPeriod by rememberSaveable { mutableStateOf(StatsPeriod.MONTH) }
     var trendMetric by rememberSaveable { mutableStateOf(TrendMetric.EXPENSE) }
@@ -179,34 +185,22 @@ fun LedgerScreen(
     val totalIncome = scopeTransactions.filter { it.type == 1 }.sumOf { it.amount }
     val totalBalance = totalIncome - totalExpense
 
-    val trendPoints = remember(scopeTransactions, statsPeriod, trendMetric, dateVersion) {
-        if (statsPeriod == StatsPeriod.MONTH) {
-            (1..daysInMonth).map { day ->
-                val list = monthTransactions.filter {
-                    val cal = Calendar.getInstance().apply { timeInMillis = it.recordTimestamp }
-                    cal.get(Calendar.DAY_OF_MONTH) == day
-                }
-                metricValue(list, trendMetric).toFloat()
-            }
-        } else {
-            (0..11).map { m ->
-                val list = yearTransactions.filter {
-                    val cal = Calendar.getInstance().apply { timeInMillis = it.recordTimestamp }
-                    cal.get(Calendar.MONTH) == m
-                }
-                metricValue(list, trendMetric).toFloat()
-            }
-        }
-    }
-
     val categoryExpense = remember(scopeTransactions) { categoryStats(scopeTransactions.filter { it.type == 0 }) }
     val categoryIncome = remember(scopeTransactions) { categoryStats(scopeTransactions.filter { it.type == 1 }) }
     val rankList = if (rankType == RankType.EXPENSE) categoryExpense else categoryIncome
-    val trendXAxisLabels = remember(statsPeriod) {
+    val trendXAxisLabels = remember(statsPeriod, month) {
         if (statsPeriod == StatsPeriod.MONTH) {
-            listOf("1日", "5日", "10日", "15日", "20日", "25日")
+            val monthPrefix = String.format(Locale.CHINA, "%02d", month + 1)
+            listOf(
+                "$monthPrefix-01",
+                "$monthPrefix-06",
+                "$monthPrefix-11",
+                "$monthPrefix-16",
+                "$monthPrefix-21",
+                "$monthPrefix-26",
+            )
         } else {
-            listOf("1月", "3月", "5月", "7月", "9月", "11月")
+            listOf("01月", "03月", "05月", "07月", "09月", "11月")
         }
     }
 
@@ -226,28 +220,33 @@ fun LedgerScreen(
         sortedMockRecords.drop(safePage * pageSize).take(pageSize)
     }
 
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(
+                brush = Brush.verticalGradient(
+                    colors = listOf(
+                        Color(0xFFEAF6F3),
+                        Color(0xFFF2F8FB),
+                        Color(0xFFFFFFFF),
+                    ),
+                ),
+            ),
+    ) {
     LazyColumn(
-        modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 8.dp),
+        state = listState,
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 16.dp, top = 116.dp, end = 16.dp, bottom = 8.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        item {
-            Text(
-                text = "账本 📒",
-                color = WarmBrown,
-                fontWeight = FontWeight.ExtraBold,
-                fontSize = 22.sp,
-                modifier = Modifier.statusBarsPadding(),
-            )
-        }
-
         item {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.Center,
             ) {
                 ThemedSegmentedToggle(
-                    options = listOf("📅 日历记账", "📊 统计报表"),
+                    options = listOf("日历记账", "统计报表"),
+                    icons = listOf(Icons.Rounded.DateRange, Icons.AutoMirrored.Rounded.ShowChart),
                     selectedIndex = viewMode.ordinal,
                     onSelectedChange = { index ->
                         viewMode = if (index == 0) LedgerViewMode.CALENDAR else LedgerViewMode.STATS
@@ -292,7 +291,6 @@ fun LedgerScreen(
                         CalendarPanel(
                             cells = calendarCells,
                             selectedDay = selectedDay,
-                            accentColor = accentColor,
                             onSelectDay = { selectedDay = it },
                         )
 
@@ -349,7 +347,6 @@ fun LedgerScreen(
                         totalBalance = totalBalance,
                         trendMetric = trendMetric,
                         onTrendMetricChange = { trendMetric = it },
-                        trendPoints = trendPoints,
                         xLabels = trendXAxisLabels,
                         categoryExpense = categoryExpense,
                         rankType = rankType,
@@ -382,6 +379,17 @@ fun LedgerScreen(
         }
 
     }
+
+        CollapsibleTopBar(
+            title = "账本 📒",
+            subtitle = "记录与统计",
+            progress = topBarProgress,
+            trailingIcon = Icons.Rounded.DateRange,
+            modifier = Modifier
+                .statusBarsPadding()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+        )
+    }
 }
 
 @Composable
@@ -402,7 +410,6 @@ private fun CalendarPeriodHeader(
 private fun CalendarPanel(
     cells: List<DayCell>,
     selectedDay: Int,
-    accentColor: Color,
     onSelectDay: (Int) -> Unit,
 ) {
     Column(
@@ -451,7 +458,6 @@ private fun CalendarPanel(
                         DayCellView(
                             cell = cell,
                             selected = selected,
-                            accentColor = accentColor,
                             modifier = Modifier.fillMaxWidth(),
                             onClick = { onSelectDay(cell.day) },
                         )
@@ -467,13 +473,12 @@ private fun CalendarPanel(
 private fun DayCellView(
     cell: DayCell,
     selected: Boolean,
-    accentColor: Color,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
     Column(
         modifier = modifier
-            .height(56.dp)
+            .height(58.dp)
             .padding(horizontal = 1.dp)
             .clickable { onClick() },
         verticalArrangement = Arrangement.spacedBy(0.dp),
@@ -481,9 +486,9 @@ private fun DayCellView(
     ) {
         Box(
             modifier = Modifier
-                .size(24.dp)
+                .size(26.dp)
                 .background(
-                    color = if (selected) accentColor else Color.Transparent,
+                    color = if (selected) Color(0xFFF7A652) else Color.Transparent,
                     shape = CircleShape,
                 ),
             contentAlignment = Alignment.Center,
@@ -492,13 +497,13 @@ private fun DayCellView(
                 text = cell.day.toString(),
                 color = WarmBrown,
                 fontWeight = FontWeight.ExtraBold,
-                fontSize = 13.sp,
-                lineHeight = 13.sp,
+                fontSize = 16.sp,
+                lineHeight = 16.sp,
             )
         }
         Text(
-            text = if (cell.income > 0) "+${trimNumber(cell.income)}" else "",
-            color = MintGreen,
+            text = if (cell.expense > 0) "-${trimNumber(cell.expense)}" else "",
+            color = WatermelonRed,
             fontWeight = FontWeight.Bold,
             fontSize = 10.sp,
             lineHeight = 10.sp,
@@ -509,8 +514,8 @@ private fun DayCellView(
                 .padding(horizontal = 1.dp),
         )
         Text(
-            text = if (cell.expense > 0) "-${trimNumber(cell.expense)}" else "",
-            color = WatermelonRed,
+            text = if (cell.income > 0) "+${trimNumber(cell.income)}" else "",
+            color = MintGreen,
             fontWeight = FontWeight.Bold,
             fontSize = 10.sp,
             lineHeight = 10.sp,
@@ -692,7 +697,6 @@ private fun StatsPanel(
     totalBalance: Double,
     trendMetric: TrendMetric,
     onTrendMetricChange: (TrendMetric) -> Unit,
-    trendPoints: List<Float>,
     xLabels: List<String>,
     categoryExpense: List<CategoryStat>,
     rankType: RankType,
@@ -771,33 +775,38 @@ private fun StatsPanel(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .glassCard(shape = RoundedCornerShape(30.dp), backgroundColor = Color.White.copy(alpha = 0.78f))
-                        .padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                        .shadow(
+                            elevation = 12.dp,
+                            shape = RoundedCornerShape(32.dp),
+                            ambientColor = Color(0x1F000000),
+                            spotColor = Color(0x1F000000),
+                        )
+                        .background(Color.White.copy(alpha = 0.95f), RoundedCornerShape(32.dp))
+                        .padding(horizontal = 14.dp, vertical = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start, verticalAlignment = Alignment.CenterVertically) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(imageVector = Icons.AutoMirrored.Rounded.ShowChart, contentDescription = null, tint = WarmBrown.copy(alpha = 0.74f), modifier = Modifier.size(16.dp))
-                            Text(text = "每日趋势 📈", color = WarmBrown, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
+                            Text(text = "每日趋势", color = WarmBrown, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
+                            Text(text = "📈", fontSize = 16.sp)
                         }
+                        ThemedSegmentedToggle(
+                            options = listOf("支出", "收入", "结余"),
+                            selectedIndex = trendMetric.ordinal,
+                            onSelectedChange = { index ->
+                                onTrendMetricChange(
+                                    when (index) {
+                                        0 -> TrendMetric.EXPENSE
+                                        1 -> TrendMetric.INCOME
+                                        else -> TrendMetric.BALANCE
+                                    },
+                                )
+                            },
+                            accentColor = PeachIncome,
+                            textSizeSp = 12,
+                            horizontalPadding = 14.dp,
+                        )
                     }
-                    ThemedSegmentedToggle(
-                        options = listOf("支出", "收入", "结余"),
-                        selectedIndex = trendMetric.ordinal,
-                        onSelectedChange = { index ->
-                            onTrendMetricChange(
-                                when (index) {
-                                    0 -> TrendMetric.EXPENSE
-                                    1 -> TrendMetric.INCOME
-                                    else -> TrendMetric.BALANCE
-                                },
-                            )
-                        },
-                        accentColor = accentColor,
-                        modifier = Modifier.align(Alignment.CenterHorizontally),
-                        textSizeSp = 12,
-                        horizontalPadding = 14.dp,
-                    )
                     AnimatedContent(
                         targetState = trendMetric.ordinal,
                         transitionSpec = {
@@ -812,7 +821,7 @@ private fun StatsPanel(
                         },
                         label = "trendMetricSwitch",
                     ) {
-                        LineChart(points = trendPoints, metric = trendMetric, xLabels = xLabels)
+                                TrendPlaceholderChart(xLabels = xLabels)
                     }
                 }
 
@@ -869,20 +878,19 @@ private fun StatsPanel(
                         .padding(14.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start, verticalAlignment = Alignment.CenterVertically) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                         Text(text = "明细排行榜 🏆", color = WarmBrown, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
+                        ThemedSegmentedToggle(
+                            options = listOf("支出", "收入"),
+                            selectedIndex = rankType.ordinal,
+                            onSelectedChange = { index ->
+                                onRankTypeChange(if (index == 0) RankType.EXPENSE else RankType.INCOME)
+                            },
+                            accentColor = accentColor,
+                            textSizeSp = 13,
+                            horizontalPadding = 16.dp,
+                        )
                     }
-                    ThemedSegmentedToggle(
-                        options = listOf("支出", "收入"),
-                        selectedIndex = rankType.ordinal,
-                        onSelectedChange = { index ->
-                            onRankTypeChange(if (index == 0) RankType.EXPENSE else RankType.INCOME)
-                        },
-                        accentColor = accentColor,
-                        modifier = Modifier.align(Alignment.CenterHorizontally),
-                        textSizeSp = 13,
-                        horizontalPadding = 16.dp,
-                    )
                     AnimatedContent(
                         targetState = rankType.ordinal,
                         transitionSpec = {
@@ -936,71 +944,67 @@ private fun DividerV() {
 }
 
 @Composable
-private fun LineChart(points: List<Float>, metric: TrendMetric, xLabels: List<String>) {
-    val strokeColor = when (metric) {
-        TrendMetric.EXPENSE -> WatermelonRed
-        TrendMetric.INCOME -> Color(0xFF37A56B)
-        TrendMetric.BALANCE -> Color(0xFF5A6EE0)
-    }
-    Column(
+private fun TrendPlaceholderChart(xLabels: List<String>) {
+    val yLabels = listOf("2.0k", "1.5k", "1.0k", "500", "0")
+    val shownXLabels = if (xLabels.size >= 6) xLabels.take(6) else xLabels
+
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color.White.copy(alpha = 0.4f), RoundedCornerShape(18.dp))
-            .padding(horizontal = 8.dp, vertical = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+            .height(220.dp)
+            .background(Color(0xFFFCFDFE), RoundedCornerShape(22.dp))
+            .padding(start = 8.dp, top = 10.dp, end = 8.dp, bottom = 8.dp),
     ) {
-        Box(modifier = Modifier.fillMaxWidth().height(164.dp)) {
-            Canvas(modifier = Modifier.fillMaxSize()) {
-            repeat(4) { i ->
-                val y = size.height * i / 3f
+        Canvas(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(start = 34.dp, top = 8.dp, end = 6.dp, bottom = 24.dp),
+        ) {
+            repeat(5) { index ->
+                val y = size.height * index / 4f
                 drawLine(
-                    color = WarmBrown.copy(alpha = 0.10f),
+                    color = Color(0xFFDADDE1),
                     start = Offset(0f, y),
                     end = Offset(size.width, y),
                     strokeWidth = 1f,
+                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 8f), 0f),
+                    cap = StrokeCap.Round,
                 )
             }
-
-            if (points.isNotEmpty()) {
-                val maxValue = max(points.maxOrNull() ?: 0f, 1f)
-                val stepX = if (points.size > 1) size.width / (points.size - 1) else 0f
-                val linePath = Path()
-                val fillPath = Path()
-
-                points.forEachIndexed { index, value ->
-                    val x = stepX * index
-                    val y = size.height - (value / maxValue) * size.height
-                    if (index == 0) {
-                        linePath.moveTo(x, y)
-                        fillPath.moveTo(x, size.height)
-                        fillPath.lineTo(x, y)
-                    } else {
-                        linePath.lineTo(x, y)
-                        fillPath.lineTo(x, y)
-                    }
-                    if (index == points.lastIndex) {
-                        fillPath.lineTo(x, size.height)
-                        fillPath.close()
-                    }
-                }
-
-                drawPath(
-                    path = fillPath,
-                    brush = Brush.verticalGradient(
-                        colors = listOf(strokeColor.copy(alpha = 0.24f), Color.Transparent),
-                    ),
-                )
-                drawPath(path = linePath, color = strokeColor, style = Stroke(width = 4f, cap = StrokeCap.Round))
-            }
         }
-        }
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            xLabels.forEach { label ->
+
+        Column(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(top = 8.dp, bottom = 24.dp)
+                .height(164.dp),
+            verticalArrangement = Arrangement.SpaceBetween,
+            horizontalAlignment = Alignment.Start,
+        ) {
+            yLabels.forEach { label ->
                 Text(
                     text = label,
-                    color = WarmBrown.copy(alpha = 0.42f),
-                    fontWeight = FontWeight.Medium,
+                    color = WarmBrownMuted.copy(alpha = 0.75f),
                     fontSize = 10.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
+        }
+
+        Row(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .padding(start = 34.dp, end = 6.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.Bottom,
+        ) {
+            shownXLabels.forEach { label ->
+                Text(
+                    text = label,
+                    color = WarmBrownMuted.copy(alpha = 0.75f),
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Medium,
                 )
             }
         }
