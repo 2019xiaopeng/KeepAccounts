@@ -56,6 +56,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -80,7 +81,6 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
-import kotlin.random.Random
 
 private data class DayCell(
     val day: Int?,
@@ -101,15 +101,6 @@ private enum class StatsPeriod { MONTH, YEAR }
 private enum class TrendMetric { EXPENSE, INCOME, BALANCE }
 private enum class RankType { EXPENSE, INCOME }
 private enum class RecordSortMode { TIME, AMOUNT }
-
-private data class MockRecord(
-    val id: Int,
-    val category: String,
-    val remark: String,
-    val amount: Double,
-    val timestamp: Long,
-    val isIncome: Boolean,
-)
 
 @Composable
 fun LedgerScreen(
@@ -205,21 +196,21 @@ fun LedgerScreen(
         }
     }
 
-    val mockRecords = remember {
-        buildMockRecords()
-    }
-    val sortedMockRecords = remember(mockRecords, recordSortMode) {
+    val sortedRecords = remember(transactions, recordSortMode) {
         when (recordSortMode) {
-            RecordSortMode.TIME -> mockRecords.sortedByDescending { it.timestamp }
-            RecordSortMode.AMOUNT -> mockRecords.sortedByDescending { it.amount }
+            RecordSortMode.TIME -> transactions.sortedByDescending { it.recordTimestamp }
+            RecordSortMode.AMOUNT -> transactions.sortedByDescending { it.amount }
         }
     }
     val pageSize = 10
-    val totalPages = remember(sortedMockRecords) { (sortedMockRecords.size + pageSize - 1) / pageSize }
+    val totalPages = remember(sortedRecords) { (sortedRecords.size + pageSize - 1) / pageSize }
     val safePage = currentPage.coerceIn(0, (totalPages - 1).coerceAtLeast(0))
-    val pageRecords = remember(sortedMockRecords, safePage) {
-        sortedMockRecords.drop(safePage * pageSize).take(pageSize)
+    val pageRecords = remember(sortedRecords, safePage) {
+        sortedRecords.drop(safePage * pageSize).take(pageSize)
     }
+
+    val ledgerBgTop = lerp(accentColor, Color.White, 0.76f)
+    val ledgerBgMid = lerp(accentColor, Color.White, 0.88f)
 
     Column(
         modifier = modifier
@@ -227,8 +218,8 @@ fun LedgerScreen(
             .background(
                 brush = Brush.verticalGradient(
                     colors = listOf(
-                        Color(0xFFEAF6F3),
-                        Color(0xFFF2F8FB),
+                        ledgerBgTop,
+                        ledgerBgMid,
                         Color(0xFFFFFFFF),
                     ),
                 ),
@@ -903,31 +894,16 @@ private fun StatsPanel(
                             horizontalPadding = 16.dp,
                         )
                     }
-                    AnimatedContent(
-                        targetState = rankType.ordinal,
-                        transitionSpec = {
-                            slideInHorizontally(
-                                initialOffsetX = { fullWidth -> if (targetState > initialState) fullWidth else -fullWidth },
-                                animationSpec = tween(300),
-                            ) + fadeIn(tween(300)) togetherWith
-                                slideOutHorizontally(
-                                    targetOffsetX = { fullWidth -> if (targetState > initialState) -fullWidth else fullWidth },
-                                    animationSpec = tween(300),
-                                ) + fadeOut(tween(300))
-                        },
-                        label = "rankTypeSwitch",
-                    ) { rankIndex ->
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            rankList.forEach {
-                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                    Text(text = it.name, color = WarmBrown, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                    Text(
-                                        text = (if (rankIndex == RankType.EXPENSE.ordinal) "-¥ " else "+¥ ") + money(it.amount),
-                                        color = if (rankIndex == RankType.EXPENSE.ordinal) WatermelonRed else MintGreen,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        fontSize = 15.sp,
-                                    )
-                                }
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        rankList.forEach {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                Text(text = it.name, color = WarmBrown, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                Text(
+                                    text = (if (rankType == RankType.EXPENSE) "-¥ " else "+¥ ") + money(it.amount),
+                                    color = if (rankType == RankType.EXPENSE) WatermelonRed else MintGreen,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 15.sp,
+                                )
                             }
                         }
                     }
@@ -1068,7 +1044,7 @@ private fun DonutChart(categoryExpense: List<CategoryStat>, totalExpense: Double
 private fun MockRecordPagerSection(
     sortMode: RecordSortMode,
     onSortModeChange: (RecordSortMode) -> Unit,
-    records: List<MockRecord>,
+    records: List<TransactionEntity>,
     page: Int,
     totalPages: Int,
     accentColor: Color,
@@ -1119,6 +1095,7 @@ private fun MockRecordPagerSection(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 items(records, key = { record -> record.id }) { record ->
+                    val isIncome = record.type == 1
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -1128,12 +1105,12 @@ private fun MockRecordPagerSection(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text(text = record.category, color = WarmBrown, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                            Text(text = "${record.remark} · ${formatDate(record.timestamp)}", color = WarmBrownMuted, fontSize = 11.sp)
+                            Text(text = record.categoryName, color = WarmBrown, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text(text = "${record.remark} · ${formatDate(record.recordTimestamp)}", color = WarmBrownMuted, fontSize = 11.sp)
                         }
                         Text(
-                            text = (if (record.isIncome) "+¥ " else "-¥ ") + money(record.amount),
-                            color = if (record.isIncome) MintGreen else WatermelonRed,
+                            text = (if (isIncome) "+¥ " else "-¥ ") + money(record.amount),
+                            color = if (isIncome) MintGreen else WatermelonRed,
                             fontWeight = FontWeight.ExtraBold,
                             fontSize = 14.sp,
                         )
@@ -1175,23 +1152,6 @@ private fun PaginationButton(text: String, enabled: Boolean, onClick: () -> Unit
             color = if (enabled) WarmBrown else WarmBrownMuted,
             fontWeight = FontWeight.Bold,
             fontSize = 12.sp,
-        )
-    }
-}
-
-private fun buildMockRecords(): List<MockRecord> {
-    val now = System.currentTimeMillis()
-    val categories = listOf("餐饮美食", "交通出行", "购物消费", "居家生活", "娱乐休闲", "医疗健康")
-    return List(50) { index ->
-        val amount = Random(index + 9).nextDouble(18.0, 580.0)
-        val isIncome = index % 7 == 0
-        MockRecord(
-            id = index + 1,
-            category = categories[index % categories.size],
-            remark = if (isIncome) "模拟收入${index + 1}" else "模拟支出${index + 1}",
-            amount = amount,
-            timestamp = now - index * 6L * 60L * 60L * 1000L,
-            isIncome = isIncome,
         )
     }
 }

@@ -69,7 +69,6 @@ import com.qcb.keepaccounts.ui.theme.MintGreen
 import com.qcb.keepaccounts.ui.theme.WarmBrown
 import com.qcb.keepaccounts.ui.theme.WarmBrownMuted
 import com.qcb.keepaccounts.ui.theme.WatermelonRed
-import kotlinx.coroutines.delay
 
 private data class DemoMessage(
     val id: Long,
@@ -80,24 +79,6 @@ private data class DemoMessage(
     val receiptAmount: String = "",
     val receiptRemark: String = "",
 )
-
-private fun buildInitialChatMessages(now: Long = System.currentTimeMillis()): List<DemoMessage> {
-    return listOf(
-        DemoMessage(id = now - 6 * 60_000L, role = "user", text = "牛肉粉丝汤 22"),
-        DemoMessage(id = now - 5 * 60_000L, role = "ai", text = "已经帮你记在账上了"),
-        DemoMessage(id = now - 4 * 60_000L, role = "ai", text = "喝点热汤对肠胃很好，慢点喝别烫到"),
-        DemoMessage(id = now - 3 * 60_000L, role = "ai", text = "吃饱之后稍微站起来走动一下"),
-        DemoMessage(
-            id = now - 2 * 60_000L,
-            role = "ai",
-            text = "如果眼睛觉得累了，就放下手机休息一会",
-            isReceipt = true,
-            receiptCategory = "餐饮",
-            receiptAmount = "22",
-            receiptRemark = "牛肉粉丝汤",
-        ),
-    )
-}
 
 @Composable
 fun ChatScreen(
@@ -116,17 +97,12 @@ fun ChatScreen(
 ) {
     val messages = remember { mutableStateListOf<DemoMessage>() }
     var inputText by remember { mutableStateOf("") }
-    var isTyping by remember { mutableStateOf(false) }
     var topTip by remember { mutableStateOf("") }
 
     LaunchedEffect(Unit) {
         if (messages.isNotEmpty()) return@LaunchedEffect
         if (chatRecords.isNotEmpty()) {
             messages.addAll(chatRecords.map { it.toDemoMessage() })
-        } else {
-            val seeded = buildInitialChatMessages()
-            messages.addAll(seeded)
-            onChatRecordsChange(seeded.map { it.toChatRecord() })
         }
     }
 
@@ -231,16 +207,6 @@ fun ChatScreen(
                     )
                 }
 
-                if (isTyping) {
-                    item {
-                        TypingRow(
-                            assistantAvatar = aiConfig.avatar,
-                            assistantAvatarUri = aiConfig.avatarUri,
-                            palette = palette,
-                        )
-                    }
-                }
-
                 item { Spacer(modifier = Modifier.height(112.dp)) }
             }
         }
@@ -255,7 +221,7 @@ fun ChatScreen(
             accentColor = palette.primaryDark,
             onSend = {
                 val userText = inputText.trim()
-                if (userText.isEmpty() || isTyping) return@InputBar
+                if (userText.isEmpty()) return@InputBar
 
                 inputText = ""
                 messages.add(
@@ -266,38 +232,8 @@ fun ChatScreen(
                     ),
                 )
                 onChatRecordsChange(messages.map { it.toChatRecord() })
-                isTyping = true
             },
         )
-    }
-
-    LaunchedEffect(isTyping) {
-        if (!isTyping) return@LaunchedEffect
-
-        delay(700)
-        val latestUser = messages.lastOrNull { it.role == "user" }?.text.orEmpty()
-        val amount = parseAmount(latestUser)
-        val aiReply = if (amount != null) {
-            DemoMessage(
-                id = System.currentTimeMillis() + 1,
-                role = "ai",
-                text = "收到啦，已经帮你记下这笔账。今天也要照顾好自己。",
-                isReceipt = true,
-                receiptCategory = "餐饮",
-                receiptAmount = amount,
-                receiptRemark = latestUser,
-            )
-        } else {
-            DemoMessage(
-                id = System.currentTimeMillis() + 1,
-                role = "ai",
-                text = "我在呢，你可以直接说“午饭 26”这种格式，我会自动记账。",
-            )
-        }
-        messages.add(aiReply)
-        onChatRecordsChange(messages.map { it.toChatRecord() })
-        topTip = if (amount != null) "已识别金额并生成回执" else topTip
-        isTyping = false
     }
 }
 
@@ -328,11 +264,6 @@ private fun chatBackgroundBrush(preset: ChatBackgroundPreset, palette: ThemePale
         )
     }
     return Brush.verticalGradient(colors = colors)
-}
-
-private fun parseAmount(text: String): String? {
-    val regex = Regex("(\\d+(?:\\.\\d{1,2})?)")
-    return regex.find(text)?.groupValues?.get(1)
 }
 
 private fun DemoMessage.toChatRecord(): AiChatRecord {

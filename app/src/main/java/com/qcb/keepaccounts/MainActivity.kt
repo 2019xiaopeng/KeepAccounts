@@ -19,9 +19,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -57,6 +59,7 @@ import com.qcb.keepaccounts.ui.screens.CacheCleanupScreen
 import com.qcb.keepaccounts.ui.screens.CategoryManagementScreen
 import com.qcb.keepaccounts.ui.screens.ChatScreen
 import com.qcb.keepaccounts.ui.screens.HomeScreen
+import com.qcb.keepaccounts.ui.screens.InitialSetupScreen
 import com.qcb.keepaccounts.ui.screens.LedgerScreen
 import com.qcb.keepaccounts.ui.screens.ManualEntryScreen
 import com.qcb.keepaccounts.ui.screens.ProfileScreen
@@ -81,6 +84,22 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun KeepAccountsApp() {
+    val appContainer = (LocalContext.current.applicationContext as KeepAccountsApplication).container
+    val userSettingsRepository = appContainer.userSettingsRepository
+    val storedSettings by produceState<com.qcb.keepaccounts.data.local.preferences.UserSettingsState?>(
+        initialValue = null,
+        key1 = userSettingsRepository,
+    ) {
+        userSettingsRepository.settingsFlow.collect { value = it }
+    }
+
+    if (storedSettings == null) {
+        Box(modifier = Modifier.fillMaxSize())
+        return
+    }
+
+    val settings = storedSettings!!
+
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
@@ -96,9 +115,15 @@ fun KeepAccountsApp() {
     var userAvatarUri by remember { mutableStateOf<String?>(null) }
     var manualCategories by remember { mutableStateOf(defaultManualCategories) }
 
+    LaunchedEffect(settings) {
+        appTheme = settings.theme
+        aiConfig = settings.aiConfig
+        userName = settings.userName
+        userAvatarUri = settings.userAvatarUri
+    }
+
     val palette = remember(appTheme) { paletteForTheme(appTheme) }
 
-    val appContainer = (LocalContext.current.applicationContext as KeepAccountsApplication).container
     val mainViewModel: MainViewModel = viewModel(
         factory = MainViewModel.provideFactory(appContainer.transactionRepository),
     )
@@ -206,11 +231,40 @@ fun KeepAccountsApp() {
             ) { innerPadding ->
                 NavHost(
                     navController = navController,
-                    startDestination = MAIN_TABS_ROUTE,
+                    startDestination = if (settings.initialized) MAIN_TABS_ROUTE else KeepAccountsDestination.INITIAL_SETUP,
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(innerPadding),
                 ) {
+                    composable(KeepAccountsDestination.INITIAL_SETUP) {
+                        InitialSetupScreen(
+                            initialUserName = userName,
+                            initialUserAvatarUri = userAvatarUri,
+                            initialTheme = appTheme,
+                            initialAiConfig = aiConfig,
+                            onComplete = { setupUserName, setupUserAvatarUri, setupTheme, setupAiConfig ->
+                                userName = setupUserName
+                                userAvatarUri = setupUserAvatarUri
+                                appTheme = setupTheme
+                                aiConfig = setupAiConfig
+
+                                coroutineScope.launch {
+                                    userSettingsRepository.saveInitialSetup(
+                                        userName = setupUserName,
+                                        userAvatarUri = setupUserAvatarUri,
+                                        theme = setupTheme,
+                                        aiConfig = setupAiConfig,
+                                    )
+                                }
+
+                                navController.navigate(MAIN_TABS_ROUTE) {
+                                    popUpTo(KeepAccountsDestination.INITIAL_SETUP) { inclusive = true }
+                                    launchSingleTop = true
+                                }
+                            },
+                        )
+                    }
+
                     composable(MAIN_TABS_ROUTE) {
                         MainTabsPager(
                             pagerState = pagerState,
@@ -276,6 +330,9 @@ fun KeepAccountsApp() {
                             onBack = { navController.popBackStack() },
                             onSave = {
                                 aiConfig = it
+                                coroutineScope.launch {
+                                    userSettingsRepository.saveAiConfig(it)
+                                }
                                 navController.popBackStack()
                             },
                         )
@@ -299,9 +356,24 @@ fun KeepAccountsApp() {
                             userAvatarUri = userAvatarUri,
                             accentColor = palette.primaryDark,
                             onBack = { navController.popBackStack() },
-                            onThemeChange = { appTheme = it },
-                            onUserNameChange = { userName = it },
-                            onUserAvatarChange = { userAvatarUri = it },
+                            onThemeChange = {
+                                appTheme = it
+                                coroutineScope.launch {
+                                    userSettingsRepository.saveTheme(it)
+                                }
+                            },
+                            onUserNameChange = {
+                                userName = it
+                                coroutineScope.launch {
+                                    userSettingsRepository.saveUserProfile(userName, userAvatarUri)
+                                }
+                            },
+                            onUserAvatarChange = {
+                                userAvatarUri = it
+                                coroutineScope.launch {
+                                    userSettingsRepository.saveUserProfile(userName, userAvatarUri)
+                                }
+                            },
                         )
                     }
 

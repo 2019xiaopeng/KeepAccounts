@@ -21,16 +21,6 @@ class MainViewModel(
             initialValue = emptyList(),
         )
 
-    init {
-        seedSampleTransactions()
-    }
-
-    private fun seedSampleTransactions() {
-        viewModelScope.launch {
-            transactionRepository.seedInitialTransactionsIfNeeded()
-        }
-    }
-
     fun addManualTransaction(
         type: Int,
         amount: Double,

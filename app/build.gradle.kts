@@ -1,7 +1,20 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     id("com.google.devtools.ksp") version "2.2.10-2.0.2"
+}
+
+val localProperties = Properties().apply {
+    val localFile = rootProject.file("local.properties")
+    if (localFile.exists()) {
+        localFile.inputStream().use { load(it) }
+    }
+}
+
+fun localProp(key: String, defaultValue: String = ""): String {
+    return (localProperties.getProperty(key) ?: defaultValue).trim().removeSurrounding("\"")
 }
 
 android {
@@ -20,6 +33,9 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        buildConfigField("String", "SILICONFLOW_API_KEY", "\"${localProp("SILICONFLOW_API_KEY", "")}\"")
+        buildConfigField("String", "SILICONFLOW_API_URL", "\"${localProp("SILICONFLOW_API_URL", "https://api.siliconflow.cn/v1")}\"")
     }
 
     buildTypes {
@@ -37,6 +53,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
@@ -67,6 +84,7 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
     implementation("com.squareup.okhttp3:okhttp-sse:4.12.0")
+    implementation("androidx.datastore:datastore-preferences:1.1.1")
 
     // UI enhancement libs
     implementation("com.patrykandpatrick.vico:compose-m3:1.13.1")
