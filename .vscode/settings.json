@@ -1,0 +1,12 @@
+{
+  "java.jdt.ls.java.home": "${env:JAVA_HOME}",
+  "java.import.gradle.java.home": "${env:JAVA_HOME}",
+  "gradle.java.home": "${env:JAVA_HOME}",
+  "java.configuration.runtimes": [
+    {
+      "name": "JavaSE-21",
+      "path": "${env:JAVA_HOME}",
+      "default": true
+    }
+  ]
+}
