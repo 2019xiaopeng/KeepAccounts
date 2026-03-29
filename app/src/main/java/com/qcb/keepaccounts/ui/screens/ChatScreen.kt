@@ -11,6 +11,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -99,6 +100,7 @@ fun ChatScreen(
     userName: String,
     userAvatarUri: String?,
     palette: ThemePalette,
+    paddingValues: PaddingValues = PaddingValues(0.dp),
     chatRecords: List<AiChatRecord>,
     isSending: Boolean,
     modifier: Modifier = Modifier,
@@ -163,6 +165,8 @@ fun ChatScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .padding(paddingValues)
+                .consumeWindowInsets(paddingValues)
                 .imePadding(),
         ) {
             ChatHeader(

@@ -12,23 +12,20 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBars
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.AlertDialog
@@ -106,7 +103,6 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-@OptIn(ExperimentalLayoutApi::class)
 fun KeepAccountsApp() {
     val appContext = LocalContext.current.applicationContext
     val appContainer = (LocalContext.current.applicationContext as KeepAccountsApplication).container
@@ -222,7 +218,6 @@ fun KeepAccountsApp() {
         initialPage = 0,
         pageCount = { KeepAccountsDestination.bottomNavItems.size },
     )
-    val isImeVisible = WindowInsets.isImeVisible
     var pendingUpdateVersionTag by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingUpdateReleaseUrl by rememberSaveable { mutableStateOf<String?>(null) }
 
@@ -319,13 +314,9 @@ fun KeepAccountsApp() {
             Scaffold(
                 modifier = Modifier.fillMaxSize(),
                 containerColor = Color.Transparent,
-                contentWindowInsets = WindowInsets(0, 0, 0, 0),
+                contentWindowInsets = WindowInsets.systemBars,
                 bottomBar = {
-                    AnimatedVisibility(
-                        visible = isOnMainTabs && !isImeVisible,
-                        enter = slideInVertically { it },
-                        exit = slideOutVertically { it },
-                    ) {
+                    if (isOnMainTabs) {
                         BottomNavigationBar(
                             items = KeepAccountsDestination.bottomNavItems,
                             selectedIndex = pagerState.currentPage,
@@ -339,9 +330,7 @@ fun KeepAccountsApp() {
                 NavHost(
                     navController = navController,
                     startDestination = if (settings.initialized) MAIN_TABS_ROUTE else KeepAccountsDestination.INITIAL_SETUP,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(innerPadding),
+                    modifier = Modifier.fillMaxSize(),
                 ) {
                     composable(KeepAccountsDestination.INITIAL_SETUP) {
                         InitialSetupScreen(
@@ -350,6 +339,7 @@ fun KeepAccountsApp() {
                             initialTheme = appTheme,
                             initialAiConfig = aiConfig,
                             initialMonthlyBudget = monthlyBudget,
+                            modifier = Modifier.padding(innerPadding),
                             onComplete = { setupUserName, setupUserAvatarUri, setupTheme, setupAiConfig, setupMonthlyBudget ->
                                 userName = setupUserName
                                 userAvatarUri = setupUserAvatarUri
@@ -393,6 +383,7 @@ fun KeepAccountsApp() {
                             ledgerCurrency = ledgerCurrency,
                             defaultLedgerName = defaultLedgerName,
                             monthlyBudget = monthlyBudget,
+                            scaffoldPadding = innerPadding,
                             palette = palette,
                             aiChatRecords = aiChatRecords,
                             aiIsSending = aiIsSending,
@@ -437,6 +428,7 @@ fun KeepAccountsApp() {
                             ledgerCurrency = ledgerCurrency,
                             initialData = manualEntryPrefill,
                             onConsumedInitialData = { manualEntryPrefill = null },
+                            modifier = Modifier.padding(innerPadding),
                         )
                     }
 
@@ -446,6 +438,7 @@ fun KeepAccountsApp() {
                             onBack = { navController.popBackStack() },
                             ledgerCurrency = ledgerCurrency,
                             accentColor = palette.primaryDark,
+                            modifier = Modifier.padding(innerPadding),
                             onOpenManualEntry = { prefill ->
                                 manualEntryPrefill = prefill
                                 navigateToSubPage(KeepAccountsDestination.MANUAL_ENTRY)
@@ -458,6 +451,7 @@ fun KeepAccountsApp() {
                             config = aiConfig,
                             chatRecords = aiChatRecords,
                             accentColor = palette.primaryDark,
+                            modifier = Modifier.padding(innerPadding),
                             onBack = { navController.popBackStack() },
                             onSave = {
                                 aiConfig = it
@@ -491,6 +485,7 @@ fun KeepAccountsApp() {
                             reminderTime = reminderTime,
                             monthlyBudget = monthlyBudget,
                             accentColor = palette.primaryDark,
+                            modifier = Modifier.padding(innerPadding),
                             onBack = { navController.popBackStack() },
                             onThemeChange = {
                                 appTheme = it
@@ -539,6 +534,7 @@ fun KeepAccountsApp() {
                             categories = manualCategories,
                             usedCategoryCount = usedCategoryCount,
                             accentColor = palette.primaryDark,
+                            modifier = Modifier.padding(innerPadding),
                             onBack = { navController.popBackStack() },
                             onAddCategory = { newCategory ->
                                 val trimmed = newCategory.trim()
@@ -563,6 +559,7 @@ fun KeepAccountsApp() {
                     composable(KeepAccountsDestination.CLEAR_CACHE) {
                         CacheCleanupScreen(
                             onBack = { navController.popBackStack() },
+                            modifier = Modifier.padding(innerPadding),
                         )
                     }
                 }
@@ -630,6 +627,7 @@ private fun MainTabsPager(
     ledgerCurrency: String,
     defaultLedgerName: String,
     monthlyBudget: Double,
+    scaffoldPadding: PaddingValues,
     palette: ThemePalette,
     aiChatRecords: List<AiChatRecord>,
     aiIsSending: Boolean,
@@ -666,6 +664,7 @@ private fun MainTabsPager(
                 onViewAllClick = onViewLedger,
                 onEditRecord = onEditRecord,
                 onDeleteRecord = onDeleteRecord,
+                modifier = Modifier.padding(scaffoldPadding),
             )
 
             1 -> ChatScreen(
@@ -673,6 +672,7 @@ private fun MainTabsPager(
                 userName = userName,
                 userAvatarUri = userAvatarUri,
                 palette = palette,
+                paddingValues = scaffoldPadding,
                 chatRecords = aiChatRecords,
                 isSending = aiIsSending,
                 initialInput = initialChatInput,
@@ -692,6 +692,7 @@ private fun MainTabsPager(
                 onEditRecord = onEditRecord,
                 onDeleteRecord = onDeleteRecord,
                 accentColor = palette.primaryDark,
+                modifier = Modifier.padding(scaffoldPadding),
             )
 
             else -> ProfileScreen(
@@ -702,6 +703,7 @@ private fun MainTabsPager(
                 theme = theme,
                 highlightColor = palette.primaryDark,
                 onNavigateToOption = onOpenProfileRoute,
+                modifier = Modifier.padding(scaffoldPadding),
             )
         }
     }
