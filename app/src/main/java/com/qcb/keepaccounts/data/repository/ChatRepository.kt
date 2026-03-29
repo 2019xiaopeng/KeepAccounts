@@ -604,6 +604,6 @@ class ChatRepository(
         val leadingNullRegex = Regex("(?is)^\\s*(?:null\\s*)+")
         val lineNullRegex = Regex("(?im)^\\s*null\\s*$")
         val repeatedNullRegex = Regex("(?i)(?:null\\s*){4,}")
-        const val assistantBubbleRevealIntervalMs = 520L
+        const val assistantBubbleRevealIntervalMs = 680L
     }
 }

@@ -666,6 +666,7 @@ private fun MainTabsPager(
                 onViewAllClick = onViewLedger,
                 onEditRecord = onEditRecord,
                 onDeleteRecord = onDeleteRecord,
+                modifier = Modifier.padding(bottom = scaffoldPadding.calculateBottomPadding()),
             )
 
             1 -> ChatScreen(
@@ -693,6 +694,7 @@ private fun MainTabsPager(
                 onEditRecord = onEditRecord,
                 onDeleteRecord = onDeleteRecord,
                 accentColor = palette.primaryDark,
+                modifier = Modifier.padding(bottom = scaffoldPadding.calculateBottomPadding()),
             )
 
             else -> ProfileScreen(
@@ -703,6 +705,7 @@ private fun MainTabsPager(
                 theme = theme,
                 highlightColor = palette.primaryDark,
                 onNavigateToOption = onOpenProfileRoute,
+                modifier = Modifier.padding(bottom = scaffoldPadding.calculateBottomPadding()),
             )
         }
     }

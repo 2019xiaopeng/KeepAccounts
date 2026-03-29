@@ -75,6 +75,7 @@ fun CategoryManagementScreen(
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
+            .statusBarsPadding()
             .navigationBarsPadding()
             .padding(horizontal = 16.dp, vertical = 8.dp),
         contentPadding = PaddingValues(bottom = 20.dp),
@@ -288,6 +289,7 @@ fun CacheCleanupScreen(
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
+            .statusBarsPadding()
             .navigationBarsPadding()
             .padding(horizontal = 16.dp, vertical = 8.dp),
         contentPadding = PaddingValues(bottom = 20.dp),
@@ -400,6 +402,7 @@ fun ThemeAppearanceScreen(onBack: () -> Unit) {
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
+            .statusBarsPadding()
             .navigationBarsPadding()
             .padding(horizontal = 16.dp, vertical = 8.dp),
         contentPadding = PaddingValues(bottom = 20.dp),
@@ -471,6 +474,7 @@ private fun OptionPageScaffold(
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
+            .statusBarsPadding()
             .navigationBarsPadding()
             .padding(horizontal = 16.dp, vertical = 8.dp),
         contentPadding = PaddingValues(bottom = 20.dp),
@@ -512,7 +516,6 @@ private fun OptionHeader(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .statusBarsPadding()
                 .glassCard(shape = RoundedCornerShape(22.dp), glowColor = MintGreen.copy(alpha = 0.14f))
                 .padding(horizontal = 12.dp, vertical = 10.dp),
             horizontalArrangement = Arrangement.SpaceBetween,

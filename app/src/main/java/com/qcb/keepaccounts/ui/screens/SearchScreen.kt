@@ -79,6 +79,7 @@ fun SearchScreen(
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
+            .statusBarsPadding()
             .navigationBarsPadding(),
         contentPadding = PaddingValues(bottom = 12.dp),
     ) {
@@ -86,7 +87,6 @@ fun SearchScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .statusBarsPadding()
                     .padding(top = 8.dp, start = 12.dp, end = 12.dp)
                     .glassCard(shape = RoundedCornerShape(20.dp), glowColor = accentColor.copy(alpha = 0.15f))
                     .padding(horizontal = 8.dp, vertical = 6.dp),
