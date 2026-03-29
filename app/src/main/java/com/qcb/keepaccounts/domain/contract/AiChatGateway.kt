@@ -31,6 +31,7 @@ data class AiReceiptDraft(
     val amount: Double?,
     val category: String?,
     val desc: String?,
+    val recordTime: String?,
     val date: String?,
 )
 

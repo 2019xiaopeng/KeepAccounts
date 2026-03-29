@@ -383,20 +383,60 @@ private fun parseReceiptPayload(text: String): ParsedReceiptPayload? {
             amount = amount,
             category = json.optString("category").ifBlank { "已识别" },
             desc = json.optString("desc").ifBlank { "" },
-            recordTimestamp = parsePayloadDateToTimestamp(json.optString("date")),
+            recordTimestamp = parsePayloadRecordTimestamp(json),
             isIncome = isIncome,
         )
     }.getOrNull()
 }
 
-private fun parsePayloadDateToTimestamp(rawDate: String?): Long? {
-    val dateText = rawDate?.trim().orEmpty()
-    if (dateText.isBlank()) return null
+private fun parsePayloadRecordTimestamp(json: JSONObject): Long? {
+    parsePayloadDateTimeToTimestamp(json.optString("recordTime").takeIf { it.isNotBlank() })?.let { return it }
+    parsePayloadDateTimeToTimestamp(json.optString("date").takeIf { it.isNotBlank() })?.let { return it }
+    return null
+}
 
-    return runCatching {
-        val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.CHINA).apply { isLenient = false }
-        sdf.parse(dateText)?.time
-    }.getOrNull()
+private fun parsePayloadDateTimeToTimestamp(rawValue: String?): Long? {
+    val value = rawValue?.trim().orEmpty()
+    if (value.isBlank()) return null
+
+    val dateTimePatterns = listOf(
+        "yyyy-MM-dd HH:mm",
+        "yyyy/MM/dd HH:mm",
+        "yyyy.MM.dd HH:mm",
+        "yyyy-MM-dd HH:mm:ss",
+        "yyyy/MM/dd HH:mm:ss",
+        "yyyy-MM-dd'T'HH:mm",
+        "yyyy-MM-dd'T'HH:mm:ss",
+        "yyyy年M月d日 HH:mm",
+    )
+
+    dateTimePatterns.forEach { pattern ->
+        val parsed = runCatching {
+            val sdf = SimpleDateFormat(pattern, Locale.CHINA).apply { isLenient = false }
+            sdf.parse(value)?.time
+        }.getOrNull()
+        if (parsed != null) return parsed
+    }
+
+    val dateOnlyPatterns = listOf("yyyy-MM-dd", "yyyy/MM/dd", "yyyy.MM.dd", "yyyy年M月d日")
+    dateOnlyPatterns.forEach { pattern ->
+        val parsedDate = runCatching {
+            val sdf = SimpleDateFormat(pattern, Locale.CHINA).apply { isLenient = false }
+            sdf.parse(value)
+        }.getOrNull() ?: return@forEach
+
+        val now = Calendar.getInstance()
+        val calendar = Calendar.getInstance().apply {
+            time = parsedDate
+            set(Calendar.HOUR_OF_DAY, now.get(Calendar.HOUR_OF_DAY))
+            set(Calendar.MINUTE, now.get(Calendar.MINUTE))
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+        return calendar.timeInMillis
+    }
+
+    return null
 }
 
 private fun stripReceiptPayload(text: String): String {
@@ -574,6 +614,15 @@ private fun MessageRow(
                 }
             }
 
+            Text(
+                text = formatBubbleTime(message.timestamp),
+                fontSize = 10.sp,
+                color = Color.Gray.copy(alpha = 0.6f),
+                modifier = Modifier
+                    .padding(top = 4.dp, start = 4.dp, end = 4.dp)
+                    .align(if (isUser) Alignment.End else Alignment.Start),
+            )
+
             if (message.isReceipt) {
                 ReceiptCard(
                     message = message,
@@ -685,7 +734,7 @@ private fun ReceiptCard(
         ReceiptRow(icon = Icons.Rounded.AttachMoney, label = "💰 金额", value = "$amountPrefix${message.receiptAmount}", valueColor = amountColor)
         ReceiptRow(icon = Icons.Rounded.MoreHoriz, label = "📝 备注", value = message.receiptRemark)
         ReceiptRow(icon = Icons.Rounded.Today, label = "📅 日期", value = formatReceiptDate(receiptDateTimestamp))
-        ReceiptRow(icon = Icons.Rounded.Schedule, label = "🕒 记录时间", value = formatReceiptTime(message.timestamp))
+        ReceiptRow(icon = Icons.Rounded.Schedule, label = "🕒 记录时间", value = formatReceiptTime(receiptDateTimestamp))
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             if (confirmDelete) {
@@ -943,5 +992,9 @@ private fun formatReceiptDate(timestamp: Long): String {
 }
 
 private fun formatReceiptTime(timestamp: Long): String {
+    return SimpleDateFormat("HH:mm", Locale.CHINA).format(Date(timestamp))
+}
+
+private fun formatBubbleTime(timestamp: Long): String {
     return SimpleDateFormat("HH:mm", Locale.CHINA).format(Date(timestamp))
 }

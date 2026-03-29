@@ -323,7 +323,11 @@ class ChatRepository(
         val remark = draft.desc?.takeIf { it.isNotBlank() }
             ?: assistantText.take(24)
 
-        val recordTimestamp = parseReceiptDateOrNow(draft.date, userInput)
+        val recordTimestamp = resolveRecordTimestamp(
+            rawRecordTime = draft.recordTime,
+            rawDate = draft.date,
+            userInput = userInput,
+        )
         val now = System.currentTimeMillis()
 
         val transactionId = transactionDao.insertTransaction(
@@ -352,79 +356,227 @@ class ChatRepository(
         return if (incomeHints.any { text.contains(it) }) 1 else 0
     }
 
-    private fun parseReceiptDateOrNow(rawDate: String?, userInput: String): Long {
-        parseDateFromUserInput(userInput)?.let { return it }
-        if (rawDate.isNullOrBlank()) return System.currentTimeMillis()
+    private data class ParsedDate(
+        val year: Int,
+        val month: Int,
+        val day: Int,
+    )
 
-        return runCatching {
-            val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.CHINA)
-            sdf.parse(rawDate)?.time ?: System.currentTimeMillis()
-        }.getOrElse { System.currentTimeMillis() }
+    private data class ParsedTime(
+        val hour: Int,
+        val minute: Int,
+    )
+
+    private fun resolveRecordTimestamp(
+        rawRecordTime: String?,
+        rawDate: String?,
+        userInput: String,
+    ): Long {
+        val now = Calendar.getInstance()
+
+        parseDateTimeFromUserInput(userInput, now)?.let { return it }
+        parseRecordTimeFromDraft(rawRecordTime, now)?.let { return it }
+        parseDateFromDraft(rawDate, now)?.let { return it }
+
+        return now.timeInMillis
     }
 
-    private fun parseDateFromUserInput(userInput: String): Long? {
-        val text = userInput.trim()
-        if (text.isBlank()) return null
+    private fun parseDateTimeFromUserInput(text: String, now: Calendar): Long? {
+        val input = text.trim()
+        if (input.isBlank()) return null
 
+        val parsedDate = parseDateFromText(input, now)
+        val parsedTime = parseTimeFromText(input)
+        if (parsedDate == null && parsedTime == null) return null
+
+        val datePart = parsedDate ?: ParsedDate(
+            year = now.get(Calendar.YEAR),
+            month = now.get(Calendar.MONTH) + 1,
+            day = now.get(Calendar.DAY_OF_MONTH),
+        )
+        val timePart = parsedTime ?: ParsedTime(
+            hour = now.get(Calendar.HOUR_OF_DAY),
+            minute = now.get(Calendar.MINUTE),
+        )
+
+        return buildTimestamp(datePart, timePart)
+    }
+
+    private fun parseRecordTimeFromDraft(rawRecordTime: String?, now: Calendar): Long? {
+        val value = rawRecordTime?.trim().orEmpty()
+        if (value.isBlank()) return null
+
+        parseDateTimeByPatterns(value, draftDateTimePatterns)?.let { return it }
+        parseDateTimeFromUserInput(value, now)?.let { return it }
+        return parseDateFromDraft(value, now)
+    }
+
+    private fun parseDateFromDraft(rawDate: String?, now: Calendar): Long? {
+        val value = rawDate?.trim().orEmpty()
+        if (value.isBlank()) return null
+
+        parseDateTimeByPatterns(value, draftDateTimePatterns)?.let { return it }
+
+        val parsedDate = parseDateByPatterns(value, draftDatePatterns)
+            ?: parseDateFromText(value, now)
+            ?: return null
+
+        val timePart = ParsedTime(
+            hour = now.get(Calendar.HOUR_OF_DAY),
+            minute = now.get(Calendar.MINUTE),
+        )
+        return buildTimestamp(parsedDate, timePart)
+    }
+
+    private fun parseDateFromText(text: String, now: Calendar): ParsedDate? {
         parseAbsoluteDateWithYear(text)?.let { return it }
-        parseAbsoluteDateWithoutYear(text)?.let { return it }
-        parseRelativeDate(text)?.let { return it }
-
+        parseAbsoluteDateWithoutYear(text, now.get(Calendar.YEAR))?.let { return it }
+        parseRelativeDate(text, now)?.let { return it }
         return null
     }
 
-    private fun parseAbsoluteDateWithYear(text: String): Long? {
+    private fun parseAbsoluteDateWithYear(text: String): ParsedDate? {
         val regex = Regex("(\\d{4})[-/.年](\\d{1,2})[-/.月](\\d{1,2})日?")
         val match = regex.find(text) ?: return null
         val year = match.groupValues[1].toIntOrNull() ?: return null
         val month = match.groupValues[2].toIntOrNull() ?: return null
         val day = match.groupValues[3].toIntOrNull() ?: return null
-        return buildTimestamp(year, month, day)
+        return ParsedDate(year = year, month = month, day = day)
     }
 
-    private fun parseAbsoluteDateWithoutYear(text: String): Long? {
-        val regex = Regex("(\\d{1,2})月(\\d{1,2})日")
+    private fun parseAbsoluteDateWithoutYear(text: String, currentYear: Int): ParsedDate? {
+        val regex = Regex("(\\d{1,2})月(\\d{1,2})日?")
         val match = regex.find(text) ?: return null
-        val currentYear = Calendar.getInstance().get(Calendar.YEAR)
         val month = match.groupValues[1].toIntOrNull() ?: return null
         val day = match.groupValues[2].toIntOrNull() ?: return null
-        return buildTimestamp(currentYear, month, day)
+        return ParsedDate(year = currentYear, month = month, day = day)
     }
 
-    private fun parseRelativeDate(text: String): Long? {
+    private fun parseRelativeDate(text: String, now: Calendar): ParsedDate? {
         val offsetDays = when {
             text.contains("大前天") -> -3
             text.contains("前天") -> -2
-            text.contains("昨天") || text.contains("昨日") -> -1
-            text.contains("今天") -> 0
-            text.contains("明天") -> 1
+            text.contains("昨天") || text.contains("昨日") || text.contains("昨晚") || text.contains("昨夜") -> -1
+            text.contains("今天") || text.contains("今日") || text.contains("今晚") || text.contains("今早") || text.contains("今晨") -> 0
+            text.contains("明天") || text.contains("明早") || text.contains("明晚") -> 1
+            text.contains("后天") -> 2
             else -> return null
         }
 
-        return Calendar.getInstance().apply {
+        val resolved = (now.clone() as Calendar).apply {
             add(Calendar.DAY_OF_YEAR, offsetDays)
-        }.timeInMillis
+        }
+        return ParsedDate(
+            year = resolved.get(Calendar.YEAR),
+            month = resolved.get(Calendar.MONTH) + 1,
+            day = resolved.get(Calendar.DAY_OF_MONTH),
+        )
     }
 
-    private fun buildTimestamp(year: Int, month: Int, day: Int): Long? {
-        if (month !in 1..12 || day !in 1..31) return null
+    private fun parseTimeFromText(text: String): ParsedTime? {
+        val normalized = text.replace("：", ":")
+
+        val colonMatch = Regex("(?<!\\d)(\\d{1,2}):(\\d{1,2})(?!\\d)").find(normalized)
+        if (colonMatch != null) {
+            val rawHour = colonMatch.groupValues[1].toIntOrNull() ?: return null
+            val minute = colonMatch.groupValues[2].toIntOrNull() ?: return null
+            if (minute !in 0..59 || rawHour !in 0..23) return null
+            val hour = adjustHourByPeriodHint(rawHour, normalized)
+            return ParsedTime(hour = hour, minute = minute)
+        }
+
+        val cnMatch = Regex("(?<!\\d)(\\d{1,2})\\s*(?:点|时)(?:\\s*(半|一刻|三刻|(\\d{1,2})\\s*分?))?").find(normalized)
+        if (cnMatch != null) {
+            val rawHour = cnMatch.groupValues[1].toIntOrNull() ?: return null
+            if (rawHour !in 0..23) return null
+
+            val minute = when {
+                cnMatch.groupValues[2] == "半" -> 30
+                cnMatch.groupValues[2] == "一刻" -> 15
+                cnMatch.groupValues[2] == "三刻" -> 45
+                cnMatch.groupValues[3].isNotBlank() -> cnMatch.groupValues[3].toIntOrNull() ?: return null
+                else -> 0
+            }
+            if (minute !in 0..59) return null
+
+            val hour = adjustHourByPeriodHint(rawHour, normalized)
+            return ParsedTime(hour = hour, minute = minute)
+        }
+
+        return null
+    }
+
+    private fun adjustHourByPeriodHint(hour: Int, text: String): Int {
+        val morningHints = listOf("凌晨", "清晨", "早晨", "早上", "上午", "今早")
+        val noonHints = listOf("中午", "午间")
+        val afternoonHints = listOf("下午", "午后")
+        val eveningHints = listOf("晚上", "傍晚", "夜里", "晚间", "今晚", "昨晚", "昨夜")
+
+        val hasMorningHint = morningHints.any { text.contains(it) }
+        val hasNoonHint = noonHints.any { text.contains(it) }
+        val hasAfternoonHint = afternoonHints.any { text.contains(it) }
+        val hasEveningHint = eveningHints.any { text.contains(it) }
+
+        var normalizedHour = hour
+        if (hasNoonHint && normalizedHour in 1..11) {
+            normalizedHour += 12
+        }
+        if ((hasAfternoonHint || hasEveningHint) && normalizedHour in 1..11) {
+            normalizedHour += 12
+        }
+        if ((hasMorningHint || hasEveningHint) && normalizedHour == 12) {
+            normalizedHour = 0
+        }
+
+        return normalizedHour.coerceIn(0, 23)
+    }
+
+    private fun parseDateTimeByPatterns(value: String, patterns: List<String>): Long? {
+        val normalized = value.trim()
+        patterns.forEach { pattern ->
+            val parsed = runCatching {
+                val sdf = SimpleDateFormat(pattern, Locale.CHINA).apply { isLenient = false }
+                sdf.parse(normalized)?.time
+            }.getOrNull()
+            if (parsed != null) return parsed
+        }
+        return null
+    }
+
+    private fun parseDateByPatterns(value: String, patterns: List<String>): ParsedDate? {
+        val normalized = value.trim()
+        patterns.forEach { pattern ->
+            val parsed = runCatching {
+                val sdf = SimpleDateFormat(pattern, Locale.CHINA).apply { isLenient = false }
+                sdf.parse(normalized)
+            }.getOrNull() ?: return@forEach
+
+            val calendar = Calendar.getInstance().apply { time = parsed }
+            return ParsedDate(
+                year = calendar.get(Calendar.YEAR),
+                month = calendar.get(Calendar.MONTH) + 1,
+                day = calendar.get(Calendar.DAY_OF_MONTH),
+            )
+        }
+        return null
+    }
+
+    private fun buildTimestamp(date: ParsedDate, time: ParsedTime): Long? {
+        if (date.month !in 1..12 || date.day !in 1..31) return null
+        if (time.hour !in 0..23 || time.minute !in 0..59) return null
 
         return runCatching {
-            val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.CHINA).apply { isLenient = false }
-            val normalized = String.format(Locale.CHINA, "%04d-%02d-%02d", year, month, day)
-            sdf.parse(normalized)?.time
+            Calendar.getInstance().apply {
+                isLenient = false
+                set(Calendar.YEAR, date.year)
+                set(Calendar.MONTH, date.month - 1)
+                set(Calendar.DAY_OF_MONTH, date.day)
+                set(Calendar.HOUR_OF_DAY, time.hour)
+                set(Calendar.MINUTE, time.minute)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }.timeInMillis
         }.getOrNull()
-    }
-
-    private fun containsExplicitDateHint(userInput: String): Boolean {
-        val text = userInput.trim()
-        if (text.isBlank()) return false
-
-        if (Regex("\\d{4}[-/.]\\d{1,2}[-/.]\\d{1,2}").containsMatchIn(text)) return true
-        if (Regex("\\d{1,2}月\\d{1,2}日").containsMatchIn(text)) return true
-
-        val relativeDayHints = listOf("今天", "昨日", "昨天", "前天", "大前天")
-        return relativeDayHints.any { text.contains(it) }
     }
 
     private fun normalizeCategory(rawCategory: String?, type: Int): String {
@@ -478,6 +630,7 @@ class ChatRepository(
         userName: String,
     ): String {
         val today = SimpleDateFormat("yyyy-MM-dd", Locale.CHINA).format(Date())
+        val nowDateTime = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.CHINA).format(Date())
         val toneText = when (aiConfig.tone.name) {
             "TSUNDERE" -> "傲娇毒舌"
             "RATIONAL" -> "理智管家"
@@ -492,14 +645,18 @@ class ChatRepository(
 
         return """
             你是一个名为${aiConfig.name}的AI记账管家，性格是${toneText}。用户的名字是${userName}。
-                        今天日期是${today}。
+                        今天日期是${today}，当前系统准确时间是${nowDateTime}。
             ${toneGuide}
             你的任务是陪用户聊天，并在用户提到消费或收入时，提取记账信息。
             普通聊天时，尽量像真人发消息，可以分成1到3句短消息，每句不超过40字，避免长篇大论。
             如果要连发多条独立消息，请使用双换行分隔（\n\n），不要用单换行硬拆句。
             当识别到记账信息时，先输出2到3句简短关怀/确认语气（分句自然），最后再输出一句已记账确认，然后再附上 <DATA> JSON。
-                        如果用户提到相对日期（如昨天/前天/大前天/今天/明天），你必须基于“今天日期”换算成具体 yyyy-MM-dd 再写入 date。
-                        如果用户没有明确提到具体日期，date 字段必须填写今天（${today}）。
+                        【时间感知规则】当前系统准确时间是：${nowDateTime}。在提取记账记录时：
+                        1. 如果用户明确说明了时间（如“早上8点”“昨晚10点”），请结合当前时间推算出准确的 yyyy-MM-dd HH:mm，并写入 recordTime。
+                        2. 如果用户没有提及具体时间（如“我刚买了一瓶水”），请直接使用上述系统当前的准确时间作为 recordTime。
+                        3. 如果用户提到相对日期（如昨天/前天/大前天/今天/明天），你必须基于“今天日期”换算 date。
+                        4. 如果用户没有明确提到具体日期，date 字段必须填写今天（${today}）。
+                        5. date 必须与 recordTime 的日期部分保持一致。
             如果用户的话包含记账信息，你必须在回复最末尾严格输出 <DATA>...</DATA> JSON：
             {
               "isReceipt": true,
@@ -507,8 +664,10 @@ class ChatRepository(
               "amount": 30.0,
               "category": "交通",
               "desc": "打车",
+                            "recordTime": "${nowDateTime}",
                             "date": "${today}"
             }
+                        注意：recordTime 字段必须始终存在，格式固定为 yyyy-MM-dd HH:mm。
             如果只是普通闲聊，不要输出 <DATA> 标签。
         """.trimIndent()
     }
@@ -624,6 +783,7 @@ class ChatRepository(
                 amount = if (json.has("amount") && !json.isNull("amount")) json.optDouble("amount") else null,
                 category = json.optString("category").takeIf { it.isNotBlank() },
                 desc = json.optString("desc").takeIf { it.isNotBlank() },
+                recordTime = json.optString("recordTime").takeIf { it.isNotBlank() },
                 date = json.optString("date").takeIf { it.isNotBlank() },
             )
         }.getOrNull()
@@ -650,6 +810,7 @@ class ChatRepository(
             draft.amount?.let { put("amount", abs(it)) }
             draft.category?.let { put("category", it) }
             draft.desc?.let { put("desc", it) }
+            draft.recordTime?.let { put("recordTime", it) }
             draft.date?.let { put("date", it) }
             typeValue?.let { put("type", it) }
         }
@@ -681,6 +842,24 @@ class ChatRepository(
         val repeatedNullRegex = Regex("(?i)(?:null\\s*){4,}")
         val conversationDelimiterRegex = Regex("\\n\\s*\\n+|<MSG>|\\|\\|\\|", setOf(RegexOption.IGNORE_CASE))
         val majorSentenceRegex = Regex("(?<=[。！？!?])")
+        val draftDateTimePatterns = listOf(
+            "yyyy-MM-dd HH:mm",
+            "yyyy/MM/dd HH:mm",
+            "yyyy.MM.dd HH:mm",
+            "yyyy-MM-dd HH:mm:ss",
+            "yyyy/MM/dd HH:mm:ss",
+            "yyyy.MM.dd HH:mm:ss",
+            "yyyy-MM-dd'T'HH:mm",
+            "yyyy-MM-dd'T'HH:mm:ss",
+            "yyyy年M月d日 HH:mm",
+            "yyyy年M月d日 H:mm",
+        )
+        val draftDatePatterns = listOf(
+            "yyyy-MM-dd",
+            "yyyy/MM/dd",
+            "yyyy.MM.dd",
+            "yyyy年M月d日",
+        )
         const val assistantBubbleRevealIntervalMs = 520L
     }
 }

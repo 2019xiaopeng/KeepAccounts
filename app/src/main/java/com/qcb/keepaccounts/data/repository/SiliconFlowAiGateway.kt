@@ -149,6 +149,7 @@ class SiliconFlowAiGateway(
                 amount = json.optDoubleOrNull("amount"),
                 category = json.optStringOrNull("category"),
                 desc = json.optStringOrNull("desc"),
+                recordTime = json.optStringOrNull("recordTime"),
                 date = json.optStringOrNull("date"),
             )
         }.getOrNull()
