@@ -110,18 +110,12 @@ fun ChatScreen(
     onOpenAiSettings: () -> Unit = {},
     onOpenManualEntry: (ManualEntryPrefill) -> Unit = {},
 ) {
-    val messages = remember(chatRecords) { chatRecords.map { it.toDemoMessage() } }
+    val chronologicalMessages = remember(chatRecords) { chatRecords.map { it.toDemoMessage() } }
+    val displayMessages = remember(chronologicalMessages) { chronologicalMessages.asReversed() }
     var inputText by rememberSaveable { mutableStateOf("") }
     var topTip by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
-    val showTypingDots = isSending && messages.lastOrNull()?.role == "user"
-
-    LaunchedEffect(messages.size, messages.lastOrNull()?.text, showTypingDots) {
-        val targetIndex = messages.size + if (showTypingDots) 1 else 0
-        if (targetIndex >= 0) {
-            listState.scrollToItem(targetIndex)
-        }
-    }
+    val showTypingDots = isSending && chronologicalMessages.lastOrNull()?.role == "user"
 
     LaunchedEffect(topTip) {
         if (topTip.isNotBlank()) {
@@ -178,7 +172,7 @@ fun ChatScreen(
                 assistantAvatar = aiConfig.avatar,
                 assistantAvatarUri = aiConfig.avatarUri,
                 palette = palette,
-                lastMessageTimestamp = messages.lastOrNull()?.timestamp,
+                lastMessageTimestamp = chronologicalMessages.lastOrNull()?.timestamp,
             )
 
             if (topTip.isNotBlank()) {
@@ -208,10 +202,21 @@ fun ChatScreen(
             LazyColumn(
                 state = listState,
                 modifier = Modifier.weight(1f),
+                reverseLayout = true,
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                items(messages, key = { it.id }) { message ->
+                if (showTypingDots) {
+                    item {
+                        TypingRow(
+                            assistantAvatar = aiConfig.avatar,
+                            assistantAvatarUri = aiConfig.avatarUri,
+                            palette = palette,
+                        )
+                    }
+                }
+
+                items(displayMessages, key = { it.id }) { message ->
                     MessageRow(
                         message = message,
                         assistantAvatar = aiConfig.avatar,
@@ -235,16 +240,6 @@ fun ChatScreen(
                             topTip = "已跳转到手动记账，可继续修改"
                         },
                     )
-                }
-
-                if (showTypingDots) {
-                    item {
-                        TypingRow(
-                            assistantAvatar = aiConfig.avatar,
-                            assistantAvatarUri = aiConfig.avatarUri,
-                            palette = palette,
-                        )
-                    }
                 }
             }
 
