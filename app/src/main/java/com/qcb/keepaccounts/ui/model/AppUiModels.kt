@@ -90,6 +90,7 @@ data class AiChatRecord(
     val isReceipt: Boolean = false,
     val transactionId: Long? = null,
     val receiptRecordTimestamp: Long? = null,
+    val receiptType: Int? = null,
 )
 
 val defaultManualCategories = listOf(

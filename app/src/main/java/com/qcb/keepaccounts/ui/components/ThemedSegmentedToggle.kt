@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -36,6 +37,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.PlatformTextStyle
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -163,6 +166,7 @@ fun ThemedSegmentedToggle(
                                 itemWidths[index] = widthDp
                             }
                         }
+                        .heightIn(min = (textSizeSp + 18).dp)
                         .appPressable { onSelectedChange(index) }
                         .padding(horizontal = horizontalPadding, vertical = verticalPadding),
                     contentAlignment = Alignment.Center,
@@ -184,6 +188,10 @@ fun ThemedSegmentedToggle(
                             color = textColor,
                             fontWeight = FontWeight.ExtraBold,
                             fontSize = textSizeSp.sp,
+                            style = TextStyle(
+                                platformStyle = PlatformTextStyle(includeFontPadding = false),
+                                lineHeight = (textSizeSp + 1).sp,
+                            ),
                         )
                     }
                 }

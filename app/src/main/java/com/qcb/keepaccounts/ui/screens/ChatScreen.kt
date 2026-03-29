@@ -87,6 +87,7 @@ private data class DemoMessage(
     val receiptAmount: String = "",
     val receiptRemark: String = "",
     val receiptRecordTimestamp: Long? = null,
+    val receiptIsIncome: Boolean = false,
 )
 
 private data class ParsedReceiptPayload(
@@ -94,6 +95,7 @@ private data class ParsedReceiptPayload(
     val category: String,
     val desc: String,
     val recordTimestamp: Long?,
+    val isIncome: Boolean?,
 )
 
 @Composable
@@ -249,7 +251,7 @@ fun ChatScreen(
                         onEdit = {
                             onOpenManualEntry(
                                 ManualEntryPrefill(
-                                    type = "expense",
+                                    type = if (message.receiptIsIncome) "income" else "expense",
                                     category = message.receiptCategory,
                                     desc = message.receiptRemark,
                                     amount = message.receiptAmount,
@@ -324,6 +326,12 @@ private fun AiChatRecord.toDemoMessage(): DemoMessage {
         ?: parseAmount(visibleText)
         ?: "0.00"
     val showReceipt = isReceipt || payload != null
+    val resolvedIsIncome = when {
+        receiptType != null -> receiptType == 1
+        payload?.isIncome != null -> payload.isIncome
+        payload?.category?.contains("收入") == true -> true
+        else -> false
+    }
     val resolvedReceiptTimestamp = if (showReceipt) {
         receiptRecordTimestamp ?: payload?.recordTimestamp ?: timestamp
     } else {
@@ -339,6 +347,7 @@ private fun AiChatRecord.toDemoMessage(): DemoMessage {
         receiptAmount = parsedAmount,
         receiptRemark = if (showReceipt) payload?.desc?.ifBlank { visibleText } ?: visibleText else "",
         receiptRecordTimestamp = resolvedReceiptTimestamp,
+        receiptIsIncome = showReceipt && resolvedIsIncome,
     )
 }
 
@@ -356,11 +365,25 @@ private fun parseReceiptPayload(text: String): ParsedReceiptPayload? {
         } else {
             ""
         }
+        val typeValue = json.optString("type").trim().lowercase(Locale.ROOT)
+        val parsedTypeFromNumber = if (json.has("type") && !json.isNull("type")) {
+            json.optInt("type", -1)
+        } else {
+            -1
+        }
+        val isIncome = when {
+            typeValue == "income" || typeValue == "1" -> true
+            typeValue == "expense" || typeValue == "0" -> false
+            parsedTypeFromNumber == 1 -> true
+            parsedTypeFromNumber == 0 -> false
+            else -> null
+        }
         ParsedReceiptPayload(
             amount = amount,
             category = json.optString("category").ifBlank { "已识别" },
             desc = json.optString("desc").ifBlank { "" },
             recordTimestamp = parsePayloadDateToTimestamp(json.optString("date")),
+            isIncome = isIncome,
         )
     }.getOrNull()
 }
@@ -634,6 +657,8 @@ private fun ReceiptCard(
 ) {
     var confirmDelete by rememberSaveable(message.id) { mutableStateOf(false) }
     val receiptDateTimestamp = message.receiptRecordTimestamp ?: message.timestamp
+    val amountPrefix = if (message.receiptIsIncome) "+" else "-"
+    val amountColor = if (message.receiptIsIncome) MintGreen else WatermelonRed
 
     Column(
         modifier = Modifier
@@ -656,7 +681,7 @@ private fun ReceiptCard(
         )
 
         ReceiptRow(icon = Icons.Rounded.Category, label = "📁 分类", value = message.receiptCategory)
-        ReceiptRow(icon = Icons.Rounded.AttachMoney, label = "💰 金额", value = "-${message.receiptAmount}", valueColor = WatermelonRed)
+        ReceiptRow(icon = Icons.Rounded.AttachMoney, label = "💰 金额", value = "$amountPrefix${message.receiptAmount}", valueColor = amountColor)
         ReceiptRow(icon = Icons.Rounded.MoreHoriz, label = "📝 备注", value = message.receiptRemark)
         ReceiptRow(icon = Icons.Rounded.Today, label = "📅 日期", value = formatReceiptDate(receiptDateTimestamp))
         ReceiptRow(icon = Icons.Rounded.Schedule, label = "🕒 记录时间", value = formatReceiptTime(message.timestamp))

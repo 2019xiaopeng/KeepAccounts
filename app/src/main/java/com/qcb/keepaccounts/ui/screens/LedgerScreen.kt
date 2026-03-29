@@ -207,7 +207,7 @@ fun LedgerScreen(
             RecordSortMode.AMOUNT -> transactions.sortedByDescending { it.amount }
         }
     }
-    val pageSize = 10
+    val pageSize = 5
     val totalPages = remember(sortedRecords) { (sortedRecords.size + pageSize - 1) / pageSize }
     val safePage = currentPage.coerceIn(0, (totalPages - 1).coerceAtLeast(0))
     val pageRecords = remember(sortedRecords, safePage) {
@@ -1139,34 +1139,46 @@ private fun RecordPagerSection(
             },
             label = "recordPageSwitch",
         ) {
-            LazyColumn(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(380.dp)
                     .background(Color.White.copy(alpha = 0.65f), RoundedCornerShape(18.dp))
                     .padding(horizontal = 10.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                items(records, key = { record -> record.id }) { record ->
-                    val isIncome = record.type == 1
-                    Row(
+                if (records.isEmpty()) {
+                    Text(
+                        text = "暂无记录",
+                        color = WarmBrownMuted,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(Color.White.copy(alpha = 0.86f), RoundedCornerShape(14.dp))
-                            .padding(horizontal = 10.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text(text = record.categoryName, color = WarmBrown, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                            Text(text = "${record.remark} · ${formatDate(record.recordTimestamp)}", color = WarmBrownMuted, fontSize = 11.sp)
+                            .padding(vertical = 8.dp),
+                        textAlign = TextAlign.Center,
+                    )
+                } else {
+                    records.forEach { record ->
+                        val isIncome = record.type == 1
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Color.White.copy(alpha = 0.86f), RoundedCornerShape(14.dp))
+                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(text = record.categoryName, color = WarmBrown, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                Text(text = "${record.remark} · ${formatDate(record.recordTimestamp)}", color = WarmBrownMuted, fontSize = 11.sp)
+                            }
+                            Text(
+                                text = formatSignedCurrency(ledgerCurrency, record.amount, isIncome),
+                                color = if (isIncome) accentColor else WatermelonRed,
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 14.sp,
+                            )
                         }
-                        Text(
-                            text = formatSignedCurrency(ledgerCurrency, record.amount, isIncome),
-                            color = if (isIncome) accentColor else WatermelonRed,
-                            fontWeight = FontWeight.ExtraBold,
-                            fontSize = 14.sp,
-                        )
                     }
                 }
             }

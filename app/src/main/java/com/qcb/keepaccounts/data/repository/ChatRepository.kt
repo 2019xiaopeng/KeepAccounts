@@ -29,16 +29,20 @@ class ChatRepository(
     private val aiChatGateway: AiChatGateway,
 ) {
 
+    private data class CreatedTransaction(
+        val transactionId: Long,
+        val type: Int,
+    )
+
     fun observeChatRecords(): Flow<List<AiChatRecord>> {
         return combine(
             chatMessageDao.observeAllMessages(),
             transactionDao.observeAllTransactions(),
         ) { messages, transactions ->
-            val recordTimestampByTransactionId = transactions.associate { tx ->
-                tx.id to tx.recordTimestamp
-            }
+            val transactionById = transactions.associateBy { it.id }
 
             messages.map { entity ->
+                val linkedTransaction = entity.transactionId?.let(transactionById::get)
                 AiChatRecord(
                     id = entity.id,
                     timestamp = entity.timestamp,
@@ -46,7 +50,8 @@ class ChatRepository(
                     content = entity.content,
                     isReceipt = entity.isReceipt,
                     transactionId = entity.transactionId,
-                    receiptRecordTimestamp = entity.transactionId?.let(recordTimestampByTransactionId::get),
+                    receiptRecordTimestamp = linkedTransaction?.recordTimestamp,
+                    receiptType = linkedTransaction?.type,
                 )
             }
         }
@@ -142,10 +147,11 @@ class ChatRepository(
         }
         val cleanedAssistantText = stripReceiptPayload(rawAssistantText)
 
-        var linkedTransactionId: Long? = null
+        var createdTransaction: CreatedTransaction? = null
         resolvedReceipt?.let { draft ->
-            linkedTransactionId = tryCreateTransaction(draft, cleanedAssistantText, userInput)
+            createdTransaction = tryCreateTransaction(draft, cleanedAssistantText, userInput)
         }
+        val linkedTransactionId = createdTransaction?.transactionId
 
         val finalAssistantText = if (linkedTransactionId != null) {
             cleanedAssistantText.ifBlank { "已为你记录这笔账单。" }
@@ -161,7 +167,7 @@ class ChatRepository(
                 draft = resolvedReceipt,
             )
 
-            val receiptMeta = resolvedReceipt?.let { buildReceiptMetaTag(it) }.orEmpty()
+            val receiptMeta = resolvedReceipt?.let { buildReceiptMetaTag(it, createdTransaction?.type) }.orEmpty()
             val receiptText = replyChunks.lastOrNull()?.ifBlank { "已为你记录这笔账单。" } ?: "已为你记录这笔账单。"
             val receiptContent = if (receiptMeta.isBlank()) {
                 receiptText
@@ -305,7 +311,7 @@ class ChatRepository(
         draft: AiReceiptDraft,
         assistantText: String,
         userInput: String,
-    ): Long? {
+    ): CreatedTransaction? {
         if (!draft.isReceipt) return null
 
         val rawAmount = draft.amount ?: return null
@@ -320,7 +326,7 @@ class ChatRepository(
         val recordTimestamp = parseReceiptDateOrNow(draft.date, userInput)
         val now = System.currentTimeMillis()
 
-        return transactionDao.insertTransaction(
+        val transactionId = transactionDao.insertTransaction(
             TransactionEntity(
                 type = type,
                 amount = amount,
@@ -330,6 +336,11 @@ class ChatRepository(
                 recordTimestamp = recordTimestamp,
                 createdTimestamp = now,
             ),
+        )
+
+        return CreatedTransaction(
+            transactionId = transactionId,
+            type = type,
         )
     }
 
@@ -630,7 +641,9 @@ class ChatRepository(
             .trim()
     }
 
-    private fun buildReceiptMetaTag(draft: AiReceiptDraft): String {
+    private fun buildReceiptMetaTag(draft: AiReceiptDraft, resolvedType: Int?): String {
+        val typeValue = resolvedType?.let { if (it == 1) "income" else "expense" }
+            ?: draft.amount?.let { if (it < 0) "expense" else "income" }
         val payload = JSONObject().apply {
             put("isReceipt", true)
             put("action", draft.action.ifBlank { "create" })
@@ -638,6 +651,7 @@ class ChatRepository(
             draft.category?.let { put("category", it) }
             draft.desc?.let { put("desc", it) }
             draft.date?.let { put("date", it) }
+            typeValue?.let { put("type", it) }
         }
         return "<RECEIPT>${payload}</RECEIPT>"
     }
