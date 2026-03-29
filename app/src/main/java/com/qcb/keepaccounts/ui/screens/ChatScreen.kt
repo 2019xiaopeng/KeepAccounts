@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -35,7 +34,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.AttachMoney
 import androidx.compose.material.icons.rounded.Category
-import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Today
@@ -117,9 +115,10 @@ fun ChatScreen(
     var inputText by rememberSaveable { mutableStateOf("") }
     var topTip by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
+    val showTypingDots = isSending && messages.lastOrNull()?.role == "user"
 
-    LaunchedEffect(messages.size, isSending) {
-        val targetIndex = messages.size + if (isSending) 1 else 0
+    LaunchedEffect(messages.size, messages.lastOrNull()?.text, showTypingDots) {
+        val targetIndex = messages.size + if (showTypingDots) 1 else 0
         if (targetIndex >= 0) {
             listState.scrollToItem(targetIndex)
         }
@@ -235,7 +234,7 @@ fun ChatScreen(
                     )
                 }
 
-                if (isSending) {
+                if (showTypingDots) {
                     item {
                         TypingRow(
                             assistantAvatar = aiConfig.avatar,
@@ -244,32 +243,28 @@ fun ChatScreen(
                         )
                     }
                 }
-
-                item { Spacer(modifier = Modifier.height(112.dp)) }
             }
+
+            InputBar(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .imePadding()
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                input = inputText,
+                onInputChange = { inputText = it },
+                assistantHint = aiConfig.name + aiConfig.avatar,
+                accentColor = palette.primaryDark,
+                enabled = !isSending,
+                onSend = {
+                    if (isSending) return@InputBar
+                    val userText = inputText.trim()
+                    if (userText.isEmpty()) return@InputBar
+
+                    inputText = ""
+                    onSendMessage(userText)
+                },
+            )
         }
-
-        InputBar(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .navigationBarsPadding()
-                .imePadding()
-                .padding(horizontal = 6.dp, vertical = 6.dp),
-            input = inputText,
-            onInputChange = { inputText = it },
-            assistantHint = aiConfig.name + aiConfig.avatar,
-            accentColor = palette.primaryDark,
-            enabled = !isSending,
-            onSend = {
-                if (isSending) return@InputBar
-                val userText = inputText.trim()
-                if (userText.isEmpty()) return@InputBar
-
-                inputText = ""
-                onSendMessage(userText)
-            },
-        )
     }
 }
 
@@ -492,6 +487,7 @@ private fun MessageRow(
         Column(horizontalAlignment = if (isUser) Alignment.End else Alignment.Start) {
             Box(
                 modifier = Modifier
+                    .widthIn(max = 288.dp)
                     .clip(bubbleShape)
                     .background(if (isUser) palette.primaryDark.copy(alpha = 0.86f) else Color.White.copy(alpha = 0.98f))
                     .padding(horizontal = 14.dp, vertical = 10.dp),
@@ -809,31 +805,14 @@ private fun InputBar(
     Row(
         modifier = modifier
             .glassCard(
-                shape = RoundedCornerShape(28.dp),
+                shape = RoundedCornerShape(24.dp),
                 backgroundColor = Color.White.copy(alpha = 0.74f),
                 glowColor = accentColor.copy(alpha = 0.18f),
             )
-            .padding(horizontal = 10.dp, vertical = 8.dp),
+            .padding(horizontal = 8.dp, vertical = 6.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.Bottom,
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(
-            modifier = Modifier
-                .size(38.dp)
-                .clip(CircleShape)
-                .background(Color.White.copy(alpha = 0.9f))
-                .alpha(if (enabled) 1f else 0.45f)
-                .appPressable(enabled = enabled) { },
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                imageVector = Icons.Rounded.Image,
-                contentDescription = "pick-image",
-                tint = WarmBrown.copy(alpha = 0.72f),
-                modifier = Modifier.size(18.dp),
-            )
-        }
-
         TextField(
             value = input,
             onValueChange = onInputChange,
@@ -856,14 +835,14 @@ private fun InputBar(
             maxLines = 4,
             modifier = Modifier
                 .weight(1f)
-                .heightIn(min = 56.dp)
-                .clip(RoundedCornerShape(18.dp)),
+                .heightIn(min = 44.dp, max = 112.dp)
+                .clip(RoundedCornerShape(22.dp))
+                .background(Color.White.copy(alpha = 0.90f)),
         )
 
         Box(
             modifier = Modifier
-                .align(Alignment.Bottom)
-                .size(42.dp)
+                .size(44.dp)
                 .clip(CircleShape)
                 .alpha(if (enabled) 1f else 0.5f)
                 .background(brush = Brush.linearGradient(listOf(accentColor, accentColor.copy(alpha = 0.82f))))

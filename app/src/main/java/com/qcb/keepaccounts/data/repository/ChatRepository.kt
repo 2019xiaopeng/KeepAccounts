@@ -76,6 +76,9 @@ class ChatRepository(
         val textBuffer = StringBuilder()
         var parsedReceipt: AiReceiptDraft? = null
         var streamErrorMessage: String? = null
+        val assistantMessageIds = mutableListOf<Long>()
+        val streamBaseTimestamp = System.currentTimeMillis() + 1
+        var lastRenderedChunks: List<String> = emptyList()
 
         aiChatGateway.streamReply(
             AiChatRequest(
@@ -86,7 +89,22 @@ class ChatRepository(
             ),
         ).collect { event ->
             when (event) {
-                is AiStreamEvent.TextDelta -> textBuffer.append(event.text)
+                is AiStreamEvent.TextDelta -> {
+                    textBuffer.append(event.text)
+                    val liveText = stripReceiptPayload(textBuffer.toString())
+                    val liveChunks = splitAssistantReply(liveText)
+                    if (liveChunks != lastRenderedChunks) {
+                        syncAssistantReplyChunks(
+                            messageIds = assistantMessageIds,
+                            chunks = liveChunks,
+                            baseTimestamp = streamBaseTimestamp,
+                            isReceiptLast = false,
+                            receiptTransactionId = null,
+                        )
+                        lastRenderedChunks = liveChunks
+                    }
+                }
+
                 is AiStreamEvent.ReceiptParsed -> parsedReceipt = event.draft
                 is AiStreamEvent.Error -> {
                     streamErrorMessage = event.message.ifBlank { "AI 服务暂时不可用，请稍后重试。" }
@@ -123,52 +141,86 @@ class ChatRepository(
                 chunks = splitAssistantReply(finalAssistantText),
                 draft = resolvedReceipt,
             )
-            val baseTimestamp = System.currentTimeMillis()
-
-            replyChunks.dropLast(1).forEachIndexed { index, chunk ->
-                chatMessageDao.insertMessage(
-                    ChatMessageEntity(
-                        role = "assistant",
-                        content = chunk,
-                        isReceipt = false,
-                        transactionId = null,
-                        timestamp = baseTimestamp + index,
-                    ),
-                )
-            }
 
             val receiptMeta = resolvedReceipt?.let { buildReceiptMetaTag(it) }.orEmpty()
             val receiptText = replyChunks.lastOrNull()?.ifBlank { "已为你记录这笔账单。" } ?: "已为你记录这笔账单。"
-            val content = if (receiptMeta.isBlank()) {
+            val receiptContent = if (receiptMeta.isBlank()) {
                 receiptText
             } else {
                 "$receiptText\n$receiptMeta"
             }
 
-            chatMessageDao.insertMessage(
-                ChatMessageEntity(
-                    role = "assistant",
-                    content = content,
-                    isReceipt = true,
-                    transactionId = linkedTransactionId,
-                    timestamp = baseTimestamp + replyChunks.size,
-                ),
+            val finalChunks = if (replyChunks.isEmpty()) {
+                listOf(receiptContent)
+            } else {
+                replyChunks.dropLast(1) + receiptContent
+            }
+
+            syncAssistantReplyChunks(
+                messageIds = assistantMessageIds,
+                chunks = finalChunks,
+                baseTimestamp = streamBaseTimestamp,
+                isReceiptLast = true,
+                receiptTransactionId = linkedTransactionId,
             )
             return
         }
 
-        val chunks = splitAssistantReply(finalAssistantText)
-        val baseTimestamp = System.currentTimeMillis()
-        chunks.forEachIndexed { index, chunk ->
-            chatMessageDao.insertMessage(
-                ChatMessageEntity(
-                    role = "assistant",
+        syncAssistantReplyChunks(
+            messageIds = assistantMessageIds,
+            chunks = splitAssistantReply(finalAssistantText),
+            baseTimestamp = streamBaseTimestamp,
+            isReceiptLast = false,
+            receiptTransactionId = null,
+        )
+    }
+
+    private suspend fun syncAssistantReplyChunks(
+        messageIds: MutableList<Long>,
+        chunks: List<String>,
+        baseTimestamp: Long,
+        isReceiptLast: Boolean,
+        receiptTransactionId: Long?,
+    ) {
+        val normalizedChunks = chunks
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .ifEmpty { listOf("收到，我在。") }
+
+        normalizedChunks.forEachIndexed { index, chunk ->
+            val isLast = index == normalizedChunks.lastIndex
+            val markAsReceipt = isReceiptLast && isLast
+            val transactionId = if (markAsReceipt) receiptTransactionId else null
+
+            if (index < messageIds.size) {
+                chatMessageDao.updateMessage(
+                    id = messageIds[index],
                     content = chunk,
-                    isReceipt = false,
-                    transactionId = null,
-                    timestamp = baseTimestamp + index,
-                ),
-            )
+                    isReceipt = markAsReceipt,
+                    transactionId = transactionId,
+                )
+            } else {
+                val insertedId = chatMessageDao.insertMessage(
+                    ChatMessageEntity(
+                        role = "assistant",
+                        content = chunk,
+                        isReceipt = markAsReceipt,
+                        transactionId = transactionId,
+                        timestamp = baseTimestamp + index,
+                    ),
+                )
+                messageIds += insertedId
+            }
+        }
+
+        if (messageIds.size > normalizedChunks.size) {
+            val staleIds = messageIds.subList(normalizedChunks.size, messageIds.size).toList()
+            if (staleIds.isNotEmpty()) {
+                chatMessageDao.deleteMessagesByIds(staleIds)
+            }
+            repeat(messageIds.size - normalizedChunks.size) {
+                messageIds.removeAt(messageIds.lastIndex)
+            }
         }
     }
 
@@ -337,35 +389,57 @@ class ChatRepository(
             .map { it.trim() }
             .filter { it.isNotBlank() }
 
-        val sentenceRegex = Regex("(?<=[。！？!?])")
-        val sentenceParts = if (lineParts.size > 1) {
-            lineParts
-        } else {
-            normalized
-                .split(sentenceRegex)
-                .map { it.trim() }
-                .filter { it.isNotBlank() }
+        val majorSentenceRegex = Regex("(?<=[。！？!?])")
+        val sourceParts = if (lineParts.size > 1) lineParts else listOf(normalized)
+        val splitParts = buildList {
+            sourceParts.forEach { source ->
+                val sentenceParts = source
+                    .split(majorSentenceRegex)
+                    .map { it.trim() }
+                    .filter { it.isNotBlank() }
+                    .ifEmpty { listOf(source) }
+
+                sentenceParts.forEach { sentence ->
+                    addAll(splitByMinorDelimiters(sentence))
+                }
+            }
         }
 
-        if (sentenceParts.isEmpty()) return listOf(normalized)
+        return splitParts
+            .ifEmpty { listOf(normalized) }
+            .take(3)
+    }
+
+    private fun splitByMinorDelimiters(text: String, maxLen: Int = 18): List<String> {
+        val sourceParts = text
+            .split(Regex("(?<=[，,、；;：:])"))
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .ifEmpty { listOf(text) }
 
         val merged = mutableListOf<String>()
         var buffer = ""
-        sentenceParts.forEach { part ->
+        sourceParts.forEach { part ->
             if (buffer.isBlank()) {
                 buffer = part
-            } else if ((buffer.length + part.length) <= 36) {
+            } else if ((buffer.length + part.length) <= maxLen) {
                 buffer += part
             } else {
                 merged += buffer
                 buffer = part
             }
         }
-        if (buffer.isNotBlank()) merged += buffer
+        if (buffer.isNotBlank()) {
+            merged += buffer
+        }
 
-        return merged
-            .take(3)
-            .ifEmpty { listOf(normalized) }
+        return merged.flatMap { segment ->
+            if (segment.length <= maxLen) {
+                listOf(segment)
+            } else {
+                segment.chunked(maxLen)
+            }
+        }
     }
 
     private fun ensureReceiptConversationChunks(
