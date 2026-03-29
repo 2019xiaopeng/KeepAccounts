@@ -54,6 +54,7 @@ import com.qcb.keepaccounts.ui.components.glassCard
 import com.qcb.keepaccounts.ui.format.primaryCurrencySymbol
 import com.qcb.keepaccounts.ui.icons.resolveCategoryIcon
 import com.qcb.keepaccounts.ui.model.ManualEntryPrefill
+import com.qcb.keepaccounts.ui.theme.IncomeGreen
 import com.qcb.keepaccounts.ui.theme.MintGreen
 import com.qcb.keepaccounts.ui.theme.WarmBrown
 import com.qcb.keepaccounts.ui.theme.WarmBrownMuted
@@ -144,7 +145,7 @@ fun ManualEntryScreen(
                 if (currencySymbol.isNotBlank()) {
                     Text(
                         text = currencySymbol,
-                        color = if (type == "expense") WatermelonRed else MintGreen,
+                        color = if (type == "expense") WatermelonRed else IncomeGreen,
                         fontWeight = FontWeight.ExtraBold,
                         fontSize = 34.sp,
                     )
@@ -162,7 +163,7 @@ fun ManualEntryScreen(
                         unfocusedIndicatorColor = Color.Transparent,
                     ),
                     textStyle = androidx.compose.ui.text.TextStyle(
-                        color = if (type == "expense") WatermelonRed else MintGreen,
+                        color = if (type == "expense") WatermelonRed else IncomeGreen,
                         fontWeight = FontWeight.ExtraBold,
                         fontSize = 42.sp,
                     ),
@@ -283,9 +284,11 @@ fun ManualEntryScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(
-                        brush = Brush.horizontalGradient(
-                            listOf(if (type == "expense") WatermelonRed else MintGreen, MintGreen),
-                        ),
+                        brush = Brush.horizontalGradient(if (type == "expense") {
+                            listOf(WatermelonRed, MintGreen)
+                        } else {
+                            listOf(IncomeGreen, IncomeGreen.copy(alpha = 0.9f))
+                        }),
                         shape = RoundedCornerShape(999.dp),
                     )
                     .appPressable {

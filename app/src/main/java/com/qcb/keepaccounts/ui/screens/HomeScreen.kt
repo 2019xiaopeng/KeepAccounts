@@ -59,6 +59,7 @@ import com.qcb.keepaccounts.ui.format.formatCurrency
 import com.qcb.keepaccounts.ui.format.formatSignedCurrency
 import com.qcb.keepaccounts.ui.icons.resolveCategoryIcon
 import com.qcb.keepaccounts.ui.model.ManualEntryPrefill
+import com.qcb.keepaccounts.ui.theme.IncomeGreen
 import com.qcb.keepaccounts.ui.theme.MintGreen
 import com.qcb.keepaccounts.ui.theme.WarmBrown
 import com.qcb.keepaccounts.ui.theme.WarmBrownMuted
@@ -454,7 +455,6 @@ private fun DaySectionCard(
             section.records.forEachIndexed { index, record ->
                 ActivityItem(
                     record = record,
-                    accentColor = accentColor,
                     isExpanded = expandedRecordId == record.id,
                     isConfirmingDelete = confirmDeleteRecordId == record.id,
                     onToggle = { onToggleExpand(record.id) },
@@ -489,7 +489,6 @@ private fun DaySectionCard(
 @Composable
 private fun ActivityItem(
     record: ActivityRecord,
-    accentColor: Color,
     isExpanded: Boolean,
     isConfirmingDelete: Boolean,
     onToggle: () -> Unit,
@@ -498,7 +497,7 @@ private fun ActivityItem(
     onCancelDelete: () -> Unit,
     onConfirmDelete: () -> Unit,
 ) {
-    val amountColor = if (record.isIncome) accentColor else WatermelonRed
+    val amountColor = if (record.isIncome) IncomeGreen else WatermelonRed
 
     Column(
         modifier = Modifier
@@ -614,13 +613,15 @@ private fun mapTransactionsToSections(
     val dayKeyFormat = SimpleDateFormat("yyyyMMdd", Locale.CHINA)
     val dayDisplayFormat = SimpleDateFormat("MM月dd日", Locale.CHINA)
     val timeFormat = SimpleDateFormat("HH:mm", Locale.CHINA)
+    val maxVisibleDays = 3
+    val maxVisibleRecords = 10
 
     val startCalendar = Calendar.getInstance().apply {
         set(Calendar.HOUR_OF_DAY, 0)
         set(Calendar.MINUTE, 0)
         set(Calendar.SECOND, 0)
         set(Calendar.MILLISECOND, 0)
-        add(Calendar.DAY_OF_MONTH, -2)
+        add(Calendar.DAY_OF_MONTH, -(maxVisibleDays - 1))
     }
     val startTimestamp = startCalendar.timeInMillis
     val endTimestamp = System.currentTimeMillis()
@@ -629,7 +630,7 @@ private fun mapTransactionsToSections(
         .asSequence()
         .filter { it.recordTimestamp in startTimestamp..endTimestamp }
         .sortedByDescending { it.recordTimestamp }
-        .take(10)
+        .take(maxVisibleRecords)
         .toList()
 
     if (recentRecords.isEmpty()) return emptyList()

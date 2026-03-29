@@ -66,6 +66,7 @@ import com.qcb.keepaccounts.ui.model.AiChatRecord
 import com.qcb.keepaccounts.ui.model.ChatBackgroundPreset
 import com.qcb.keepaccounts.ui.model.ManualEntryPrefill
 import com.qcb.keepaccounts.ui.model.ThemePalette
+import com.qcb.keepaccounts.ui.theme.IncomeGreen
 import com.qcb.keepaccounts.ui.theme.MintGreen
 import com.qcb.keepaccounts.ui.theme.WarmBrown
 import com.qcb.keepaccounts.ui.theme.WarmBrownMuted
@@ -658,7 +659,7 @@ private fun ReceiptCard(
     var confirmDelete by rememberSaveable(message.id) { mutableStateOf(false) }
     val receiptDateTimestamp = message.receiptRecordTimestamp ?: message.timestamp
     val amountPrefix = if (message.receiptIsIncome) "+" else "-"
-    val amountColor = if (message.receiptIsIncome) MintGreen else WatermelonRed
+    val amountColor = if (message.receiptIsIncome) IncomeGreen else WatermelonRed
 
     Column(
         modifier = Modifier

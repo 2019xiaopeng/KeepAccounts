@@ -4,6 +4,7 @@ import androidx.compose.ui.graphics.Color
 
 val MintGreen = Color(0xFFA8E6CF)
 val MintGreenDeep = Color(0xFF88D4B4)
+val IncomeGreen = Color(0xFFA0DEC7)
 val MintGreenSoft = Color(0xFFE0F2E9)
 val WarmBrown = Color(0xFF5C544D)
 val WarmBrownMuted = Color(0xFF8F8A84)

@@ -12,7 +12,7 @@ private val canonicalCategoryColors = mapOf(
     "医疗健康" to Color(0xFFFF7F9D),
     "人情交际" to Color(0xFFFF9F68),
     "其他" to Color(0xFF9FA0A6),
-    "收入" to Color(0xFF34C759),
+    "收入" to IncomeGreen,
 )
 
 private val fallbackCategoryColors = listOf(

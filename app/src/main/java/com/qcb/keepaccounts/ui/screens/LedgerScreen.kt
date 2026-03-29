@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -72,6 +71,7 @@ import com.qcb.keepaccounts.ui.format.formatCurrency
 import com.qcb.keepaccounts.ui.format.formatSignedCurrency
 import com.qcb.keepaccounts.ui.icons.resolveCategoryIcon
 import com.qcb.keepaccounts.ui.model.ManualEntryPrefill
+import com.qcb.keepaccounts.ui.theme.IncomeGreen
 import com.qcb.keepaccounts.ui.theme.MintGreen
 import com.qcb.keepaccounts.ui.theme.WarmBrown
 import com.qcb.keepaccounts.ui.theme.WarmBrownMuted
@@ -527,7 +527,7 @@ private fun DayCellView(
         ) {
             Text(
                 text = if (cell.income > 0) "+${trimNumber(cell.income)}" else "",
-                color = MintGreen,
+                color = IncomeGreen,
                 fontWeight = FontWeight.Bold,
                 fontSize = 10.sp,
                 lineHeight = 10.sp,
@@ -575,7 +575,7 @@ private fun DailyRecordsCard(
     } else {
         formatSignedCurrency(ledgerCurrency, dayExpense, false)
     }
-    val headerColor = if (dayIncome >= dayExpense) accentColor else WatermelonRed
+    val headerColor = if (dayIncome >= dayExpense) IncomeGreen else WatermelonRed
 
     Column(
         modifier = Modifier
@@ -626,7 +626,7 @@ private fun DailyRecordsCard(
                         }
                         Text(
                             text = formatSignedCurrency(ledgerCurrency, tx.amount, isIncome),
-                            color = if (isIncome) accentColor else WatermelonRed,
+                            color = if (isIncome) IncomeGreen else WatermelonRed,
                             fontWeight = FontWeight.ExtraBold,
                             fontSize = 17.sp,
                         )
@@ -777,7 +777,7 @@ private fun StatsPanel(
                 ) {
                     StatsItem("总支出", formatCurrency(ledgerCurrency, totalExpense), WatermelonRed)
                     DividerV()
-                    StatsItem("总收入", formatCurrency(ledgerCurrency, totalIncome), accentColor)
+                    StatsItem("总收入", formatCurrency(ledgerCurrency, totalIncome), IncomeGreen)
                     DividerV()
                     StatsItem("结余", formatCurrency(ledgerCurrency, totalBalance), WarmBrown)
                 }
@@ -919,7 +919,7 @@ private fun StatsPanel(
                                         it.amount,
                                         rankType == RankType.INCOME,
                                     ),
-                                    color = if (rankType == RankType.EXPENSE) WatermelonRed else accentColor,
+                                    color = if (rankType == RankType.EXPENSE) WatermelonRed else IncomeGreen,
                                     fontWeight = FontWeight.ExtraBold,
                                     fontSize = 15.sp,
                                 )
@@ -965,7 +965,7 @@ private fun TrendChart(
     val yLabels = listOf(axisMax, axisMax * 0.75, axisMax * 0.5, axisMax * 0.25, 0.0)
     val lineColor = when (metric) {
         TrendMetric.EXPENSE -> WatermelonRed
-        TrendMetric.INCOME -> accentColor
+        TrendMetric.INCOME -> IncomeGreen
         TrendMetric.BALANCE -> WarmBrown
     }
 
@@ -1155,52 +1155,51 @@ private fun RecordPagerSection(
                     .padding(horizontal = 10.dp),
                 userScrollEnabled = false,
             ) {
-                items(visibleSlotCount) { slotIndex ->
-                    val record = records.getOrNull(slotIndex)
-                    if (record == null) {
-                        if (records.isEmpty() && slotIndex == visibleSlotCount / 2) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(rowHeight),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Text(
-                                    text = "暂无记录",
-                                    color = WarmBrownMuted,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 12.sp,
-                                )
-                            }
-                        } else {
+                if (records.isEmpty()) {
+                    item {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(fixedListHeight),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = "暂无记录",
+                                color = WarmBrownMuted,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp,
+                                textAlign = TextAlign.Center,
+                            )
+                        }
+                    }
+                } else {
+                    items(visibleSlotCount, key = { it }) { slotIndex ->
+                        val record = records.getOrNull(slotIndex)
+                        if (record == null) {
                             Spacer(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .height(rowHeight),
                             )
-                        }
-                    } else {
-                        val isIncome = record.type == 1
-                        val subtitle = record.remark.takeIf { it.isNotBlank() }
-                            ?.let { "$it · ${formatDate(record.recordTimestamp)}" }
-                            ?: formatDate(record.recordTimestamp)
+                        } else {
+                            val isIncome = record.type == 1
+                            val subtitle = record.remark.takeIf { it.isNotBlank() }
+                                ?.let { "$it · ${formatDate(record.recordTimestamp)}" }
+                                ?: formatDate(record.recordTimestamp)
 
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(rowHeight)
-                                .padding(vertical = 2.dp)
-                                .background(Color.White.copy(alpha = 0.86f), RoundedCornerShape(14.dp)),
-                        ) {
                             Row(
                                 modifier = Modifier
-                                    .fillMaxSize()
+                                    .fillMaxWidth()
+                                    .height(rowHeight)
+                                    .background(Color.White.copy(alpha = 0.86f), RoundedCornerShape(14.dp))
                                     .padding(horizontal = 10.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Column(
-                                    modifier = Modifier.weight(1f),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxSize(),
                                     verticalArrangement = Arrangement.Center,
                                 ) {
                                     Text(
@@ -1221,7 +1220,7 @@ private fun RecordPagerSection(
                                 }
                                 Text(
                                     text = formatSignedCurrency(ledgerCurrency, record.amount, isIncome),
-                                    color = if (isIncome) accentColor else WatermelonRed,
+                                    color = if (isIncome) IncomeGreen else WatermelonRed,
                                     fontWeight = FontWeight.ExtraBold,
                                     fontSize = 14.sp,
                                 )
@@ -1237,24 +1236,14 @@ private fun RecordPagerSection(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            PaginationButton(
-                text = "上一页",
-                enabled = canGoPrev,
-                activeColor = accentColor,
-                onClick = onPrevPage,
-            )
+            PaginationButton(text = "上一页", enabled = canGoPrev, accentColor = accentColor, onClick = onPrevPage)
             Text(
                 text = "${page + 1} / ${totalPages.coerceAtLeast(1)}",
                 color = WarmBrown,
                 fontWeight = FontWeight.Bold,
                 fontSize = 13.sp,
             )
-            PaginationButton(
-                text = "下一页",
-                enabled = canGoNext,
-                activeColor = accentColor,
-                onClick = onNextPage,
-            )
+            PaginationButton(text = "下一页", enabled = canGoNext, accentColor = accentColor, onClick = onNextPage)
         }
     }
 }
@@ -1263,13 +1252,13 @@ private fun RecordPagerSection(
 private fun PaginationButton(
     text: String,
     enabled: Boolean,
-    activeColor: Color,
+    accentColor: Color,
     onClick: () -> Unit,
 ) {
     Box(
         modifier = Modifier
             .background(
-                color = if (enabled) activeColor.copy(alpha = 0.92f) else Color(0xFFE5E7EB),
+                color = if (enabled) accentColor else Color(0xFFE5E7EB),
                 shape = RoundedCornerShape(999.dp),
             )
             .appPressable(enabled = enabled) { onClick() }

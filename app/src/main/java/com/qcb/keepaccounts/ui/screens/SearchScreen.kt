@@ -42,6 +42,7 @@ import com.qcb.keepaccounts.ui.components.glassCard
 import com.qcb.keepaccounts.ui.format.formatSignedCurrency
 import com.qcb.keepaccounts.ui.icons.resolveCategoryIcon
 import com.qcb.keepaccounts.ui.model.ManualEntryPrefill
+import com.qcb.keepaccounts.ui.theme.IncomeGreen
 import com.qcb.keepaccounts.ui.theme.MintGreen
 import com.qcb.keepaccounts.ui.theme.WarmBrown
 import com.qcb.keepaccounts.ui.theme.WarmBrownMuted
@@ -199,7 +200,7 @@ fun SearchScreen(
 
                     Text(
                         text = formatSignedCurrency(ledgerCurrency, tx.amount, tx.type == 1),
-                        color = if (tx.type == 0) Color(0xFFFF8B94) else accentColor,
+                        color = if (tx.type == 0) Color(0xFFFF8B94) else IncomeGreen,
                         fontWeight = FontWeight.ExtraBold,
                         fontSize = 14.sp,
                     )
