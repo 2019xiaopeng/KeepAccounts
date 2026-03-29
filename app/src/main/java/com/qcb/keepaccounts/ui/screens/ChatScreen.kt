@@ -86,12 +86,14 @@ private data class DemoMessage(
     val receiptCategory: String = "",
     val receiptAmount: String = "",
     val receiptRemark: String = "",
+    val receiptRecordTimestamp: Long? = null,
 )
 
 private data class ParsedReceiptPayload(
     val amount: String,
     val category: String,
     val desc: String,
+    val recordTimestamp: Long?,
 )
 
 @Composable
@@ -118,6 +120,7 @@ fun ChatScreen(
     var topTip by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
     val showTypingDots = isSending && chronologicalMessages.lastOrNull()?.role == "user"
+    var hasAutoScrolledOnce by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(topTip) {
         if (topTip.isNotBlank()) {
@@ -131,6 +134,17 @@ fun ChatScreen(
             inputText = initialInput
             topTip = "已从首页带入 AI 记账输入"
             onConsumedInitialInput()
+        }
+    }
+
+    LaunchedEffect(displayMessages.firstOrNull()?.id, displayMessages.size, showTypingDots) {
+        if (displayMessages.isEmpty() && !showTypingDots) return@LaunchedEffect
+
+        if (!hasAutoScrolledOnce) {
+            listState.scrollToItem(0)
+            hasAutoScrolledOnce = true
+        } else {
+            listState.animateScrollToItem(0)
         }
     }
 
@@ -239,6 +253,7 @@ fun ChatScreen(
                                     category = message.receiptCategory,
                                     desc = message.receiptRemark,
                                     amount = message.receiptAmount,
+                                    recordTimestamp = message.receiptRecordTimestamp ?: message.timestamp,
                                 ),
                             )
                             topTip = "已跳转到手动记账，可继续修改"
@@ -309,6 +324,11 @@ private fun AiChatRecord.toDemoMessage(): DemoMessage {
         ?: parseAmount(visibleText)
         ?: "0.00"
     val showReceipt = isReceipt || payload != null
+    val resolvedReceiptTimestamp = if (showReceipt) {
+        receiptRecordTimestamp ?: payload?.recordTimestamp ?: timestamp
+    } else {
+        null
+    }
     return DemoMessage(
         id = id,
         timestamp = timestamp,
@@ -318,6 +338,7 @@ private fun AiChatRecord.toDemoMessage(): DemoMessage {
         receiptCategory = if (showReceipt) payload?.category?.ifBlank { "已识别" } ?: "已识别" else "",
         receiptAmount = parsedAmount,
         receiptRemark = if (showReceipt) payload?.desc?.ifBlank { visibleText } ?: visibleText else "",
+        receiptRecordTimestamp = resolvedReceiptTimestamp,
     )
 }
 
@@ -339,7 +360,18 @@ private fun parseReceiptPayload(text: String): ParsedReceiptPayload? {
             amount = amount,
             category = json.optString("category").ifBlank { "已识别" },
             desc = json.optString("desc").ifBlank { "" },
+            recordTimestamp = parsePayloadDateToTimestamp(json.optString("date")),
         )
+    }.getOrNull()
+}
+
+private fun parsePayloadDateToTimestamp(rawDate: String?): Long? {
+    val dateText = rawDate?.trim().orEmpty()
+    if (dateText.isBlank()) return null
+
+    return runCatching {
+        val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.CHINA).apply { isLenient = false }
+        sdf.parse(dateText)?.time
     }.getOrNull()
 }
 
@@ -601,6 +633,7 @@ private fun ReceiptCard(
     onEdit: () -> Unit,
 ) {
     var confirmDelete by rememberSaveable(message.id) { mutableStateOf(false) }
+    val receiptDateTimestamp = message.receiptRecordTimestamp ?: message.timestamp
 
     Column(
         modifier = Modifier
@@ -625,7 +658,7 @@ private fun ReceiptCard(
         ReceiptRow(icon = Icons.Rounded.Category, label = "📁 分类", value = message.receiptCategory)
         ReceiptRow(icon = Icons.Rounded.AttachMoney, label = "💰 金额", value = "-${message.receiptAmount}", valueColor = WatermelonRed)
         ReceiptRow(icon = Icons.Rounded.MoreHoriz, label = "📝 备注", value = message.receiptRemark)
-        ReceiptRow(icon = Icons.Rounded.Today, label = "📅 日期", value = formatReceiptDate(message.timestamp))
+        ReceiptRow(icon = Icons.Rounded.Today, label = "📅 日期", value = formatReceiptDate(receiptDateTimestamp))
         ReceiptRow(icon = Icons.Rounded.Schedule, label = "🕒 记录时间", value = formatReceiptTime(message.timestamp))
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {

@@ -79,6 +79,7 @@ data class ManualEntryPrefill(
     val category: String = "",
     val desc: String = "",
     val amount: String = "",
+    val recordTimestamp: Long? = null,
 )
 
 data class AiChatRecord(
@@ -88,6 +89,7 @@ data class AiChatRecord(
     val content: String,
     val isReceipt: Boolean = false,
     val transactionId: Long? = null,
+    val receiptRecordTimestamp: Long? = null,
 )
 
 val defaultManualCategories = listOf(

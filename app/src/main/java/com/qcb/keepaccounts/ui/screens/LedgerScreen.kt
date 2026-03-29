@@ -319,6 +319,7 @@ fun LedgerScreen(
                                         category = tx.categoryName,
                                         desc = tx.remark,
                                         amount = String.format(Locale.CHINA, "%.2f", tx.amount),
+                                        recordTimestamp = tx.recordTimestamp,
                                     ),
                                 )
                             },

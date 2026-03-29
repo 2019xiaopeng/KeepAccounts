@@ -74,6 +74,7 @@ private data class ActivityRecord(
     val icon: ImageVector,
     val category: String,
     val desc: String,
+    val recordTimestamp: Long,
     val time: String,
     val amount: String,
     val amountRaw: String,
@@ -464,6 +465,7 @@ private fun DaySectionCard(
                                 category = record.category,
                                 desc = record.desc,
                                 amount = record.amountRaw,
+                                recordTimestamp = record.recordTimestamp,
                             ),
                         )
                     },
@@ -662,6 +664,7 @@ private fun mapTransactionsToSections(
                 icon = resolveCategoryIcon(tx.categoryName, tx.remark),
                 category = tx.categoryName,
                 desc = tx.remark,
+                recordTimestamp = tx.recordTimestamp,
                 time = timeFormat.format(Date(tx.recordTimestamp)),
                 amount = formatSignedCurrency(ledgerCurrency, tx.amount, isIncome),
                 amountRaw = String.format(Locale.CHINA, "%.2f", tx.amount),

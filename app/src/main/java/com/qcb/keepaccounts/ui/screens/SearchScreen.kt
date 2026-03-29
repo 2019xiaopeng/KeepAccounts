@@ -164,6 +164,7 @@ fun SearchScreen(
                                     category = tx.categoryName,
                                     desc = tx.remark,
                                     amount = tx.amount.toString(),
+                                    recordTimestamp = tx.recordTimestamp,
                                 ),
                             )
                         }

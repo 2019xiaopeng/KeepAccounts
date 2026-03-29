@@ -15,7 +15,7 @@ import com.qcb.keepaccounts.ui.model.AiTone
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.combine
 import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -30,8 +30,15 @@ class ChatRepository(
 ) {
 
     fun observeChatRecords(): Flow<List<AiChatRecord>> {
-        return chatMessageDao.observeAllMessages().map { list ->
-            list.map { entity ->
+        return combine(
+            chatMessageDao.observeAllMessages(),
+            transactionDao.observeAllTransactions(),
+        ) { messages, transactions ->
+            val recordTimestampByTransactionId = transactions.associate { tx ->
+                tx.id to tx.recordTimestamp
+            }
+
+            messages.map { entity ->
                 AiChatRecord(
                     id = entity.id,
                     timestamp = entity.timestamp,
@@ -39,6 +46,7 @@ class ChatRepository(
                     content = entity.content,
                     isReceipt = entity.isReceipt,
                     transactionId = entity.transactionId,
+                    receiptRecordTimestamp = entity.transactionId?.let(recordTimestampByTransactionId::get),
                 )
             }
         }
@@ -477,6 +485,7 @@ class ChatRepository(
             ${toneGuide}
             你的任务是陪用户聊天，并在用户提到消费或收入时，提取记账信息。
             普通聊天时，尽量像真人发消息，可以分成1到3句短消息，每句不超过40字，避免长篇大论。
+            如果要连发多条独立消息，请使用双换行分隔（\n\n），不要用单换行硬拆句。
             当识别到记账信息时，先输出2到3句简短关怀/确认语气（分句自然），最后再输出一句已记账确认，然后再附上 <DATA> JSON。
                         如果用户提到相对日期（如昨天/前天/大前天/今天/明天），你必须基于“今天日期”换算成具体 yyyy-MM-dd 再写入 date。
                         如果用户没有明确提到具体日期，date 字段必须填写今天（${today}）。
@@ -508,24 +517,15 @@ class ChatRepository(
 
         if (normalized.isBlank()) return listOf("收到，我在。")
 
-        val lineParts = normalized
-            .split("\n")
+        val explicitParts = normalized
+            .split(conversationDelimiterRegex)
             .map { it.trim() }
             .filter { it.isNotBlank() }
 
-        val majorSentenceRegex = Regex("(?<=[。！？!?])")
-        val sourceParts = if (lineParts.size > 1) lineParts else listOf(normalized)
+        val sourceParts = if (explicitParts.size > 1) explicitParts else listOf(normalized)
         val splitParts = buildList {
             sourceParts.forEach { source ->
-                val sentenceParts = source
-                    .split(majorSentenceRegex)
-                    .map { it.trim() }
-                    .filter { it.isNotBlank() }
-                    .ifEmpty { listOf(source) }
-
-                sentenceParts.forEach { sentence ->
-                    addAll(splitByMinorDelimiters(sentence))
-                }
+                addAll(splitByMajorSentences(source))
             }
         }
 
@@ -534,25 +534,30 @@ class ChatRepository(
             .take(3)
     }
 
-    private fun splitByMinorDelimiters(text: String, maxLen: Int = 18): List<String> {
-        val sourceParts = text
-            .split(Regex("(?<=[，,、；;：:])"))
+    private fun splitByMajorSentences(text: String, maxLen: Int = 42): List<String> {
+        val sentenceParts = text
+            .split(majorSentenceRegex)
             .map { it.trim() }
             .filter { it.isNotBlank() }
-            .ifEmpty { listOf(text) }
+            .ifEmpty { listOf(text.trim()) }
+
+        if (sentenceParts.size == 1 && sentenceParts.first().length <= maxLen) {
+            return sentenceParts
+        }
 
         val merged = mutableListOf<String>()
         var buffer = ""
-        sourceParts.forEach { part ->
+        sentenceParts.forEach { sentence ->
             if (buffer.isBlank()) {
-                buffer = part
-            } else if ((buffer.length + part.length) <= maxLen) {
-                buffer += part
+                buffer = sentence
+            } else if (buffer.length + sentence.length <= maxLen) {
+                buffer += sentence
             } else {
                 merged += buffer
-                buffer = part
+                buffer = sentence
             }
         }
+
         if (buffer.isNotBlank()) {
             merged += buffer
         }
@@ -660,6 +665,8 @@ class ChatRepository(
         val leadingNullRegex = Regex("(?is)^\\s*(?:null\\s*)+")
         val lineNullRegex = Regex("(?im)^\\s*null\\s*$")
         val repeatedNullRegex = Regex("(?i)(?:null\\s*){4,}")
-        const val assistantBubbleRevealIntervalMs = 680L
+        val conversationDelimiterRegex = Regex("\\n\\s*\\n+|<MSG>|\\|\\|\\|", setOf(RegexOption.IGNORE_CASE))
+        val majorSentenceRegex = Regex("(?<=[。！？!?])")
+        const val assistantBubbleRevealIntervalMs = 520L
     }
 }

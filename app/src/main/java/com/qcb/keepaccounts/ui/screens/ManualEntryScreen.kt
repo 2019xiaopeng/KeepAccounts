@@ -88,6 +88,7 @@ fun ManualEntryScreen(
             type = initialData.type
             amountInput = initialData.amount
             remarkInput = initialData.desc
+            initialData.recordTimestamp?.let { recordDateMillis = it }
             if (initialData.category.isNotBlank()) {
                 selectedCategory = initialData.category
             }
