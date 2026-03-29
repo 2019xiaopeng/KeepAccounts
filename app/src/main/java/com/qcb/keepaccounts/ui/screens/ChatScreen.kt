@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -167,7 +166,11 @@ fun ChatScreen(
                 ),
         )
 
-        Column(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .imePadding(),
+        ) {
             ChatHeader(
                 onBack = onBack,
                 onOpenAiSettings = onOpenAiSettings,
@@ -248,8 +251,7 @@ fun ChatScreen(
             InputBar(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .imePadding()
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                    .padding(horizontal = 8.dp, vertical = 2.dp),
                 input = inputText,
                 onInputChange = { inputText = it },
                 assistantHint = aiConfig.name + aiConfig.avatar,
