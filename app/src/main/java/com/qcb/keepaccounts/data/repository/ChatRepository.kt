@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.map
 import org.json.JSONObject
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import kotlin.math.abs
@@ -333,13 +334,67 @@ class ChatRepository(
     }
 
     private fun parseReceiptDateOrNow(rawDate: String?, userInput: String): Long {
-        if (!containsExplicitDateHint(userInput)) return System.currentTimeMillis()
+        parseDateFromUserInput(userInput)?.let { return it }
         if (rawDate.isNullOrBlank()) return System.currentTimeMillis()
 
         return runCatching {
             val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.CHINA)
             sdf.parse(rawDate)?.time ?: System.currentTimeMillis()
         }.getOrElse { System.currentTimeMillis() }
+    }
+
+    private fun parseDateFromUserInput(userInput: String): Long? {
+        val text = userInput.trim()
+        if (text.isBlank()) return null
+
+        parseAbsoluteDateWithYear(text)?.let { return it }
+        parseAbsoluteDateWithoutYear(text)?.let { return it }
+        parseRelativeDate(text)?.let { return it }
+
+        return null
+    }
+
+    private fun parseAbsoluteDateWithYear(text: String): Long? {
+        val regex = Regex("(\\d{4})[-/.年](\\d{1,2})[-/.月](\\d{1,2})日?")
+        val match = regex.find(text) ?: return null
+        val year = match.groupValues[1].toIntOrNull() ?: return null
+        val month = match.groupValues[2].toIntOrNull() ?: return null
+        val day = match.groupValues[3].toIntOrNull() ?: return null
+        return buildTimestamp(year, month, day)
+    }
+
+    private fun parseAbsoluteDateWithoutYear(text: String): Long? {
+        val regex = Regex("(\\d{1,2})月(\\d{1,2})日")
+        val match = regex.find(text) ?: return null
+        val currentYear = Calendar.getInstance().get(Calendar.YEAR)
+        val month = match.groupValues[1].toIntOrNull() ?: return null
+        val day = match.groupValues[2].toIntOrNull() ?: return null
+        return buildTimestamp(currentYear, month, day)
+    }
+
+    private fun parseRelativeDate(text: String): Long? {
+        val offsetDays = when {
+            text.contains("大前天") -> -3
+            text.contains("前天") -> -2
+            text.contains("昨天") || text.contains("昨日") -> -1
+            text.contains("今天") -> 0
+            text.contains("明天") -> 1
+            else -> return null
+        }
+
+        return Calendar.getInstance().apply {
+            add(Calendar.DAY_OF_YEAR, offsetDays)
+        }.timeInMillis
+    }
+
+    private fun buildTimestamp(year: Int, month: Int, day: Int): Long? {
+        if (month !in 1..12 || day !in 1..31) return null
+
+        return runCatching {
+            val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.CHINA).apply { isLenient = false }
+            val normalized = String.format(Locale.CHINA, "%04d-%02d-%02d", year, month, day)
+            sdf.parse(normalized)?.time
+        }.getOrNull()
     }
 
     private fun containsExplicitDateHint(userInput: String): Boolean {
@@ -423,6 +478,7 @@ class ChatRepository(
             你的任务是陪用户聊天，并在用户提到消费或收入时，提取记账信息。
             普通聊天时，尽量像真人发消息，可以分成1到3句短消息，每句不超过40字，避免长篇大论。
             当识别到记账信息时，先输出2到3句简短关怀/确认语气（分句自然），最后再输出一句已记账确认，然后再附上 <DATA> JSON。
+                        如果用户提到相对日期（如昨天/前天/大前天/今天/明天），你必须基于“今天日期”换算成具体 yyyy-MM-dd 再写入 date。
                         如果用户没有明确提到具体日期，date 字段必须填写今天（${today}）。
             如果用户的话包含记账信息，你必须在回复最末尾严格输出 <DATA>...</DATA> JSON：
             {

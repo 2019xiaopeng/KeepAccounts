@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.qcb.keepaccounts.data.repository.ChatRepository
 import com.qcb.keepaccounts.ui.model.AiAssistantConfig
 import com.qcb.keepaccounts.ui.model.AiChatRecord
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -35,7 +36,7 @@ class ChatViewModel(
         val userInput = text.trim()
         if (userInput.isBlank() || _isSending.value) return
 
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             _isSending.value = true
             try {
                 chatRepository.sendMessage(
@@ -50,7 +51,7 @@ class ChatViewModel(
     }
 
     fun deleteMessage(messageId: Long) {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             chatRepository.deleteMessage(messageId)
         }
     }

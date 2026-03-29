@@ -25,13 +25,18 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.DateRange
 import androidx.compose.material.icons.rounded.EditNote
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -54,7 +59,11 @@ import com.qcb.keepaccounts.ui.theme.WarmBrown
 import com.qcb.keepaccounts.ui.theme.WarmBrownMuted
 import com.qcb.keepaccounts.ui.theme.WatermelonRed
 import com.qcb.keepaccounts.ui.viewmodel.MainViewModel
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ManualEntryScreen(
     viewModel: MainViewModel,
@@ -70,6 +79,8 @@ fun ManualEntryScreen(
     var amountInput by rememberSaveable { mutableStateOf("") }
     var remarkInput by rememberSaveable { mutableStateOf("") }
     var selectedCategory by rememberSaveable { mutableStateOf("餐饮美食") }
+    var recordDateMillis by rememberSaveable { mutableLongStateOf(System.currentTimeMillis()) }
+    var showDatePicker by rememberSaveable { mutableStateOf(false) }
     var saveTip by rememberSaveable { mutableStateOf<String?>(null) }
 
     LaunchedEffect(initialData) {
@@ -218,7 +229,16 @@ fun ManualEntryScreen(
                         )
                         Text(text = "日期", color = WarmBrown, fontWeight = FontWeight.Bold)
                     }
-                    Text(text = "今天", color = WarmBrownMuted, fontWeight = FontWeight.Bold)
+                    Row(
+                        modifier = Modifier
+                            .background(Color.White.copy(alpha = 0.72f), RoundedCornerShape(999.dp))
+                            .appPressable { showDatePicker = true }
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(text = formatRecordDate(recordDateMillis), color = WarmBrownMuted, fontWeight = FontWeight.Bold)
+                    }
                 }
 
                 Row(
@@ -278,7 +298,7 @@ fun ManualEntryScreen(
                                 categoryName = selectedCategory.ifBlank { "其他" },
                                 categoryIcon = selectedCategory.firstOrNull()?.toString() ?: "",
                                 remark = remarkInput.ifBlank { if (type == "expense") "手动支出" else "手动收入" },
-                                recordTimestamp = System.currentTimeMillis(),
+                                recordTimestamp = recordDateMillis,
                             )
                             saveTip = "已保存，账单已更新"
                             onBack()
@@ -312,6 +332,34 @@ fun ManualEntryScreen(
             }
         }
     }
+
+    if (showDatePicker) {
+        val pickerState = androidx.compose.material3.rememberDatePickerState(initialSelectedDateMillis = recordDateMillis)
+        DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        recordDateMillis = pickerState.selectedDateMillis ?: recordDateMillis
+                        showDatePicker = false
+                    },
+                ) {
+                    Text(text = "确定")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDatePicker = false }) {
+                    Text(text = "取消")
+                }
+            },
+        ) {
+            DatePicker(state = pickerState, showModeToggle = false)
+        }
+    }
+}
+
+private fun formatRecordDate(timestamp: Long): String {
+    return SimpleDateFormat("yyyy-MM-dd", Locale.CHINA).format(Date(timestamp))
 }
 
 @OptIn(ExperimentalLayoutApi::class)
