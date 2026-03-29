@@ -1,9 +1,9 @@
 package com.qcb.keepaccounts.ui.components
+import com.qcb.keepaccounts.ui.components.appPressable
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -90,7 +90,7 @@ fun CollapsibleTopBar(
                 modifier = Modifier
                     .size(iconBoxSize)
                     .background(Color.White.copy(alpha = 0.92f), CircleShape)
-                    .clickable(enabled = onTrailingClick != null) { onTrailingClick?.invoke() },
+                    .appPressable(enabled = onTrailingClick != null) { onTrailingClick?.invoke() },
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(

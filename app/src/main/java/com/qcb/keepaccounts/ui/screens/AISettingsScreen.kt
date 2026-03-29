@@ -1,10 +1,10 @@
 package com.qcb.keepaccounts.ui.screens
+import com.qcb.keepaccounts.ui.components.appPressable
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -164,7 +164,7 @@ fun AISettingsScreen(
                     tint = WarmBrown.copy(alpha = 0.72f),
                     modifier = Modifier
                         .size(20.dp)
-                        .clickable { onBack() },
+                        .appPressable { onBack() },
                 )
                 Text(text = "AI 专属管家", color = WarmBrown, fontWeight = FontWeight.ExtraBold, fontSize = 17.sp)
                 Box(modifier = Modifier.size(20.dp))
@@ -238,7 +238,7 @@ fun AISettingsScreen(
                                     },
                                     shape = RoundedCornerShape(14.dp),
                                 )
-                                .clickable {
+                                .appPressable {
                                     avatar = item
                                     avatarUri = null
                                 }
@@ -254,7 +254,7 @@ fun AISettingsScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(Color.White.copy(alpha = 0.8f), RoundedCornerShape(14.dp))
-                        .clickable {
+                        .appPressable {
                             avatarPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                         }
                         .padding(horizontal = 10.dp, vertical = 8.dp),
@@ -326,7 +326,7 @@ fun AISettingsScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(Color.White.copy(alpha = 0.8f), RoundedCornerShape(14.dp))
-                        .clickable {
+                        .appPressable {
                             backgroundPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                         }
                         .padding(horizontal = 10.dp, vertical = 8.dp),
@@ -375,7 +375,7 @@ fun AISettingsScreen(
                         color = WarmBrownMuted,
                         fontWeight = FontWeight.Bold,
                         fontSize = 12.sp,
-                        modifier = Modifier.clickable { showHistoryCalendar = !showHistoryCalendar },
+                        modifier = Modifier.appPressable { showHistoryCalendar = !showHistoryCalendar },
                     )
                 }
 
@@ -384,7 +384,7 @@ fun AISettingsScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .background(Color.White.copy(alpha = 0.78f), RoundedCornerShape(14.dp))
-                            .clickable { showDatePicker = true }
+                            .appPressable { showDatePicker = true }
                             .padding(horizontal = 10.dp, vertical = 9.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically,
@@ -471,7 +471,7 @@ fun AISettingsScreen(
                         brush = Brush.horizontalGradient(listOf(accentColor, accentColor.copy(alpha = 0.82f))),
                         shape = RoundedCornerShape(999.dp),
                     )
-                    .clickable {
+                    .appPressable {
                         onSave(
                             AiAssistantConfig(
                                 name = name.ifBlank { "Nanami" },
@@ -547,7 +547,7 @@ private fun ToneRow(
                 color = if (selected) accentColor.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.5f),
                 shape = RoundedCornerShape(16.dp),
             )
-            .clickable { onClick() }
+            .appPressable { onClick() }
             .padding(10.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
@@ -569,7 +569,7 @@ private fun BackgroundChip(
                 color = if (selected) Color.White else Color.White.copy(alpha = 0.5f),
                 shape = RoundedCornerShape(14.dp),
             )
-            .clickable { onClick() }
+            .appPressable { onClick() }
             .padding(horizontal = 10.dp, vertical = 8.dp),
     ) {
         Text(

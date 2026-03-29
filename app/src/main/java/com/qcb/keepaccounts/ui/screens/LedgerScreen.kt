@@ -1,4 +1,5 @@
 package com.qcb.keepaccounts.ui.screens
+import com.qcb.keepaccounts.ui.components.appPressable
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
@@ -7,7 +8,6 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -477,7 +477,7 @@ private fun DayCellView(
         modifier = modifier
             .height(58.dp)
             .padding(horizontal = 0.dp)
-            .clickable { onClick() },
+            .appPressable { onClick() },
         verticalArrangement = Arrangement.spacedBy(0.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
@@ -543,7 +543,7 @@ private fun ArrowButton(icon: ImageVector, onClick: () -> Unit) {
         modifier = Modifier
             .size(32.dp)
             .background(Color.White.copy(alpha = 0.9f), CircleShape)
-            .clickable { onClick() },
+            .appPressable { onClick() },
         contentAlignment = Alignment.Center,
     ) {
         Icon(imageVector = icon, contentDescription = null, tint = WarmBrown.copy(alpha = 0.8f), modifier = Modifier.size(18.dp))
@@ -597,7 +597,7 @@ private fun DailyRecordsCard(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(Color.White.copy(alpha = 0.95f), RoundedCornerShape(22.dp))
-                        .clickable { onToggleExpand(tx.id) }
+                        .appPressable { onToggleExpand(tx.id) }
                         .padding(horizontal = 12.dp, vertical = 10.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
@@ -653,7 +653,7 @@ private fun DailyRecordsCard(
                                         modifier = Modifier
                                             .size(20.dp)
                                             .background(Color.White, CircleShape)
-                                            .clickable { onCancelDelete() },
+                                            .appPressable { onCancelDelete() },
                                         contentAlignment = Alignment.Center,
                                     ) {
                                         Text(text = "✕", color = WarmBrownMuted, fontWeight = FontWeight.Bold, fontSize = 11.sp)
@@ -662,7 +662,7 @@ private fun DailyRecordsCard(
                                         modifier = Modifier
                                             .size(20.dp)
                                             .background(WatermelonRed, CircleShape)
-                                            .clickable {
+                                            .appPressable {
                                                 onDelete(tx.id)
                                                 onCancelDelete()
                                             },
@@ -679,7 +679,7 @@ private fun DailyRecordsCard(
                                         tint = WarmBrown.copy(alpha = 0.55f),
                                         modifier = Modifier
                                             .size(16.dp)
-                                            .clickable { onEdit(tx) },
+                                            .appPressable { onEdit(tx) },
                                     )
                                     Icon(
                                         imageVector = Icons.Rounded.Delete,
@@ -687,7 +687,7 @@ private fun DailyRecordsCard(
                                         tint = WatermelonRed.copy(alpha = 0.85f),
                                         modifier = Modifier
                                             .size(16.dp)
-                                            .clickable { onBeginDelete(tx.id) },
+                                            .appPressable { onBeginDelete(tx.id) },
                                     )
                                 }
                             }
@@ -1196,7 +1196,7 @@ private fun PaginationButton(text: String, enabled: Boolean, onClick: () -> Unit
                 color = if (enabled) Color.White.copy(alpha = 0.9f) else Color(0xFFE5E7EB),
                 shape = RoundedCornerShape(999.dp),
             )
-            .clickable(enabled = enabled) { onClick() }
+            .appPressable(enabled = enabled) { onClick() }
             .padding(horizontal = 12.dp, vertical = 7.dp),
     ) {
         Text(

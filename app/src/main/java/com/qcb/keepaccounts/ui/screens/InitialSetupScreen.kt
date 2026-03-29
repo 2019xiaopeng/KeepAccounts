@@ -1,10 +1,10 @@
 package com.qcb.keepaccounts.ui.screens
+import com.qcb.keepaccounts.ui.components.appPressable
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -201,7 +201,7 @@ fun InitialSetupScreen(
                         text = "上传",
                         color = selectedColor,
                         fontWeight = FontWeight.ExtraBold,
-                        modifier = Modifier.clickable {
+                        modifier = Modifier.appPressable {
                             userAvatarPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                         },
                     )
@@ -308,7 +308,7 @@ fun InitialSetupScreen(
                         text = "上传头像",
                         color = selectedColor,
                         fontWeight = FontWeight.ExtraBold,
-                        modifier = Modifier.clickable {
+                        modifier = Modifier.appPressable {
                             aiAvatarPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                         },
                     )
@@ -346,7 +346,7 @@ fun InitialSetupScreen(
                                     color = if (aiAvatar == item && aiAvatarUri.isNullOrBlank()) selectedColor.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.55f),
                                     shape = RoundedCornerShape(14.dp),
                                 )
-                                .clickable {
+                                .appPressable {
                                     aiAvatar = item
                                     aiAvatarUri = null
                                 }
@@ -372,7 +372,7 @@ fun InitialSetupScreen(
                         brush = Brush.horizontalGradient(listOf(selectedColor, selectedColor.copy(alpha = 0.84f))),
                         shape = RoundedCornerShape(999.dp),
                     )
-                    .clickable {
+                    .appPressable {
                         val setupBudget = monthlyBudgetInput.trim().toDoubleOrNull()
                             ?.takeIf { it > 0.0 }
                             ?: initialMonthlyBudget.coerceAtLeast(1.0)
@@ -417,7 +417,7 @@ private fun ThemeOptionRow(
                 color = if (selected) Color.White else Color.White.copy(alpha = 0.58f),
                 shape = RoundedCornerShape(14.dp),
             )
-            .clickable { onClick() }
+            .appPressable { onClick() }
             .padding(horizontal = 10.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
@@ -452,7 +452,7 @@ private fun ToneOptionRow(
                 color = if (selected) accentColor.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.55f),
                 shape = RoundedCornerShape(14.dp),
             )
-            .clickable { onClick() }
+            .appPressable { onClick() }
             .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

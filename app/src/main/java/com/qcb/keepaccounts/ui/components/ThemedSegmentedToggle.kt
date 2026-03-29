@@ -1,11 +1,11 @@
 package com.qcb.keepaccounts.ui.components
+import com.qcb.keepaccounts.ui.components.appPressable
 
 import android.graphics.RenderEffect
 import android.graphics.Shader
 import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -163,7 +163,7 @@ fun ThemedSegmentedToggle(
                                 itemWidths[index] = widthDp
                             }
                         }
-                        .clickable { onSelectedChange(index) }
+                        .appPressable { onSelectedChange(index) }
                         .padding(horizontal = horizontalPadding, vertical = verticalPadding),
                     contentAlignment = Alignment.Center,
                 ) {

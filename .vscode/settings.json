@@ -1,11 +1,11 @@
 {
-  "java.jdt.ls.java.home": "${env:JAVA_HOME}",
-  "java.import.gradle.java.home": "${env:JAVA_HOME}",
-  "gradle.java.home": "${env:JAVA_HOME}",
+  "java.jdt.ls.java.home": "D:/Program Files/Java/jdk-21",
+  "java.import.gradle.java.home": "D:/Program Files/Java/jdk-21",
+  "gradle.java.home": "D:/Program Files/Java/jdk-21",
   "java.configuration.runtimes": [
     {
       "name": "JavaSE-21",
-      "path": "${env:JAVA_HOME}",
+      "path": "D:/Program Files/Java/jdk-21",
       "default": true
     }
   ]

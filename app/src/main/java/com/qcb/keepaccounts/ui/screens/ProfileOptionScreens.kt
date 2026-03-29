@@ -1,7 +1,7 @@
-﻿package com.qcb.keepaccounts.ui.screens
+package com.qcb.keepaccounts.ui.screens
+import com.qcb.keepaccounts.ui.components.appPressable
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -86,7 +86,6 @@ fun CategoryManagementScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .glassCard(shape = RoundedCornerShape(22.dp), glowColor = accentColor.copy(alpha = 0.16f))
                     .padding(horizontal = 10.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -108,7 +107,7 @@ fun CategoryManagementScreen(
                     modifier = Modifier
                         .size(38.dp)
                         .background(accentColor, RoundedCornerShape(999.dp))
-                        .clickable {
+                        .appPressable {
                             val name = input.trim()
                             when {
                                 name.isBlank() -> hint = "分类名称不能为空"
@@ -161,7 +160,7 @@ fun CategoryManagementScreen(
                             color = if (used == 0 && categories.size > 1) Color(0xFFFFF0F0) else Color(0xFFF3F4F6),
                             shape = RoundedCornerShape(999.dp),
                         )
-                        .clickable {
+                        .appPressable {
                             when {
                                 categories.size <= 1 -> hint = "至少保留一个分类"
                                 else -> {
@@ -208,7 +207,7 @@ fun CategoryManagementScreen(
                             text = "取消",
                             color = WarmBrownMuted,
                             fontWeight = FontWeight.Bold,
-                            modifier = Modifier.clickable {
+                            modifier = Modifier.appPressable {
                                 pendingDeleteCategory = null
                                 pendingDeleteUsedCount = 0
                             },
@@ -217,8 +216,8 @@ fun CategoryManagementScreen(
                             text = "删除",
                             color = Color(0xFFFF8B94),
                             fontWeight = FontWeight.ExtraBold,
-                            modifier = Modifier.clickable {
-                                val toDelete = pendingDeleteCategory ?: return@clickable
+                            modifier = Modifier.appPressable {
+                                val toDelete = pendingDeleteCategory ?: return@appPressable
                                 onDeleteCategory(toDelete)
                                 hint = "已删除分类：$toDelete"
                                 pendingDeleteCategory = null
@@ -335,7 +334,7 @@ fun CacheCleanupScreen(
                         brush = Brush.linearGradient(listOf(Color(0xFFFFE7E9), Color(0xFFFFF2F4))),
                         shape = RoundedCornerShape(24.dp),
                     )
-                    .clickable {
+                    .appPressable {
                         scope.launch {
                             val updatedSize = withContext(Dispatchers.IO) {
                                 clearCacheDirectory(context.cacheDir, keepThumbnail = clearThumb)
@@ -413,7 +412,7 @@ fun ThemeAppearanceScreen(onBack: () -> Unit) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .glassCard(shape = RoundedCornerShape(24.dp), glowColor = MintGreen.copy(alpha = 0.16f))
-                    .clickable { selectedTheme = name }
+                    .appPressable { selectedTheme = name }
                     .padding(12.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
@@ -523,7 +522,7 @@ private fun OptionHeader(
                 text = " 返回",
                 color = WarmBrown,
                 fontWeight = FontWeight.Bold,
-                modifier = Modifier.clickable { onBack() },
+                modifier = Modifier.appPressable { onBack() },
             )
             Text(text = title, color = WarmBrown, fontWeight = FontWeight.ExtraBold)
             Spacer(modifier = Modifier.width(40.dp))
@@ -541,7 +540,7 @@ private fun OptionRow(
         modifier = Modifier
             .fillMaxWidth()
             .glassCard(shape = RoundedCornerShape(24.dp), glowColor = MintGreen.copy(alpha = 0.15f))
-            .clickable { onClick() }
+            .appPressable { onClick() }
             .padding(horizontal = 12.dp, vertical = 10.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,

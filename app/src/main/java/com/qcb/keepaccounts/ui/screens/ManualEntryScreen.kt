@@ -1,7 +1,7 @@
 package com.qcb.keepaccounts.ui.screens
+import com.qcb.keepaccounts.ui.components.appPressable
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -112,7 +112,7 @@ fun ManualEntryScreen(
                     text = "← 返回",
                     color = WarmBrown,
                     fontWeight = FontWeight.Bold,
-                    modifier = Modifier.clickable { onBack() },
+                    modifier = Modifier.appPressable { onBack() },
                 )
                 Text(text = "手动记一笔", color = WarmBrown, fontWeight = FontWeight.ExtraBold, fontSize = 17.sp)
                 Spacer(modifier = Modifier.width(40.dp))
@@ -267,7 +267,7 @@ fun ManualEntryScreen(
                         ),
                         shape = RoundedCornerShape(999.dp),
                     )
-                    .clickable {
+                    .appPressable {
                         val amount = amountInput.toDoubleOrNull()
                         if (amount == null || amount <= 0.0) {
                             saveTip = "请输入正确金额"
@@ -350,7 +350,7 @@ private fun CategoryChip(
                 color = if (selected) selectedColor.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.6f),
                 shape = RoundedCornerShape(14.dp),
             )
-            .clickable { onClick() }
+            .appPressable { onClick() }
             .padding(horizontal = 10.dp, vertical = 7.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalAlignment = Alignment.CenterVertically,

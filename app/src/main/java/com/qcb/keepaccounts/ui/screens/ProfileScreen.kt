@@ -1,7 +1,7 @@
 package com.qcb.keepaccounts.ui.screens
+import com.qcb.keepaccounts.ui.components.appPressable
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -146,7 +146,7 @@ fun ProfileScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .background(Color.White.copy(alpha = 0.82f), RoundedCornerShape(24.dp))
-                            .clickable { onNavigateToOption(KeepAccountsDestination.AI_SETTINGS) }
+                            .appPressable { onNavigateToOption(KeepAccountsDestination.AI_SETTINGS) }
                             .padding(12.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically,
@@ -325,7 +325,7 @@ private fun MenuRow(item: MenuEntry, highlightColor: Color, onClick: () -> Unit)
         modifier = Modifier
             .fillMaxWidth()
             .background(Color.White.copy(alpha = 0.55f), RoundedCornerShape(22.dp))
-            .clickable { onClick() }
+            .appPressable { onClick() }
             .padding(horizontal = 10.dp, vertical = 10.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,

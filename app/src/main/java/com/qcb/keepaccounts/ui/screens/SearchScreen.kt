@@ -1,7 +1,7 @@
 package com.qcb.keepaccounts.ui.screens
+import com.qcb.keepaccounts.ui.components.appPressable
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -99,7 +99,7 @@ fun SearchScreen(
                     tint = WarmBrown.copy(alpha = 0.7f),
                     modifier = Modifier
                         .size(18.dp)
-                        .clickable { onBack() },
+                        .appPressable { onBack() },
                 )
                 Icon(
                     imageVector = Icons.Rounded.Search,
@@ -157,7 +157,7 @@ fun SearchScreen(
                         .fillMaxWidth()
                         .padding(horizontal = 12.dp, vertical = 6.dp)
                         .glassCard(shape = RoundedCornerShape(22.dp), glowColor = accentColor.copy(alpha = 0.12f))
-                        .clickable {
+                        .appPressable {
                             onOpenManualEntry(
                                 ManualEntryPrefill(
                                     type = if (tx.type == 0) "expense" else "income",

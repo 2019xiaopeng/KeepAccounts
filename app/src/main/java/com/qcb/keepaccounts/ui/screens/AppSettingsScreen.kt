@@ -1,4 +1,5 @@
 package com.qcb.keepaccounts.ui.screens
+import com.qcb.keepaccounts.ui.components.appPressable
 
 import android.content.Context
 import android.content.Intent
@@ -7,7 +8,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -135,7 +135,7 @@ fun AppSettingsScreen(
                     tint = WarmBrown.copy(alpha = 0.72f),
                     modifier = Modifier
                         .size(20.dp)
-                        .clickable { onBack() },
+                        .appPressable { onBack() },
                 )
                 Text(text = titleForType(type), color = WarmBrown, fontWeight = FontWeight.ExtraBold, fontSize = 17.sp)
                 Box(modifier = Modifier.size(20.dp))
@@ -249,7 +249,7 @@ fun AppSettingsScreen(
                             text = "上传",
                             color = accentColor,
                             fontWeight = FontWeight.Bold,
-                            modifier = Modifier.clickable {
+                            modifier = Modifier.appPressable {
                                 avatarPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                             },
                         )
@@ -503,7 +503,7 @@ private fun ActionButton(
                 brush = Brush.horizontalGradient(listOf(accentColor, accentColor.copy(alpha = 0.82f))),
                 shape = RoundedCornerShape(999.dp),
             )
-            .clickable { onClick() }
+            .appPressable { onClick() }
             .padding(vertical = 12.dp),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
@@ -525,7 +525,7 @@ private fun ThemePickerRow(
         modifier = Modifier
             .fillMaxWidth()
             .glassCard(shape = RoundedCornerShape(18.dp), glowColor = MintGreen.copy(alpha = 0.1f))
-            .clickable { onClick() }
+            .appPressable { onClick() }
             .padding(horizontal = 10.dp, vertical = 9.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,

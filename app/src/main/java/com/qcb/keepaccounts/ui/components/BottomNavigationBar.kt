@@ -1,9 +1,9 @@
 package com.qcb.keepaccounts.ui.components
+import com.qcb.keepaccounts.ui.components.appPressable
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -73,8 +73,8 @@ fun BottomNavigationBar(
                         color = if (selected) activeColor.copy(alpha = 0.16f) else Color.Transparent,
                         shape = RoundedCornerShape(16.dp),
                     )
-                    .clickable {
-                        if (selected) return@clickable
+                    .appPressable {
+                        if (selected) return@appPressable
                         onTabSelected(index)
                     }
                     .padding(horizontal = 10.dp, vertical = 6.dp),

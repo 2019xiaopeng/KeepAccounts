@@ -1,11 +1,11 @@
 package com.qcb.keepaccounts.ui.screens
+import com.qcb.keepaccounts.ui.components.appPressable
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -393,7 +393,7 @@ private fun ActionButton(
             .graphicsLayer(scaleX = scale, scaleY = scale)
             .glassCard(shape = RoundedCornerShape(999.dp), glowColor = accentColor.copy(alpha = 0.18f))
             .background(color = Color.White.copy(alpha = 0.95f), shape = RoundedCornerShape(999.dp))
-            .clickable(interactionSource = interaction, indication = null) { onClick() }
+            .appPressable(interactionSource = interaction, indication = null) { onClick() }
             .padding(vertical = 14.dp, horizontal = 12.dp),
         contentAlignment = Alignment.Center,
     ) {
@@ -406,7 +406,7 @@ private fun RecentHeader(onViewAllClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onViewAllClick() },
+            .appPressable { onViewAllClick() },
         horizontalArrangement = Arrangement.Start,
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -502,7 +502,7 @@ private fun ActivityItem(
         modifier = Modifier
             .fillMaxWidth()
             .animateContentSize()
-            .clickable { onToggle() }
+            .appPressable { onToggle() }
             .padding(horizontal = 4.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -565,7 +565,7 @@ private fun ActivityItem(
                             tint = WarmBrown.copy(alpha = 0.65f),
                             modifier = Modifier
                                 .size(16.dp)
-                                .clickable { onCancelDelete() },
+                                .appPressable { onCancelDelete() },
                         )
                         Icon(
                             imageVector = Icons.Rounded.Check,
@@ -574,7 +574,7 @@ private fun ActivityItem(
                             modifier = Modifier
                                 .size(16.dp)
                                 .background(WatermelonRed, CircleShape)
-                                .clickable { onConfirmDelete() }
+                                .appPressable { onConfirmDelete() }
                                 .padding(2.dp),
                         )
                     }
@@ -586,7 +586,7 @@ private fun ActivityItem(
                             tint = WarmBrown.copy(alpha = 0.55f),
                             modifier = Modifier
                                 .size(16.dp)
-                                .clickable { onEdit() },
+                                .appPressable { onEdit() },
                         )
                         Icon(
                             imageVector = Icons.Rounded.Delete,
@@ -594,7 +594,7 @@ private fun ActivityItem(
                             tint = WatermelonRed.copy(alpha = 0.85f),
                             modifier = Modifier
                                 .size(16.dp)
-                                .clickable { onDelete() },
+                                .appPressable { onDelete() },
                         )
                     }
                 }

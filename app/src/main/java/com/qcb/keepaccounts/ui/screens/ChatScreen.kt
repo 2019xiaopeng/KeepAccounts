@@ -1,4 +1,5 @@
 package com.qcb.keepaccounts.ui.screens
+import com.qcb.keepaccounts.ui.components.appPressable
 
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
@@ -7,7 +8,6 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,10 +18,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -34,6 +35,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.AttachMoney
 import androidx.compose.material.icons.rounded.Category
+import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Today
@@ -250,10 +252,13 @@ fun ChatScreen(
         InputBar(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .fillMaxWidth(),
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .imePadding()
+                .padding(horizontal = 6.dp, vertical = 6.dp),
             input = inputText,
             onInputChange = { inputText = it },
-            assistantName = aiConfig.name,
+            assistantHint = aiConfig.name + aiConfig.avatar,
             accentColor = palette.primaryDark,
             enabled = !isSending,
             onSend = {
@@ -401,7 +406,7 @@ private fun ChatHeader(
                 modifier = Modifier
                     .size(34.dp)
                     .clip(CircleShape)
-                    .clickable { onBack?.invoke() },
+                    .appPressable { onBack?.invoke() },
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
@@ -423,7 +428,7 @@ private fun ChatHeader(
                 modifier = Modifier
                     .size(34.dp)
                     .clip(CircleShape)
-                    .clickable { onOpenAiSettings() },
+                    .appPressable { onOpenAiSettings() },
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
@@ -640,7 +645,7 @@ private fun ReceiptCard(
                                 .size(22.dp)
                                 .clip(CircleShape)
                                 .background(Color.White)
-                                .clickable { confirmDelete = false },
+                                .appPressable { confirmDelete = false },
                             contentAlignment = Alignment.Center,
                         ) {
                             Text(text = "✕", color = WarmBrownMuted, fontWeight = FontWeight.Bold, fontSize = 11.sp)
@@ -650,7 +655,7 @@ private fun ReceiptCard(
                                 .size(22.dp)
                                 .clip(CircleShape)
                                 .background(WatermelonRed)
-                                .clickable {
+                                .appPressable {
                                     confirmDelete = false
                                     onDelete()
                                 },
@@ -666,7 +671,7 @@ private fun ReceiptCard(
                         .weight(1f)
                         .clip(RoundedCornerShape(999.dp))
                         .background(Color(0xFFF3F4F6))
-                        .clickable { onEdit() }
+                        .appPressable { onEdit() }
                         .padding(vertical = 8.dp),
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically,
@@ -678,7 +683,7 @@ private fun ReceiptCard(
                         .weight(1f)
                         .clip(RoundedCornerShape(999.dp))
                         .background(Color(0xFFFFF0F0))
-                        .clickable { confirmDelete = true }
+                        .appPressable { confirmDelete = true }
                         .padding(vertical = 8.dp),
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically,
@@ -796,28 +801,55 @@ private fun InputBar(
     modifier: Modifier = Modifier,
     input: String,
     onInputChange: (String) -> Unit,
-    assistantName: String,
+    assistantHint: String,
     accentColor: Color,
     enabled: Boolean,
     onSend: () -> Unit,
 ) {
     Row(
         modifier = modifier
-            .padding(horizontal = 10.dp, vertical = 6.dp),
+            .glassCard(
+                shape = RoundedCornerShape(28.dp),
+                backgroundColor = Color.White.copy(alpha = 0.74f),
+                glowColor = accentColor.copy(alpha = 0.18f),
+            )
+            .padding(horizontal = 10.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.Top,
+        verticalAlignment = Alignment.Bottom,
     ) {
+        Box(
+            modifier = Modifier
+                .size(38.dp)
+                .clip(CircleShape)
+                .background(Color.White.copy(alpha = 0.9f))
+                .alpha(if (enabled) 1f else 0.45f)
+                .appPressable(enabled = enabled) { },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.Image,
+                contentDescription = "pick-image",
+                tint = WarmBrown.copy(alpha = 0.72f),
+                modifier = Modifier.size(18.dp),
+            )
+        }
+
         TextField(
             value = input,
             onValueChange = onInputChange,
             placeholder = {
-                Text(text = "和 $assistantName 说点什么...", color = WarmBrownMuted, fontSize = 13.sp)
+                Text(
+                    text = "发送消息给 $assistantHint...",
+                    color = WarmBrownMuted.copy(alpha = 0.95f),
+                    fontSize = 13.sp,
+                )
             },
             colors = TextFieldDefaults.colors(
-                focusedContainerColor = Color(0xFFF3F4F6),
-                unfocusedContainerColor = Color(0xFFF3F4F6),
+                focusedContainerColor = Color.Transparent,
+                unfocusedContainerColor = Color.Transparent,
                 focusedIndicatorColor = Color.Transparent,
                 unfocusedIndicatorColor = Color.Transparent,
+                disabledContainerColor = Color.Transparent,
             ),
             singleLine = false,
             minLines = 1,
@@ -830,35 +862,20 @@ private fun InputBar(
 
         Box(
             modifier = Modifier
-                .align(Alignment.Top)
-                .width(86.dp)
-                .height(56.dp)
-                .clip(RoundedCornerShape(999.dp))
+                .align(Alignment.Bottom)
+                .size(42.dp)
+                .clip(CircleShape)
                 .alpha(if (enabled) 1f else 0.5f)
                 .background(brush = Brush.linearGradient(listOf(accentColor, accentColor.copy(alpha = 0.82f))))
-                .clickable(enabled = enabled) { onSend() },
+                .appPressable(enabled = enabled) { onSend() },
             contentAlignment = Alignment.Center,
         ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Rounded.Send,
-                    contentDescription = "send",
-                    tint = Color.White,
-                    modifier = Modifier.size(18.dp),
-                )
-                Text(
-                    text = "发送",
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 13.sp,
-                    maxLines = 1,
-                    softWrap = false,
-                )
-            }
+            Icon(
+                imageVector = Icons.AutoMirrored.Rounded.Send,
+                contentDescription = "send",
+                tint = Color.White,
+                modifier = Modifier.size(18.dp),
+            )
         }
     }
 }
