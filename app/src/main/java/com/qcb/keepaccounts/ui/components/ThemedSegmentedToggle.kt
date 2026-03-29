@@ -66,11 +66,15 @@ fun ThemedSegmentedToggle(
     val shape = RoundedCornerShape(999.dp)
     val itemOffsets = remember(options) { mutableStateListOf(*Array(options.size) { 0.dp }) }
     val itemWidths = remember(options) { mutableStateListOf(*Array(options.size) { 0.dp }) }
+    val itemTops = remember(options) { mutableStateListOf(*Array(options.size) { 0.dp }) }
+    val itemHeights = remember(options) { mutableStateListOf(*Array(options.size) { 0.dp }) }
     var containerWidth by remember(options) { mutableStateOf(0.dp) }
     var containerHeight by remember(options) { mutableStateOf(0.dp) }
 
     val indicatorOffset = itemOffsets.getOrElse(safeIndex) { 0.dp }
     val indicatorWidth = itemWidths.getOrElse(safeIndex) { 0.dp }
+    val indicatorTop = itemTops.getOrElse(safeIndex) { 0.dp }
+    val indicatorHeight = itemHeights.getOrElse(safeIndex) { containerHeight }
 
     Box(
         modifier = modifier
@@ -104,9 +108,9 @@ fun ThemedSegmentedToggle(
 
             Box(
                 modifier = Modifier
-                    .offset(x = indicatorOffset)
+                    .offset(x = indicatorOffset, y = indicatorTop)
                     .width(indicatorWidth)
-                    .height(containerHeight)
+                    .height(indicatorHeight)
                     .shadow(
                         elevation = 9.dp,
                         shape = shape,
@@ -128,9 +132,9 @@ fun ThemedSegmentedToggle(
 
             Box(
                 modifier = Modifier
-                    .offset(x = indicatorOffset)
+                    .offset(x = indicatorOffset, y = indicatorTop)
                     .width(indicatorWidth)
-                    .height(containerHeight)
+                    .height(indicatorHeight)
                     .background(Color.White.copy(alpha = 0.10f), shape),
             )
         }
@@ -158,12 +162,20 @@ fun ThemedSegmentedToggle(
                     modifier = Modifier
                         .onGloballyPositioned { coords ->
                             val xDp = with(density) { coords.positionInParent().x.toDp() }
+                            val yDp = with(density) { coords.positionInParent().y.toDp() }
                             val widthDp = with(density) { coords.size.width.toDp() }
+                            val heightDp = with(density) { coords.size.height.toDp() }
                             if (itemOffsets[index] != xDp) {
                                 itemOffsets[index] = xDp
                             }
                             if (itemWidths[index] != widthDp) {
                                 itemWidths[index] = widthDp
+                            }
+                            if (itemTops[index] != yDp) {
+                                itemTops[index] = yDp
+                            }
+                            if (itemHeights[index] != heightDp) {
+                                itemHeights[index] = heightDp
                             }
                         }
                         .heightIn(min = (textSizeSp + 18).dp)

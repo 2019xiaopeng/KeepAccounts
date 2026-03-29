@@ -1110,6 +1110,12 @@ private fun RecordPagerSection(
     onPrevPage: () -> Unit,
     onNextPage: () -> Unit,
 ) {
+    val rowHeight = 58.dp
+    val rowSpacing = 8.dp
+    val pageSize = 5
+    val listVerticalPadding = 8.dp
+    val fixedListHeight = rowHeight * pageSize + rowSpacing * (pageSize - 1) + listVerticalPadding * 2
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -1142,27 +1148,36 @@ private fun RecordPagerSection(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .height(fixedListHeight)
                     .background(Color.White.copy(alpha = 0.65f), RoundedCornerShape(18.dp))
                     .padding(horizontal = 10.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 if (records.isEmpty()) {
-                    Text(
-                        text = "暂无记录",
-                        color = WarmBrownMuted,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 12.sp,
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 8.dp),
-                        textAlign = TextAlign.Center,
-                    )
+                            .height(rowHeight),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = "暂无记录",
+                            color = WarmBrownMuted,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
+                    repeat(pageSize - 1) {
+                        Spacer(modifier = Modifier.height(rowHeight))
+                    }
                 } else {
-                    records.forEach { record ->
+                    records.take(pageSize).forEach { record ->
                         val isIncome = record.type == 1
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .height(rowHeight)
                                 .background(Color.White.copy(alpha = 0.86f), RoundedCornerShape(14.dp))
                                 .padding(horizontal = 10.dp, vertical = 8.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -1179,6 +1194,11 @@ private fun RecordPagerSection(
                                 fontSize = 14.sp,
                             )
                         }
+                    }
+
+                    val placeholderCount = (pageSize - records.size).coerceAtLeast(0)
+                    repeat(placeholderCount) {
+                        Spacer(modifier = Modifier.height(rowHeight))
                     }
                 }
             }
