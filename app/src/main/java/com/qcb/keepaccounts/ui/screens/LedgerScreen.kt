@@ -36,6 +36,7 @@ import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.PieChart
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -78,6 +79,7 @@ import com.qcb.keepaccounts.ui.theme.WarmBrownMuted
 import com.qcb.keepaccounts.ui.theme.WatermelonRed
 import com.qcb.keepaccounts.ui.theme.canonicalCategoryName
 import com.qcb.keepaccounts.ui.theme.categoryRankColor
+import com.qcb.keepaccounts.ui.viewmodel.LedgerFilterMode
 import com.qcb.keepaccounts.ui.viewmodel.MainViewModel
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -100,7 +102,7 @@ private data class CategoryStat(
 
 private data class TrendChartData(
     val labels: List<String>,
-    val values: List<Double>,
+    val values: List<Double?>,
 )
 
 private enum class LedgerViewMode { CALENDAR, STATS }
@@ -120,7 +122,9 @@ fun LedgerScreen(
     accentColor: Color = MintGreen,
     modifier: Modifier = Modifier,
 ) {
-    val transactions by viewModel.transactions.collectAsStateWithLifecycle()
+    val monthTransactions by viewModel.selectedMonthTransactions.collectAsStateWithLifecycle()
+    val yearTransactions by viewModel.selectedYearTransactions.collectAsStateWithLifecycle()
+    val filteredTransactions by viewModel.filteredTransactions.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
     val topBarProgress = rememberTopBarCollapseProgress(listState)
     var viewMode by rememberSaveable { mutableStateOf(LedgerViewMode.CALENDAR) }
@@ -140,17 +144,14 @@ fun LedgerScreen(
     val daysInMonth = remember(dateVersion) { Calendar.getInstance().apply { set(year, month, 1) }.getActualMaximum(Calendar.DAY_OF_MONTH) }
     if (selectedDay > daysInMonth) selectedDay = daysInMonth
 
-    val monthTransactions = remember(transactions, year, month) {
-        transactions.filter { tx ->
-            val cal = Calendar.getInstance().apply { timeInMillis = tx.recordTimestamp }
-            cal.get(Calendar.YEAR) == year && cal.get(Calendar.MONTH) == month
+    LaunchedEffect(year, month, viewMode, statsPeriod) {
+        viewModel.updateLedgerTimeSelection(year = year, month = month)
+        val detailMode = if (viewMode == LedgerViewMode.STATS && statsPeriod == StatsPeriod.YEAR) {
+            LedgerFilterMode.YEAR
+        } else {
+            LedgerFilterMode.MONTH
         }
-    }
-    val yearTransactions = remember(transactions, year) {
-        transactions.filter { tx ->
-            val cal = Calendar.getInstance().apply { timeInMillis = tx.recordTimestamp }
-            cal.get(Calendar.YEAR) == year
-        }
+        viewModel.setLedgerFilterMode(detailMode)
     }
 
     val dailyMap = remember(monthTransactions) {
@@ -202,10 +203,10 @@ fun LedgerScreen(
         )
     }
 
-    val sortedRecords = remember(transactions, recordSortMode) {
+    val sortedRecords = remember(filteredTransactions, recordSortMode) {
         when (recordSortMode) {
-            RecordSortMode.TIME -> transactions.sortedByDescending { it.recordTimestamp }
-            RecordSortMode.AMOUNT -> transactions.sortedByDescending { it.amount }
+            RecordSortMode.TIME -> filteredTransactions.sortedByDescending { it.recordTimestamp }
+            RecordSortMode.AMOUNT -> filteredTransactions.sortedByDescending { it.amount }
         }
     }
     val pageSize = 5
@@ -716,7 +717,7 @@ private fun StatsPanel(
     trendMetric: TrendMetric,
     onTrendMetricChange: (TrendMetric) -> Unit,
     trendLabels: List<String>,
-    trendValues: List<Double>,
+    trendValues: List<Double?>,
     monthlyBudget: Double,
     balanceOpening: Double,
     ledgerCurrency: String,
@@ -953,14 +954,14 @@ private fun DividerV() {
 @Composable
 private fun TrendChart(
     labels: List<String>,
-    values: List<Double>,
+    values: List<Double?>,
     metric: TrendMetric,
     axisBaseline: Double,
     accentColor: Color,
 ) {
     val shownLabels = if (labels.isEmpty()) listOf("-") else labels
-    val shownValues = if (values.isEmpty()) listOf(0.0) else values
-    val valueMax = shownValues.maxOrNull()?.coerceAtLeast(0.0) ?: 0.0
+    val shownValues: List<Double?> = if (values.isEmpty()) listOf(0.0) else values
+    val valueMax = shownValues.filterNotNull().maxOrNull()?.coerceAtLeast(0.0) ?: 0.0
     val axisMax = maxOf(axisBaseline.coerceAtLeast(1.0), valueMax, 1.0)
     val yLabels = listOf(axisMax, axisMax * 0.75, axisMax * 0.5, axisMax * 0.25, 0.0)
     val lineColor = when (metric) {
@@ -999,20 +1000,30 @@ private fun TrendChart(
                 } else {
                     size.width * index / (shownValues.lastIndex.toFloat())
                 }
-                val ratio = (value / axisMax).toFloat().coerceIn(0f, 1f)
-                val y = size.height * (1f - ratio)
-                Offset(x, y)
+                if (value == null) {
+                    null
+                } else {
+                    val ratio = (value / axisMax).toFloat().coerceIn(0f, 1f)
+                    val y = size.height * (1f - ratio)
+                    Offset(x, y)
+                }
             }
 
-            if (points.size >= 2) {
-                for (i in 0 until points.lastIndex) {
-                    drawLine(
-                        color = lineColor,
-                        start = points[i],
-                        end = points[i + 1],
-                        strokeWidth = 5f,
-                        cap = StrokeCap.Round,
-                    )
+            var previousPoint: Offset? = null
+            points.forEach { point ->
+                if (point == null) {
+                    previousPoint = null
+                } else {
+                    previousPoint?.let { start ->
+                        drawLine(
+                            color = lineColor,
+                            start = start,
+                            end = point,
+                            strokeWidth = 5f,
+                            cap = StrokeCap.Round,
+                        )
+                    }
+                    previousPoint = point
                 }
             }
         }
@@ -1297,36 +1308,43 @@ private fun buildTrendChartData(
 ): TrendChartData {
     return if (statsPeriod == StatsPeriod.MONTH) {
         val daysInMonth = Calendar.getInstance().apply { set(year, month, 1) }.getActualMaximum(Calendar.DAY_OF_MONTH)
-        val bucketSize = kotlin.math.ceil(daysInMonth / 6.0).toInt().coerceAtLeast(1)
+        val today = Calendar.getInstance()
+        val isCurrentMonth = today.get(Calendar.YEAR) == year && today.get(Calendar.MONTH) == month
+        val lastValidDay = if (isCurrentMonth) {
+            today.get(Calendar.DAY_OF_MONTH).coerceIn(1, daysInMonth)
+        } else {
+            daysInMonth
+        }
         val byDay = transactions.groupBy { tx ->
             Calendar.getInstance().apply { timeInMillis = tx.recordTimestamp }.get(Calendar.DAY_OF_MONTH)
         }
 
-        val labels = mutableListOf<String>()
-        val values = mutableListOf<Double>()
+        val labels = MutableList(daysInMonth) { "" }
+        buildAxisLabelIndices(daysInMonth).forEach { index ->
+            labels[index] = String.format(Locale.CHINA, "%02d", index + 1)
+        }
+
+        val values = MutableList<Double?>(daysInMonth) { null }
         var runningBalance = openingBalance
 
-        var startDay = 1
-        while (startDay <= daysInMonth) {
-            val endDay = minOf(daysInMonth, startDay + bucketSize - 1)
-            val bucket = (startDay..endDay).flatMap { day -> byDay[day].orEmpty() }
-            labels += String.format(Locale.CHINA, "%02d-%02d", month + 1, startDay)
+        for (day in 1..lastValidDay) {
+            val bucket = byDay[day].orEmpty()
             if (metric == TrendMetric.BALANCE) {
                 val delta = metricValue(bucket, TrendMetric.BALANCE)
                 runningBalance += delta
-                values += runningBalance.coerceAtLeast(0.0)
+                values[day - 1] = runningBalance.coerceAtLeast(0.0)
             } else {
-                values += metricValue(bucket, metric).coerceAtLeast(0.0)
+                values[day - 1] = metricValue(bucket, metric).coerceAtLeast(0.0)
             }
-            startDay = endDay + 1
         }
+
         TrendChartData(labels = labels, values = values)
     } else {
         val byMonth = transactions.groupBy { tx ->
             Calendar.getInstance().apply { timeInMillis = tx.recordTimestamp }.get(Calendar.MONTH)
         }
         val labels = mutableListOf<String>()
-        val values = mutableListOf<Double>()
+        val values = mutableListOf<Double?>()
         var runningBalance = openingBalance
 
         for (startMonth in 0..11 step 2) {
@@ -1343,6 +1361,19 @@ private fun buildTrendChartData(
         }
         TrendChartData(labels = labels, values = values)
     }
+}
+
+private fun buildAxisLabelIndices(totalCount: Int): List<Int> {
+    if (totalCount <= 1) return listOf(0)
+
+    return listOf(
+        0,
+        totalCount / 4,
+        totalCount / 2,
+        (totalCount * 3) / 4,
+        totalCount - 1,
+    ).map { it.coerceIn(0, totalCount - 1) }
+        .distinct()
 }
 
 private fun formatAxisLabel(value: Double): String {
