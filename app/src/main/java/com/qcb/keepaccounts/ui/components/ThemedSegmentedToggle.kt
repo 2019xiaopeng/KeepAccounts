@@ -9,7 +9,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
@@ -65,16 +64,17 @@ fun ThemedSegmentedToggle(
     val safeIndex = selectedIndex.coerceIn(0, options.lastIndex)
     val shape = RoundedCornerShape(999.dp)
     val itemOffsets = remember(options) { mutableStateListOf(*Array(options.size) { 0.dp }) }
+    val itemTopOffsets = remember(options) { mutableStateListOf(*Array(options.size) { 0.dp }) }
     val itemWidths = remember(options) { mutableStateListOf(*Array(options.size) { 0.dp }) }
-    val itemTops = remember(options) { mutableStateListOf(*Array(options.size) { 0.dp }) }
     val itemHeights = remember(options) { mutableStateListOf(*Array(options.size) { 0.dp }) }
     var containerWidth by remember(options) { mutableStateOf(0.dp) }
     var containerHeight by remember(options) { mutableStateOf(0.dp) }
+    val containerInnerPadding = 2.dp
 
     val indicatorOffset = itemOffsets.getOrElse(safeIndex) { 0.dp }
     val indicatorWidth = itemWidths.getOrElse(safeIndex) { 0.dp }
-    val indicatorTop = itemTops.getOrElse(safeIndex) { 0.dp }
-    val indicatorHeight = itemHeights.getOrElse(safeIndex) { containerHeight }
+    val indicatorTop = itemTopOffsets.getOrElse(safeIndex) { containerInnerPadding }
+    val indicatorHeight = itemHeights.getOrElse(safeIndex) { (containerHeight - containerInnerPadding * 2).coerceAtLeast(0.dp) }
 
     Box(
         modifier = modifier
@@ -142,7 +142,7 @@ fun ThemedSegmentedToggle(
         Row(
             modifier = Modifier
                 .wrapContentSize()
-                .padding(2.dp)
+                .padding(containerInnerPadding)
                 .onGloballyPositioned { coords ->
                     val widthDp = with(density) { coords.size.width.toDp() }
                     val heightDp = with(density) { coords.size.height.toDp() }
@@ -168,11 +168,11 @@ fun ThemedSegmentedToggle(
                             if (itemOffsets[index] != xDp) {
                                 itemOffsets[index] = xDp
                             }
+                            if (itemTopOffsets[index] != yDp) {
+                                itemTopOffsets[index] = yDp
+                            }
                             if (itemWidths[index] != widthDp) {
                                 itemWidths[index] = widthDp
-                            }
-                            if (itemTops[index] != yDp) {
-                                itemTops[index] = yDp
                             }
                             if (itemHeights[index] != heightDp) {
                                 itemHeights[index] = heightDp

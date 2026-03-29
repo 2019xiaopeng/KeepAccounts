@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -249,6 +250,7 @@ fun LedgerScreen(
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 ThemedSegmentedToggle(
                     options = listOf("日历记账", "统计报表"),
@@ -1110,11 +1112,13 @@ private fun RecordPagerSection(
     onPrevPage: () -> Unit,
     onNextPage: () -> Unit,
 ) {
-    val rowHeight = 58.dp
+    val visibleSlotCount = 5
+    val rowMinHeight = 62.dp
     val rowSpacing = 8.dp
-    val pageSize = 5
-    val listVerticalPadding = 8.dp
-    val fixedListHeight = rowHeight * pageSize + rowSpacing * (pageSize - 1) + listVerticalPadding * 2
+    val containerVerticalPadding = 8.dp
+    val fixedListHeight = (rowMinHeight * visibleSlotCount) +
+        (rowSpacing * (visibleSlotCount - 1)) +
+        (containerVerticalPadding * 2)
 
     Column(
         modifier = Modifier
@@ -1150,14 +1154,14 @@ private fun RecordPagerSection(
                     .fillMaxWidth()
                     .height(fixedListHeight)
                     .background(Color.White.copy(alpha = 0.65f), RoundedCornerShape(18.dp))
-                    .padding(horizontal = 10.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                    .padding(horizontal = 10.dp, vertical = containerVerticalPadding),
+                verticalArrangement = Arrangement.spacedBy(rowSpacing),
             ) {
                 if (records.isEmpty()) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(rowHeight),
+                            .fillMaxSize(),
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
@@ -1168,37 +1172,55 @@ private fun RecordPagerSection(
                             textAlign = TextAlign.Center,
                         )
                     }
-                    repeat(pageSize - 1) {
-                        Spacer(modifier = Modifier.height(rowHeight))
-                    }
                 } else {
-                    records.take(pageSize).forEach { record ->
-                        val isIncome = record.type == 1
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(rowHeight)
-                                .background(Color.White.copy(alpha = 0.86f), RoundedCornerShape(14.dp))
-                                .padding(horizontal = 10.dp, vertical = 8.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                Text(text = record.categoryName, color = WarmBrown, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                Text(text = "${record.remark} · ${formatDate(record.recordTimestamp)}", color = WarmBrownMuted, fontSize = 11.sp)
-                            }
-                            Text(
-                                text = formatSignedCurrency(ledgerCurrency, record.amount, isIncome),
-                                color = if (isIncome) accentColor else WatermelonRed,
-                                fontWeight = FontWeight.ExtraBold,
-                                fontSize = 14.sp,
+                    repeat(visibleSlotCount) { slotIndex ->
+                        val record = records.getOrNull(slotIndex)
+                        if (record == null) {
+                            Spacer(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(rowMinHeight),
                             )
-                        }
-                    }
+                        } else {
+                            val isIncome = record.type == 1
+                            val subtitle = record.remark.takeIf { it.isNotBlank() }
+                                ?.let { "$it · ${formatDate(record.recordTimestamp)}" }
+                                ?: formatDate(record.recordTimestamp)
 
-                    val placeholderCount = (pageSize - records.size).coerceAtLeast(0)
-                    repeat(placeholderCount) {
-                        Spacer(modifier = Modifier.height(rowHeight))
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = rowMinHeight)
+                                    .background(Color.White.copy(alpha = 0.86f), RoundedCornerShape(14.dp))
+                                    .padding(horizontal = 10.dp, vertical = 9.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Text(
+                                        text = record.categoryName,
+                                        color = WarmBrown,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 14.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    Text(
+                                        text = subtitle,
+                                        color = WarmBrownMuted,
+                                        fontSize = 11.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                                Text(
+                                    text = formatSignedCurrency(ledgerCurrency, record.amount, isIncome),
+                                    color = if (isIncome) accentColor else WatermelonRed,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 14.sp,
+                                )
+                            }
+                        }
                     }
                 }
             }
