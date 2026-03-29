@@ -26,6 +26,7 @@ class SiliconFlowAiGateway(
             val source = response.source()
             var inDataSection = false
             val dataBuffer = StringBuilder()
+            var hiddenTag: HiddenTag? = null
 
             while (!source.exhausted()) {
                 val line = source.readUtf8Line() ?: continue
@@ -39,21 +40,8 @@ class SiliconFlowAiGateway(
                 var remaining = delta
 
                 while (remaining.isNotEmpty()) {
-                    if (!inDataSection) {
-                        val start = remaining.indexOf("<DATA>")
-                        if (start < 0) {
-                            emit(AiStreamEvent.TextDelta(remaining))
-                            remaining = ""
-                        } else {
-                            val plainText = remaining.substring(0, start)
-                            if (plainText.isNotEmpty()) {
-                                emit(AiStreamEvent.TextDelta(plainText))
-                            }
-                            inDataSection = true
-                            remaining = remaining.substring(start + "<DATA>".length)
-                        }
-                    } else {
-                        val end = remaining.indexOf("</DATA>")
+                    if (inDataSection) {
+                        val end = remaining.indexOf("</DATA>", ignoreCase = true)
                         if (end < 0) {
                             dataBuffer.append(remaining)
                             remaining = ""
@@ -65,6 +53,55 @@ class SiliconFlowAiGateway(
                             dataBuffer.clear()
                             inDataSection = false
                             remaining = remaining.substring(end + "</DATA>".length)
+                        }
+                        continue
+                    }
+
+                    if (hiddenTag != null) {
+                        val activeHiddenTag = hiddenTag ?: break
+                        val end = remaining.indexOf(activeHiddenTag.endTag, ignoreCase = true)
+                        if (end < 0) {
+                            remaining = ""
+                        } else {
+                            val endTagLength = activeHiddenTag.endTag.length
+                            hiddenTag = null
+                            remaining = remaining.substring(end + endTagLength)
+                        }
+                        continue
+                    }
+
+                    val sectionStarts = listOf(
+                        SectionStart(remaining.indexOf("<DATA>", ignoreCase = true), StreamTag.DATA),
+                        SectionStart(remaining.indexOf(HiddenTag.NOTE.startTag, ignoreCase = true), StreamTag.NOTE),
+                        SectionStart(remaining.indexOf(HiddenTag.THINK.startTag, ignoreCase = true), StreamTag.THINK),
+                    ).filter { it.index >= 0 }
+
+                    val next = sectionStarts.minByOrNull { it.index }
+                    if (next == null) {
+                        emit(AiStreamEvent.TextDelta(remaining))
+                        remaining = ""
+                    } else {
+                        val plainText = remaining.substring(0, next.index)
+                        if (plainText.isNotEmpty()) {
+                            emit(AiStreamEvent.TextDelta(plainText))
+                        }
+
+                        remaining = remaining.substring(next.index)
+                        when (next.tag) {
+                            StreamTag.DATA -> {
+                                inDataSection = true
+                                remaining = remaining.substring("<DATA>".length)
+                            }
+
+                            StreamTag.NOTE -> {
+                                hiddenTag = HiddenTag.NOTE
+                                remaining = remaining.substring(HiddenTag.NOTE.startTag.length)
+                            }
+
+                            StreamTag.THINK -> {
+                                hiddenTag = HiddenTag.THINK
+                                remaining = remaining.substring(HiddenTag.THINK.startTag.length)
+                            }
                         }
                     }
                 }
@@ -117,6 +154,25 @@ class SiliconFlowAiGateway(
         }.getOrNull()
     }
 }
+
+private enum class StreamTag {
+    DATA,
+    NOTE,
+    THINK,
+}
+
+private enum class HiddenTag(
+    val startTag: String,
+    val endTag: String,
+) {
+    NOTE("<note>", "</note>"),
+    THINK("<think>", "</think>"),
+}
+
+private data class SectionStart(
+    val index: Int,
+    val tag: StreamTag,
+)
 
 private fun JSONObject.optDoubleOrNull(key: String): Double? {
     if (!has(key) || isNull(key)) return null

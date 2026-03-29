@@ -12,6 +12,7 @@ import com.qcb.keepaccounts.domain.contract.AiStreamEvent
 import com.qcb.keepaccounts.ui.model.AiAssistantConfig
 import com.qcb.keepaccounts.ui.model.AiChatRecord
 import com.qcb.keepaccounts.ui.model.AiTone
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.map
@@ -79,6 +80,7 @@ class ChatRepository(
         val assistantMessageIds = mutableListOf<Long>()
         val streamBaseTimestamp = System.currentTimeMillis() + 1
         var lastRenderedChunks: List<String> = emptyList()
+        var lastBubbleRevealAt = 0L
 
         aiChatGateway.streamReply(
             AiChatRequest(
@@ -93,15 +95,23 @@ class ChatRepository(
                     textBuffer.append(event.text)
                     val liveText = stripReceiptPayload(textBuffer.toString())
                     val liveChunks = splitAssistantReply(liveText)
-                    if (liveChunks != lastRenderedChunks) {
+                    val pacedChunks = paceStreamChunks(
+                        chunks = liveChunks,
+                        renderedCount = lastRenderedChunks.size,
+                        lastRevealAt = lastBubbleRevealAt,
+                    )
+                    if (pacedChunks != lastRenderedChunks) {
                         syncAssistantReplyChunks(
                             messageIds = assistantMessageIds,
-                            chunks = liveChunks,
+                            chunks = pacedChunks,
                             baseTimestamp = streamBaseTimestamp,
                             isReceiptLast = false,
                             receiptTransactionId = null,
                         )
-                        lastRenderedChunks = liveChunks
+                        if (pacedChunks.size > lastRenderedChunks.size) {
+                            lastBubbleRevealAt = System.currentTimeMillis()
+                        }
+                        lastRenderedChunks = pacedChunks
                     }
                 }
 
@@ -156,6 +166,13 @@ class ChatRepository(
                 replyChunks.dropLast(1) + receiptContent
             }
 
+            lastRenderedChunks = revealRemainingChunksWithDelay(
+                messageIds = assistantMessageIds,
+                renderedChunks = lastRenderedChunks,
+                targetChunks = finalChunks,
+                baseTimestamp = streamBaseTimestamp,
+            )
+
             syncAssistantReplyChunks(
                 messageIds = assistantMessageIds,
                 chunks = finalChunks,
@@ -166,13 +183,64 @@ class ChatRepository(
             return
         }
 
+        val finalChunks = splitAssistantReply(finalAssistantText)
+
+        lastRenderedChunks = revealRemainingChunksWithDelay(
+            messageIds = assistantMessageIds,
+            renderedChunks = lastRenderedChunks,
+            targetChunks = finalChunks,
+            baseTimestamp = streamBaseTimestamp,
+        )
+
         syncAssistantReplyChunks(
             messageIds = assistantMessageIds,
-            chunks = splitAssistantReply(finalAssistantText),
+            chunks = finalChunks,
             baseTimestamp = streamBaseTimestamp,
             isReceiptLast = false,
             receiptTransactionId = null,
         )
+    }
+
+    private suspend fun revealRemainingChunksWithDelay(
+        messageIds: MutableList<Long>,
+        renderedChunks: List<String>,
+        targetChunks: List<String>,
+        baseTimestamp: Long,
+    ): List<String> {
+        if (targetChunks.size <= renderedChunks.size) return renderedChunks
+
+        var current = renderedChunks
+        for (nextCount in (renderedChunks.size + 1)..targetChunks.size) {
+            if (current.isNotEmpty()) {
+                delay(assistantBubbleRevealIntervalMs)
+            }
+            val partial = targetChunks.take(nextCount)
+            syncAssistantReplyChunks(
+                messageIds = messageIds,
+                chunks = partial,
+                baseTimestamp = baseTimestamp,
+                isReceiptLast = false,
+                receiptTransactionId = null,
+            )
+            current = partial
+        }
+        return current
+    }
+
+    private fun paceStreamChunks(
+        chunks: List<String>,
+        renderedCount: Int,
+        lastRevealAt: Long,
+    ): List<String> {
+        if (chunks.size <= renderedCount) return chunks
+        if (renderedCount == 0) return chunks.take(1)
+
+        val elapsed = System.currentTimeMillis() - lastRevealAt
+        return if (elapsed >= assistantBubbleRevealIntervalMs) {
+            chunks.take(renderedCount + 1)
+        } else {
+            chunks.take(renderedCount)
+        }
     }
 
     private suspend fun syncAssistantReplyChunks(
@@ -493,6 +561,8 @@ class ChatRepository(
         return text
             .replace(dataPayloadRegex, "")
             .replace(receiptPayloadRegex, "")
+            .replace(notePayloadRegex, "")
+            .replace(thinkPayloadRegex, "")
             .replace(leadingNullRegex, "")
             .replace(lineNullRegex, "")
             .replace(repeatedNullRegex, "")
@@ -529,8 +599,11 @@ class ChatRepository(
         )
         val dataPayloadRegex = Regex("<DATA>.*?</DATA>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
         val receiptPayloadRegex = Regex("<RECEIPT>.*?</RECEIPT>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
+        val notePayloadRegex = Regex("<NOTE>.*?</NOTE>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
+        val thinkPayloadRegex = Regex("<THINK>.*?</THINK>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
         val leadingNullRegex = Regex("(?is)^\\s*(?:null\\s*)+")
         val lineNullRegex = Regex("(?im)^\\s*null\\s*$")
         val repeatedNullRegex = Regex("(?i)(?:null\\s*){4,}")
+        const val assistantBubbleRevealIntervalMs = 520L
     }
 }

@@ -347,6 +347,8 @@ private fun stripReceiptPayload(text: String): String {
     return text
         .replace(dataPayloadRegex, "")
         .replace(receiptPayloadRegex, "")
+        .replace(notePayloadRegex, "")
+        .replace(thinkPayloadRegex, "")
         .replace(leadingNullRegex, "")
         .replace(lineNullRegex, "")
         .replace(repeatedNullRegex, "")
@@ -361,6 +363,8 @@ private fun findPayload(text: String, tag: String): String? {
 
 private val dataPayloadRegex = Regex("<DATA>.*?</DATA>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
 private val receiptPayloadRegex = Regex("<RECEIPT>.*?</RECEIPT>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
+private val notePayloadRegex = Regex("<NOTE>.*?</NOTE>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
+private val thinkPayloadRegex = Regex("<THINK>.*?</THINK>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
 private val leadingNullRegex = Regex("(?is)^\\s*(?:null\\s*)+")
 private val lineNullRegex = Regex("(?im)^\\s*null\\s*$")
 private val repeatedNullRegex = Regex("(?i)(?:null\\s*){4,}")

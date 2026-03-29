@@ -234,6 +234,13 @@ fun KeepAccountsApp() {
         }
     }
 
+    fun switchToTabInstant(index: Int) {
+        if (index < 0 || index >= KeepAccountsDestination.bottomNavItems.size) return
+        coroutineScope.launch {
+            pagerState.scrollToPage(index)
+        }
+    }
+
     fun animateToTabRoute(route: String) {
         val index = KeepAccountsDestination.bottomNavItems.indexOfFirst { it.route == route }
         if (index >= 0) animateToTab(index)
@@ -320,7 +327,7 @@ fun KeepAccountsApp() {
                         BottomNavigationBar(
                             items = KeepAccountsDestination.bottomNavItems,
                             selectedIndex = pagerState.currentPage,
-                            onTabSelected = { animateToTab(it) },
+                            onTabSelected = { switchToTabInstant(it) },
                             activeColor = palette.primaryDark,
                             modifier = Modifier.navigationBarsPadding(),
                         )
@@ -339,7 +346,6 @@ fun KeepAccountsApp() {
                             initialTheme = appTheme,
                             initialAiConfig = aiConfig,
                             initialMonthlyBudget = monthlyBudget,
-                            modifier = Modifier.padding(innerPadding),
                             onComplete = { setupUserName, setupUserAvatarUri, setupTheme, setupAiConfig, setupMonthlyBudget ->
                                 userName = setupUserName
                                 userAvatarUri = setupUserAvatarUri
@@ -428,7 +434,6 @@ fun KeepAccountsApp() {
                             ledgerCurrency = ledgerCurrency,
                             initialData = manualEntryPrefill,
                             onConsumedInitialData = { manualEntryPrefill = null },
-                            modifier = Modifier.padding(innerPadding),
                         )
                     }
 
@@ -438,7 +443,6 @@ fun KeepAccountsApp() {
                             onBack = { navController.popBackStack() },
                             ledgerCurrency = ledgerCurrency,
                             accentColor = palette.primaryDark,
-                            modifier = Modifier.padding(innerPadding),
                             onOpenManualEntry = { prefill ->
                                 manualEntryPrefill = prefill
                                 navigateToSubPage(KeepAccountsDestination.MANUAL_ENTRY)
@@ -451,7 +455,6 @@ fun KeepAccountsApp() {
                             config = aiConfig,
                             chatRecords = aiChatRecords,
                             accentColor = palette.primaryDark,
-                            modifier = Modifier.padding(innerPadding),
                             onBack = { navController.popBackStack() },
                             onSave = {
                                 aiConfig = it
@@ -485,7 +488,6 @@ fun KeepAccountsApp() {
                             reminderTime = reminderTime,
                             monthlyBudget = monthlyBudget,
                             accentColor = palette.primaryDark,
-                            modifier = Modifier.padding(innerPadding),
                             onBack = { navController.popBackStack() },
                             onThemeChange = {
                                 appTheme = it
@@ -534,7 +536,6 @@ fun KeepAccountsApp() {
                             categories = manualCategories,
                             usedCategoryCount = usedCategoryCount,
                             accentColor = palette.primaryDark,
-                            modifier = Modifier.padding(innerPadding),
                             onBack = { navController.popBackStack() },
                             onAddCategory = { newCategory ->
                                 val trimmed = newCategory.trim()
@@ -559,7 +560,6 @@ fun KeepAccountsApp() {
                     composable(KeepAccountsDestination.CLEAR_CACHE) {
                         CacheCleanupScreen(
                             onBack = { navController.popBackStack() },
-                            modifier = Modifier.padding(innerPadding),
                         )
                     }
                 }
@@ -644,6 +644,8 @@ private fun MainTabsPager(
     onOpenAiSettings: () -> Unit,
     onOpenProfileRoute: (String) -> Unit,
 ) {
+    val chatPadding = PaddingValues(bottom = scaffoldPadding.calculateBottomPadding())
+
     HorizontalPager(
         state = pagerState,
         modifier = Modifier.fillMaxSize(),
@@ -664,7 +666,6 @@ private fun MainTabsPager(
                 onViewAllClick = onViewLedger,
                 onEditRecord = onEditRecord,
                 onDeleteRecord = onDeleteRecord,
-                modifier = Modifier.padding(scaffoldPadding),
             )
 
             1 -> ChatScreen(
@@ -672,7 +673,7 @@ private fun MainTabsPager(
                 userName = userName,
                 userAvatarUri = userAvatarUri,
                 palette = palette,
-                paddingValues = scaffoldPadding,
+                paddingValues = chatPadding,
                 chatRecords = aiChatRecords,
                 isSending = aiIsSending,
                 initialInput = initialChatInput,
@@ -692,7 +693,6 @@ private fun MainTabsPager(
                 onEditRecord = onEditRecord,
                 onDeleteRecord = onDeleteRecord,
                 accentColor = palette.primaryDark,
-                modifier = Modifier.padding(scaffoldPadding),
             )
 
             else -> ProfileScreen(
@@ -703,7 +703,6 @@ private fun MainTabsPager(
                 theme = theme,
                 highlightColor = palette.primaryDark,
                 onNavigateToOption = onOpenProfileRoute,
-                modifier = Modifier.padding(scaffoldPadding),
             )
         }
     }
