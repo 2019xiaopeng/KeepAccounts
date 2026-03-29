@@ -10,22 +10,20 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -1115,8 +1113,8 @@ private fun RecordPagerSection(
     onNextPage: () -> Unit,
 ) {
     val visibleSlotCount = 5
-    val recordRowHeight = 68.dp
-    val fixedListHeight = recordRowHeight * visibleSlotCount
+    val rowHeight = 68.dp
+    val fixedListHeight = rowHeight * visibleSlotCount
     val canGoPrev = page > 0
     val canGoNext = page < totalPages - 1
 
@@ -1129,10 +1127,16 @@ private fun RecordPagerSection(
     ) {
         Text(text = "账本明细", color = WarmBrown, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
 
-        RecordSortModeToggle(
-            sortMode = sortMode,
-            onSortModeChange = onSortModeChange,
+        ThemedSegmentedToggle(
+            options = listOf("按时间排序", "按金额排序"),
+            selectedIndex = if (sortMode == RecordSortMode.TIME) 0 else 1,
+            onSelectedChange = { index ->
+                onSortModeChange(if (index == 0) RecordSortMode.TIME else RecordSortMode.AMOUNT)
+            },
+            accentColor = accentColor,
             modifier = Modifier.align(Alignment.CenterHorizontally),
+            textSizeSp = 12,
+            horizontalPadding = 14.dp,
         )
 
         AnimatedContent(
@@ -1151,15 +1155,14 @@ private fun RecordPagerSection(
                     .padding(horizontal = 10.dp),
                 userScrollEnabled = false,
             ) {
-                items(count = visibleSlotCount, key = { slotIndex -> records.getOrNull(slotIndex)?.id ?: "record-slot-$slotIndex" }) { slotIndex ->
+                items(visibleSlotCount) { slotIndex ->
                     val record = records.getOrNull(slotIndex)
-
                     if (record == null) {
                         if (records.isEmpty() && slotIndex == visibleSlotCount / 2) {
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(recordRowHeight),
+                                    .height(rowHeight),
                                 contentAlignment = Alignment.Center,
                             ) {
                                 Text(
@@ -1167,14 +1170,13 @@ private fun RecordPagerSection(
                                     color = WarmBrownMuted,
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 12.sp,
-                                    textAlign = TextAlign.Center,
                                 )
                             }
                         } else {
                             Spacer(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(recordRowHeight),
+                                    .height(rowHeight),
                             )
                         }
                     } else {
@@ -1183,44 +1185,47 @@ private fun RecordPagerSection(
                             ?.let { "$it · ${formatDate(record.recordTimestamp)}" }
                             ?: formatDate(record.recordTimestamp)
 
-                        Row(
+                        Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(recordRowHeight)
+                                .height(rowHeight)
+                                .padding(vertical = 2.dp)
                                 .background(Color.White.copy(alpha = 0.86f), RoundedCornerShape(14.dp)),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Column(
+                            Row(
                                 modifier = Modifier
-                                    .weight(1f)
-                                    .fillMaxHeight()
-                                    .padding(start = 10.dp, end = 8.dp),
-                                verticalArrangement = Arrangement.Center,
+                                    .fillMaxSize()
+                                    .padding(horizontal = 10.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
                             ) {
+                                Column(
+                                    modifier = Modifier.weight(1f),
+                                    verticalArrangement = Arrangement.Center,
+                                ) {
+                                    Text(
+                                        text = record.categoryName,
+                                        color = WarmBrown,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 14.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    Text(
+                                        text = subtitle,
+                                        color = WarmBrownMuted,
+                                        fontSize = 11.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
                                 Text(
-                                    text = record.categoryName,
-                                    color = WarmBrown,
-                                    fontWeight = FontWeight.Bold,
+                                    text = formatSignedCurrency(ledgerCurrency, record.amount, isIncome),
+                                    color = if (isIncome) accentColor else WatermelonRed,
+                                    fontWeight = FontWeight.ExtraBold,
                                     fontSize = 14.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                                Text(
-                                    text = subtitle,
-                                    color = WarmBrownMuted,
-                                    fontSize = 11.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
                                 )
                             }
-                            Text(
-                                text = formatSignedCurrency(ledgerCurrency, record.amount, isIncome),
-                                color = if (isIncome) accentColor else WatermelonRed,
-                                fontWeight = FontWeight.ExtraBold,
-                                fontSize = 14.sp,
-                                modifier = Modifier.padding(end = 10.dp),
-                            )
                         }
                     }
                 }
@@ -1232,82 +1237,39 @@ private fun RecordPagerSection(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            PaginationButton(text = "上一页", enabled = canGoPrev, onClick = onPrevPage)
+            PaginationButton(
+                text = "上一页",
+                enabled = canGoPrev,
+                activeColor = accentColor,
+                onClick = onPrevPage,
+            )
             Text(
                 text = "${page + 1} / ${totalPages.coerceAtLeast(1)}",
                 color = WarmBrown,
                 fontWeight = FontWeight.Bold,
                 fontSize = 13.sp,
             )
-            PaginationButton(text = "下一页", enabled = canGoNext, onClick = onNextPage)
+            PaginationButton(
+                text = "下一页",
+                enabled = canGoNext,
+                activeColor = accentColor,
+                onClick = onNextPage,
+            )
         }
     }
 }
 
 @Composable
-private fun RecordSortModeToggle(
-    sortMode: RecordSortMode,
-    onSortModeChange: (RecordSortMode) -> Unit,
-    modifier: Modifier = Modifier,
+private fun PaginationButton(
+    text: String,
+    enabled: Boolean,
+    activeColor: Color,
+    onClick: () -> Unit,
 ) {
-    val selectedIndex = if (sortMode == RecordSortMode.TIME) 0 else 1
-    val options = listOf("按时间排序", "按金额排序")
-    val containerShape = RoundedCornerShape(999.dp)
-
-    BoxWithConstraints(
-        modifier = modifier
-            .width(220.dp)
-            .height(36.dp)
-            .background(Color(0xFFF3F4F6), containerShape),
-    ) {
-        val optionWidth = maxWidth / options.size
-
-        Box(
-            modifier = Modifier
-                .align(Alignment.CenterStart)
-                .offset(x = optionWidth * selectedIndex)
-                .width(optionWidth)
-                .height(32.dp)
-                .background(Color(0xFFFFA726), containerShape),
-        )
-
-        Row(
-            modifier = Modifier.fillMaxSize(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            options.forEachIndexed { index, label ->
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxHeight()
-                        .appPressable {
-                            onSortModeChange(
-                                if (index == 0) RecordSortMode.TIME else RecordSortMode.AMOUNT,
-                            )
-                        },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = label,
-                        color = if (index == selectedIndex) Color.White else WarmBrownMuted,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 12.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun PaginationButton(text: String, enabled: Boolean, onClick: () -> Unit) {
     Box(
         modifier = Modifier
             .background(
-                color = if (enabled) Color(0xFFFFA726) else Color(0xFFE5E7EB),
+                color = if (enabled) activeColor.copy(alpha = 0.92f) else Color(0xFFE5E7EB),
                 shape = RoundedCornerShape(999.dp),
             )
             .appPressable(enabled = enabled) { onClick() }
