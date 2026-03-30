@@ -110,7 +110,7 @@ class ChatRepository(
                 is AiStreamEvent.TextDelta -> {
                     textBuffer.append(event.text)
                     val liveText = stripReceiptPayload(textBuffer.toString())
-                    val liveChunks = splitAssistantReply(liveText)
+                    val liveChunks = splitAssistantReply(liveText, aiConfig.tone)
                     val pacedChunks = paceStreamChunks(
                         chunks = liveChunks,
                         renderedCount = lastRenderedChunks.size,
@@ -166,7 +166,7 @@ class ChatRepository(
 
         if (linkedTransactionId != null) {
             val replyChunks = ensureReceiptConversationChunks(
-                chunks = splitAssistantReply(finalAssistantText),
+                chunks = splitAssistantReply(finalAssistantText, aiConfig.tone),
                 draft = resolvedReceipt,
             )
 
@@ -201,7 +201,7 @@ class ChatRepository(
             return
         }
 
-        val finalChunks = splitAssistantReply(finalAssistantText)
+        val finalChunks = splitAssistantReply(finalAssistantText, aiConfig.tone)
 
         lastRenderedChunks = revealRemainingChunksWithDelay(
             messageIds = assistantMessageIds,
@@ -702,21 +702,27 @@ class ChatRepository(
             你是一个名为${aiConfig.name}的AI记账管家，当前角色预设是${roleProfile.roleName}，语气风格是${toneText}。用户名字是${userName}。
             今天日期是${today}，当前系统准确时间是${nowDateTime}。
 
-            【角色不可变锚点】
+            【角色设定边界】
             ${roleProfile.identityAnchors.joinToString(separator = "\n") { "- $it" }}
 
-            【表达与互动风格】
+            【语气与风格（高优先级）】
             - ${toneGuide}
-            - ${roleProfile.styleGuide}
-            - ${roleProfile.emotionStrategy}
-            - 禁止行为：${roleProfile.forbiddenBehaviors.joinToString("；")}
+            - 语气档位优先于角色设定；角色预设只用于关系与行为边界，不叠加额外语气模板。
 
             ${oocRuleBlock}
 
+            【AI_Humanized_Design V1 对话体验】
+            - 最小打扰：只有关键字段缺失时才追问，每轮最多1个问题，优先给候选答案。
+            - 一次说清优先：信息足够时直接给结论，不把用户拉入多轮盘问。
+            - 可解释建议：建议场景仅给“1个事实 + 1个可执行动作”，避免说教。
+            - 纠错低成本：遇到“改成/不对/修正”优先识别为最近一笔修正意图，先确认再执行。
+            - 建议有边界：用户未主动询问时，预算提醒低频且简短。
+
             你的任务是陪用户聊天，并在用户提到消费或收入时，提取记账信息。
-            普通聊天时，尽量像真人发消息，可以分成1到3句短消息，每句不超过40字，避免长篇大论。
+            普通聊天时，尽量像真人发消息，默认输出3到4句短消息，每句不超过40字，避免长篇大论。
             如果要连发多条独立消息，请使用双换行分隔（\n\n），不要用单换行硬拆句。
-            当识别到记账信息时，先输出2到3句简短关怀/确认语气（分句自然），最后再输出一句已记账确认，然后再附上 <DATA> JSON。
+            当识别到记账信息时，先输出3句简短关怀/确认语气（分句自然），最后再输出一句已记账确认，然后再附上 <DATA> JSON。
+            如果识别到修正意图但缺少关键字段，不要直接记新账，先做单问题确认。
 
             【高级时间感知与推算规则】
             当前系统准确时间是：${nowDateTime}。在提取记账记录时，请严格按照以下优先级推算具体的 yyyy-MM-dd HH:mm：
@@ -757,9 +763,6 @@ class ChatRepository(
     private data class RoleProfile(
         val roleName: String,
         val identityAnchors: List<String>,
-        val styleGuide: String,
-        val emotionStrategy: String,
-        val forbiddenBehaviors: List<String>,
     )
 
     private fun buildRoleProfile(preset: AiRolePreset): RoleProfile {
@@ -771,9 +774,6 @@ class ChatRepository(
                     "先确认用户状态与安全感，再提供建议。",
                     "承诺要少而稳，行动感强于口号。",
                 ),
-                styleGuide = "短中句为主，温柔但不黏腻，避免浮夸撩拨。",
-                emotionStrategy = "先接住情绪，再给可执行下一步。",
-                forbiddenBehaviors = listOf("油腻直球", "过度活泼", "长篇说教"),
             )
 
             AiRolePreset.ZAYNE -> RoleProfile(
@@ -783,9 +783,6 @@ class ChatRepository(
                     "重视事实和节奏，不制造戏剧化冲突。",
                     "关心通过精准方案表达，不是空泛安慰。",
                 ),
-                styleGuide = "中句为主，逻辑清晰，少量温和情感确认。",
-                emotionStrategy = "先稳定情绪，再分解问题并给出计划。",
-                forbiddenBehaviors = listOf("高冷拒沟通", "情绪化攻击", "空口情话"),
             )
 
             AiRolePreset.RAFAYEL -> RoleProfile(
@@ -795,9 +792,6 @@ class ChatRepository(
                     "可有灵动比喻，但必须落地到真实关心。",
                     "外层可调侃，内层真诚并重情义。",
                 ),
-                styleGuide = "中长句可用，允许少量画面化表达。",
-                emotionStrategy = "先表达在意，再给具体行动建议。",
-                forbiddenBehaviors = listOf("浮夸戏精化", "低幼搞笑", "纯抒情无信息"),
             )
 
             AiRolePreset.SYLUS -> RoleProfile(
@@ -807,9 +801,6 @@ class ChatRepository(
                     "给结论与路径，但尊重用户选择权。",
                     "保护感通过行动体现，不靠威吓。",
                 ),
-                styleGuide = "短中句，直接、有边界、少废话。",
-                emotionStrategy = "先控风险，再推进方案与落地动作。",
-                forbiddenBehaviors = listOf("无脑暴怒", "羞辱式表达", "低幼撒娇"),
             )
 
             AiRolePreset.CALEB -> RoleProfile(
@@ -819,9 +810,6 @@ class ChatRepository(
                     "先做清单化拆解，再带用户执行。",
                     "坚定但不居高临下。",
                 ),
-                styleGuide = "中短句，清楚明快，强调协同。",
-                emotionStrategy = "先保全与安抚，再复盘与推进。",
-                forbiddenBehaviors = listOf("模板暖男", "拖沓含糊", "过度命令口吻"),
             )
         }
     }
@@ -895,12 +883,12 @@ class ChatRepository(
         }
     }
 
-    private fun splitAssistantReply(text: String): List<String> {
+    private fun splitAssistantReply(text: String, tone: AiTone): List<String> {
         val normalized = text
             .replace("\r", "")
             .trim()
 
-        if (normalized.isBlank()) return listOf("收到，我在。")
+        if (normalized.isBlank()) return ensureMinimumConversationChunks(listOf("收到，我在。"), tone)
 
         val explicitParts = normalized
             .split(conversationDelimiterRegex)
@@ -914,9 +902,48 @@ class ChatRepository(
             }
         }
 
-        return splitParts
+        val capped = splitParts
             .ifEmpty { listOf(normalized) }
-            .take(3)
+            .take(4)
+
+        return ensureMinimumConversationChunks(capped, tone)
+    }
+
+    private fun ensureMinimumConversationChunks(
+        chunks: List<String>,
+        tone: AiTone,
+    ): List<String> {
+        val result = chunks
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .toMutableList()
+
+        val supplements = when (tone) {
+            AiTone.HEALING -> listOf(
+                "我先陪你把重点捋清。",
+                "你只要说一声，我们就开始。",
+            )
+
+            AiTone.TSUNDERE -> listOf(
+                "先别乱想，我在这盯着。",
+                "把最关键的一条告诉我就行。",
+            )
+
+            AiTone.RATIONAL -> listOf(
+                "我们按步骤处理会更稳。",
+                "先确认第一优先级，再推进。",
+            )
+        }
+
+        supplements.forEach { sentence ->
+            if (result.size < 3) result += sentence
+        }
+
+        while (result.size < 3) {
+            result += "先给我一个最关键的信息。"
+        }
+
+        return result.take(4)
     }
 
     private fun splitByMajorSentences(text: String, maxLen: Int = 42): List<String> {
