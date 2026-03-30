@@ -416,6 +416,51 @@ fun AppSettingsScreen(
                 }
             }
 
+            KeepAccountsDestination.SETTINGS_TYPE_AI_CAPABILITIES -> {
+                item {
+                    GenericCard(
+                        title = "AI 对话可做事项",
+                        desc = "你可以在对话里直接要求 AI 记录或修改账单",
+                    )
+                }
+                item {
+                    CapabilityCard(
+                        title = "记录收支（create）",
+                        examples = listOf(
+                            "今天午饭 22 元",
+                            "打车花了 35",
+                            "工资到账 5000",
+                        ),
+                    )
+                }
+                item {
+                    CapabilityCard(
+                        title = "修改上一条（update）",
+                        examples = listOf(
+                            "刚刚记错了，是 15 块钱",
+                            "上一笔改成交通分类",
+                            "把刚才那条时间改到昨天晚上",
+                        ),
+                    )
+                }
+                item {
+                    CapabilityCard(
+                        title = "按条件修正（update）",
+                        examples = listOf(
+                            "把昨天中午午餐金额改成 10 块",
+                            "把前天打车那笔改成 18",
+                            "把今天早餐分类改成餐饮美食",
+                        ),
+                    )
+                }
+                item {
+                    GenericCard(
+                        title = "使用建议",
+                        desc = "如果 AI 没定位到目标记录，请补充“哪一天/哪一笔/原分类”中的一个关键信息。",
+                    )
+                }
+            }
+
             else -> {
                 val issuesBaseUrl = "https://github.com/${BuildConfig.GITHUB_OWNER}/${BuildConfig.GITHUB_REPO}/issues"
                 val newIssueUrl = "$issuesBaseUrl/new/choose"
@@ -468,6 +513,25 @@ fun AppSettingsScreen(
                     Text(text = hintText ?: "", color = WarmBrownMuted, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun CapabilityCard(
+    title: String,
+    examples: List<String>,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .glassCard(shape = RoundedCornerShape(18.dp), glowColor = MintGreen.copy(alpha = 0.1f))
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(text = title, color = WarmBrown, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+        examples.forEach { example ->
+            Text(text = "- $example", color = WarmBrownMuted, fontSize = 12.sp)
         }
     }
 }
@@ -561,6 +625,7 @@ private fun titleForType(type: String): String {
         KeepAccountsDestination.SETTINGS_TYPE_THEME -> "主题与外观"
         KeepAccountsDestination.SETTINGS_TYPE_LEDGER -> "账本基础设置"
         KeepAccountsDestination.SETTINGS_TYPE_MY_NAME -> "个人设置"
+        KeepAccountsDestination.SETTINGS_TYPE_AI_CAPABILITIES -> "AI 对话可做事项"
         else -> "帮助与反馈"
     }
 }

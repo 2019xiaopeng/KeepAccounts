@@ -29,9 +29,15 @@ class ChatRepository(
     private val aiChatGateway: AiChatGateway,
 ) {
 
-    private data class CreatedTransaction(
+    private data class AppliedTransaction(
         val transactionId: Long,
         val type: Int,
+        val action: String,
+    )
+
+    private data class ApplyTransactionResult(
+        val appliedTransaction: AppliedTransaction?,
+        val fallbackMessage: String? = null,
     )
 
     fun observeChatRecords(): Flow<List<AiChatRecord>> {
@@ -147,28 +153,53 @@ class ChatRepository(
         }
         val cleanedAssistantText = stripReceiptPayload(rawAssistantText)
 
-        var createdTransaction: CreatedTransaction? = null
-        resolvedReceipt?.let { draft ->
-            createdTransaction = tryCreateTransaction(draft, cleanedAssistantText, userInput)
+        val normalizedReceipt = resolvedReceipt?.let { draft ->
+            val normalizedAction = normalizeReceiptAction(draft, userInput)
+            if (draft.action.equals(normalizedAction, ignoreCase = true)) {
+                draft
+            } else {
+                draft.copy(action = normalizedAction)
+            }
         }
-        val linkedTransactionId = createdTransaction?.transactionId
+
+        var appliedTransaction: AppliedTransaction? = null
+        var transactionFallbackMessage: String? = null
+        normalizedReceipt?.let { draft ->
+            val result = applyReceiptTransaction(draft, cleanedAssistantText, userInput)
+            appliedTransaction = result.appliedTransaction
+            transactionFallbackMessage = result.fallbackMessage
+        }
+        val linkedTransactionId = appliedTransaction?.transactionId
 
         val finalAssistantText = if (linkedTransactionId != null) {
-            cleanedAssistantText.ifBlank { "已为你记录这笔账单。" }
+            cleanedAssistantText.ifBlank {
+                if (appliedTransaction?.action == ACTION_UPDATE) {
+                    "已帮你修改这笔记录。"
+                } else {
+                    "已为你记录这笔账单。"
+                }
+            }
         } else {
             cleanedAssistantText.ifBlank {
-                streamErrorMessage?.trim().takeUnless { it.isNullOrBlank() } ?: "收到，我在。"
+                transactionFallbackMessage
+                    ?: streamErrorMessage?.trim().takeUnless { it.isNullOrBlank() }
+                    ?: "收到，我在。"
             }
         }
 
         if (linkedTransactionId != null) {
             val replyChunks = ensureReceiptConversationChunks(
                 chunks = splitAssistantReply(finalAssistantText),
-                draft = resolvedReceipt,
+                draft = normalizedReceipt,
             )
 
-            val receiptMeta = resolvedReceipt?.let { buildReceiptMetaTag(it, createdTransaction?.type) }.orEmpty()
-            val receiptText = replyChunks.lastOrNull()?.ifBlank { "已为你记录这笔账单。" } ?: "已为你记录这笔账单。"
+            val receiptMeta = normalizedReceipt?.let { buildReceiptMetaTag(it, appliedTransaction?.type) }.orEmpty()
+            val defaultReceiptText = if (appliedTransaction?.action == ACTION_UPDATE) {
+                "已帮你修改这笔记录。"
+            } else {
+                "已为你记录这笔账单。"
+            }
+            val receiptText = replyChunks.lastOrNull()?.ifBlank { defaultReceiptText } ?: defaultReceiptText
             val receiptContent = if (receiptMeta.isBlank()) {
                 receiptText
             } else {
@@ -307,14 +338,45 @@ class ChatRepository(
         }
     }
 
+    private suspend fun applyReceiptTransaction(
+        draft: AiReceiptDraft,
+        assistantText: String,
+        userInput: String,
+    ): ApplyTransactionResult {
+        if (!draft.isReceipt) return ApplyTransactionResult(appliedTransaction = null)
+
+        val rawAmount = draft.amount
+        if (rawAmount == null || abs(rawAmount) <= 0.0) {
+            val fallback = if (draft.action.equals(ACTION_UPDATE, ignoreCase = true)) {
+                "我知道你想改账单啦，告诉我改成多少金额就好。"
+            } else {
+                null
+            }
+            return ApplyTransactionResult(appliedTransaction = null, fallbackMessage = fallback)
+        }
+
+        return if (draft.action.equals(ACTION_UPDATE, ignoreCase = true)) {
+            val updated = tryUpdateTransaction(draft, assistantText, userInput, rawAmount)
+            if (updated != null) {
+                ApplyTransactionResult(appliedTransaction = updated)
+            } else {
+                ApplyTransactionResult(
+                    appliedTransaction = null,
+                    fallbackMessage = "我暂时没定位到要修改的那笔记录，你可以补一句“哪一天/哪一笔”。",
+                )
+            }
+        } else {
+            val created = tryCreateTransaction(draft, assistantText, userInput, rawAmount)
+            ApplyTransactionResult(appliedTransaction = created)
+        }
+    }
+
     private suspend fun tryCreateTransaction(
         draft: AiReceiptDraft,
         assistantText: String,
         userInput: String,
-    ): CreatedTransaction? {
-        if (!draft.isReceipt) return null
-
-        val rawAmount = draft.amount ?: return null
+        rawAmount: Double,
+    ): AppliedTransaction? {
         val amount = abs(rawAmount)
         if (amount <= 0.0) return null
 
@@ -342,10 +404,200 @@ class ChatRepository(
             ),
         )
 
-        return CreatedTransaction(
+        return AppliedTransaction(
             transactionId = transactionId,
             type = type,
+            action = ACTION_CREATE,
         )
+    }
+
+    private suspend fun tryUpdateTransaction(
+        draft: AiReceiptDraft,
+        assistantText: String,
+        userInput: String,
+        rawAmount: Double,
+    ): AppliedTransaction? {
+        val target = resolveUpdateTargetTransaction(draft, userInput) ?: return null
+
+        val amount = abs(rawAmount)
+        if (amount <= 0.0) return null
+
+        val parsedType = resolveTransactionType(draft, rawAmount)
+        val hasTypeCue = hasTypeCue(userInput, draft, rawAmount)
+        val type = if (hasTypeCue) parsedType else target.type
+
+        val category = when {
+            !draft.category.isNullOrBlank() -> normalizeCategory(draft.category, type)
+            else -> inferCategoryFromText(userInput, type) ?: target.categoryName
+        }
+
+        val updatedRecordTimestamp = resolveRecordTimestampForUpdate(
+            draft = draft,
+            userInput = userInput,
+            originalRecordTimestamp = target.recordTimestamp,
+        )
+
+        val remark = draft.desc?.takeIf { it.isNotBlank() }
+            ?: target.remark.ifBlank { assistantText.take(24) }
+
+        transactionDao.updateTransactionById(
+            id = target.id,
+            type = type,
+            amount = amount,
+            categoryName = category,
+            categoryIcon = target.categoryIcon,
+            remark = remark,
+            recordTimestamp = updatedRecordTimestamp,
+        )
+
+        return AppliedTransaction(
+            transactionId = target.id,
+            type = type,
+            action = ACTION_UPDATE,
+        )
+    }
+
+    private suspend fun resolveUpdateTargetTransaction(
+        draft: AiReceiptDraft,
+        userInput: String,
+    ): TransactionEntity? {
+        val recent = transactionDao.getRecentTransactions(limit = 120)
+        if (recent.isEmpty()) return null
+
+        val now = Calendar.getInstance()
+        val parsedDate = parseDateFromText(userInput, now)
+        val parsedTime = parseTimeFromText(userInput)
+        val typeHint = inferTypeHint(userInput, draft)
+        val categoryHint = when {
+            !draft.category.isNullOrBlank() -> normalizeCategory(draft.category, typeHint ?: 0)
+            else -> inferCategoryFromText(userInput, typeHint ?: 0)
+        }
+
+        val scored = recent.map { tx ->
+            tx to scoreUpdateTarget(
+                transaction = tx,
+                parsedDate = parsedDate,
+                parsedTime = parsedTime,
+                categoryHint = categoryHint,
+                typeHint = typeHint,
+            )
+        }
+
+        val best = scored.maxWithOrNull(
+            compareBy<Pair<TransactionEntity, Int>> { it.second }
+                .thenByDescending { it.first.recordTimestamp },
+        ) ?: return null
+
+        val hasAnyCue = parsedDate != null || parsedTime != null || categoryHint != null || typeHint != null
+        return if (!hasAnyCue || best.second > 0) best.first else null
+    }
+
+    private fun scoreUpdateTarget(
+        transaction: TransactionEntity,
+        parsedDate: ParsedDate?,
+        parsedTime: ParsedTime?,
+        categoryHint: String?,
+        typeHint: Int?,
+    ): Int {
+        var score = 0
+
+        if (parsedDate != null) {
+            if (isSameDate(transaction.recordTimestamp, parsedDate)) score += 6
+        } else {
+            score += 1
+        }
+
+        if (!categoryHint.isNullOrBlank()) {
+            if (transaction.categoryName == categoryHint) score += 5
+        }
+
+        if (typeHint != null && transaction.type == typeHint) {
+            score += 2
+        }
+
+        if (parsedTime != null) {
+            val txCal = Calendar.getInstance().apply { timeInMillis = transaction.recordTimestamp }
+            val txMinutes = txCal.get(Calendar.HOUR_OF_DAY) * 60 + txCal.get(Calendar.MINUTE)
+            val targetMinutes = parsedTime.hour * 60 + parsedTime.minute
+            val minuteDiff = abs(txMinutes - targetMinutes)
+            score += when {
+                minuteDiff <= 60 -> 3
+                minuteDiff <= 180 -> 1
+                else -> 0
+            }
+        }
+
+        return score
+    }
+
+    private fun isSameDate(timestamp: Long, date: ParsedDate): Boolean {
+        val cal = Calendar.getInstance().apply { timeInMillis = timestamp }
+        return cal.get(Calendar.YEAR) == date.year &&
+            cal.get(Calendar.MONTH) + 1 == date.month &&
+            cal.get(Calendar.DAY_OF_MONTH) == date.day
+    }
+
+    private fun hasTypeCue(
+        userInput: String,
+        draft: AiReceiptDraft,
+        rawAmount: Double,
+    ): Boolean {
+        if (rawAmount < 0) return true
+        if (inferTypeHint(userInput, draft) != null) return true
+        val hints = incomeKeywordHints + expenseKeywordHints
+        return hints.any { userInput.contains(it) }
+    }
+
+    private fun inferTypeHint(
+        userInput: String,
+        draft: AiReceiptDraft,
+    ): Int? {
+        val categoryHint = draft.category.orEmpty()
+        if (incomeKeywordHints.any { categoryHint.contains(it) || userInput.contains(it) }) return 1
+        if (expenseKeywordHints.any { categoryHint.contains(it) || userInput.contains(it) }) return 0
+        return null
+    }
+
+    private fun inferCategoryFromText(text: String, type: Int): String? {
+        val hasCategoryCue = categoryKeywordHints.any { text.contains(it) }
+        if (!hasCategoryCue) return null
+        val normalized = normalizeCategory(text, type)
+        return normalized.takeIf { it.isNotBlank() && it != "其他" }
+    }
+
+    private fun resolveRecordTimestampForUpdate(
+        draft: AiReceiptDraft,
+        userInput: String,
+        originalRecordTimestamp: Long,
+    ): Long {
+        if (!containsDateOrTimeCue(userInput)) return originalRecordTimestamp
+
+        val now = Calendar.getInstance()
+        parseDateTimeFromUserInput(userInput, now)?.let { return it }
+        parseRecordTimeFromDraft(draft.recordTime, now)?.let { return it }
+        parseDateFromDraft(draft.date, now)?.let { return it }
+
+        return originalRecordTimestamp
+    }
+
+    private fun containsDateOrTimeCue(text: String): Boolean {
+        if (dateOrTimeRegex.containsMatchIn(text)) return true
+        return dateOrTimeKeywordHints.any { text.contains(it) }
+    }
+
+    private fun normalizeReceiptAction(
+        draft: AiReceiptDraft,
+        userInput: String,
+    ): String {
+        val rawAction = draft.action.trim().lowercase(Locale.ROOT)
+        if (rawAction in setOf("update", "modify", "edit", "correct", "fix")) return ACTION_UPDATE
+        if (rawAction in setOf("create", "add", "record")) return ACTION_CREATE
+
+        return if (updateIntentHints.any { userInput.contains(it) }) {
+            ACTION_UPDATE
+        } else {
+            ACTION_CREATE
+        }
     }
 
     private fun resolveTransactionType(draft: AiReceiptDraft, rawAmount: Double): Int {
@@ -503,6 +755,13 @@ class ChatRepository(
             return ParsedTime(hour = hour, minute = minute)
         }
 
+        resolveFuzzyTimeByHint(normalized)?.let { return it }
+
+        val hasYesterdayHint = normalized.contains("昨天") || normalized.contains("昨日")
+        if (hasYesterdayHint && !hasExplicitClockCue(normalized)) {
+            return ParsedTime(hour = 12, minute = 0)
+        }
+
         return null
     }
 
@@ -519,16 +778,47 @@ class ChatRepository(
 
         var normalizedHour = hour
         if (hasNoonHint && normalizedHour in 1..11) {
-            normalizedHour += 12
+            normalizedHour = normalizedHour
         }
         if ((hasAfternoonHint || hasEveningHint) && normalizedHour in 1..11) {
             normalizedHour += 12
         }
-        if ((hasMorningHint || hasEveningHint) && normalizedHour == 12) {
+        if (hasMorningHint && normalizedHour == 12) {
+            normalizedHour = 0
+        }
+        if (hasNoonHint && normalizedHour == 12) {
+            normalizedHour = 12
+        }
+        if (hasEveningHint && normalizedHour == 12) {
             normalizedHour = 0
         }
 
         return normalizedHour.coerceIn(0, 23)
+    }
+
+    private fun resolveFuzzyTimeByHint(text: String): ParsedTime? {
+        val morningHints = listOf("早上", "早晨", "早餐", "早饭")
+        if (morningHints.any { text.contains(it) }) return ParsedTime(hour = 8, minute = 0)
+
+        val noonHints = listOf("中午", "午餐", "午饭")
+        if (noonHints.any { text.contains(it) }) return ParsedTime(hour = 12, minute = 0)
+
+        val afternoonHints = listOf("下午", "下午茶")
+        if (afternoonHints.any { text.contains(it) }) return ParsedTime(hour = 15, minute = 0)
+
+        val eveningHints = listOf("晚上", "傍晚", "晚餐", "晚饭", "昨晚", "今晚")
+        if (eveningHints.any { text.contains(it) }) return ParsedTime(hour = 19, minute = 0)
+
+        val lateNightHints = listOf("夜宵", "深夜", "半夜")
+        if (lateNightHints.any { text.contains(it) }) return ParsedTime(hour = 23, minute = 0)
+
+        return null
+    }
+
+    private fun hasExplicitClockCue(text: String): Boolean {
+        if (Regex("(?<!\\d)\\d{1,2}:\\d{1,2}(?!\\d)").containsMatchIn(text)) return true
+        if (Regex("(?<!\\d)\\d{1,2}\\s*(点|时)").containsMatchIn(text)) return true
+        return false
     }
 
     private fun parseDateTimeByPatterns(value: String, patterns: List<String>): Long? {
@@ -647,16 +937,36 @@ class ChatRepository(
             你是一个名为${aiConfig.name}的AI记账管家，性格是${toneText}。用户的名字是${userName}。
                         今天日期是${today}，当前系统准确时间是${nowDateTime}。
             ${toneGuide}
-            你的任务是陪用户聊天，并在用户提到消费或收入时，提取记账信息。
-            普通聊天时，尽量像真人发消息，可以分成1到3句短消息，每句不超过40字，避免长篇大论。
+                        你的任务是陪用户聊天，并在用户提到收支时完成记账动作。
+
+                        【AI 可执行动作】
+                        1. create：新增一条收支记录。
+                        2. update：修改一条已有记录（金额/分类/时间/备注）。
+
+                        【AI_Humanized 交互规则】
+                        - 最小打扰：只有关键信息缺失时才追问，每次最多1个问题。
+                        - 一次说清优先：信息足够时直接执行，不要反复确认。
+                        - 可解释建议：建议场景只给1个事实+1个可执行动作。
+                        - 纠错低成本：用户说“记错了/改成/不对/修改”时，优先理解为 update，而不是 create。
+
+                        普通聊天时，尽量像真人发消息，可以分成2到4句短消息，每句不超过40字，避免长篇大论。
             如果要连发多条独立消息，请使用双换行分隔（\n\n），不要用单换行硬拆句。
-            当识别到记账信息时，先输出2到3句简短关怀/确认语气（分句自然），最后再输出一句已记账确认，然后再附上 <DATA> JSON。
+                        当识别到可执行记账信息时，先输出2到3句简短确认语气（分句自然），最后再输出一句执行确认，然后再附上 <DATA> JSON。
+
+                        【修改动作识别规则】
+                        - 用户包含“记错了、改成、改为、不对、修改、更正、把...改成”时，action 必须为 update。
+                        - 示例1：“刚刚记错了，是15块钱” => action=update，amount=15。
+                        - 示例2：“把昨天中午午餐的金额改成10块” => action=update，amount=10，category=餐饮美食，date/recordTime 按语义推算。
+                        - 如果用户想修改但关键字段缺失（比如没说改成多少），只问一个问题，不要输出 <DATA>。
+
                         【时间感知规则】当前系统准确时间是：${nowDateTime}。在提取记账记录时：
                         1. 如果用户明确说明了时间（如“早上8点”“昨晚10点”），请结合当前时间推算出准确的 yyyy-MM-dd HH:mm，并写入 recordTime。
-                        2. 如果用户没有提及具体时间（如“我刚买了一瓶水”），请直接使用上述系统当前的准确时间作为 recordTime。
-                        3. 如果用户提到相对日期（如昨天/前天/大前天/今天/明天），你必须基于“今天日期”换算 date。
-                        4. 如果用户没有明确提到具体日期，date 字段必须填写今天（${today}）。
-                        5. date 必须与 recordTime 的日期部分保持一致。
+                        2. 如果用户提到模糊时段，按常识映射：早上8:00、中午12:00、下午15:00、晚上19:00、深夜23:00。
+                        3. 如果用户没有提及具体时间（如“我刚买了一瓶水”），请直接使用上述系统当前的准确时间作为 recordTime。
+                        4. 如果用户提到相对日期（如昨天/前天/大前天/今天/明天），你必须基于“今天日期”换算 date。
+                        5. 如果用户没有明确提到具体日期，date 字段必须填写今天（${today}）。
+                        6. date 必须与 recordTime 的日期部分保持一致。
+
             如果用户的话包含记账信息，你必须在回复最末尾严格输出 <DATA>...</DATA> JSON：
             {
               "isReceipt": true,
@@ -823,6 +1133,29 @@ class ChatRepository(
     }
 
     private companion object {
+        const val ACTION_CREATE = "create"
+        const val ACTION_UPDATE = "update"
+
+        val updateIntentHints = listOf("记错", "改成", "改为", "不对", "修改", "更正")
+        val incomeKeywordHints = listOf("工资", "收入", "奖金", "报销", "收款", "进账")
+        val expenseKeywordHints = listOf("花了", "花费", "支出", "消费", "买了", "付款", "付了")
+        val categoryKeywordHints = listOf(
+            "餐饮", "美食", "早餐", "午餐", "晚餐", "饮品", "奶茶",
+            "交通", "出行", "打车", "地铁", "公交", "高铁",
+            "购物", "网购", "服饰", "数码",
+            "居家", "家居", "房租", "水电", "日用",
+            "娱乐", "休闲", "电影", "旅游", "游戏",
+            "医疗", "健康", "药", "医院", "体检",
+            "人情", "交际", "礼", "社交", "红包",
+            "收入", "工资", "奖金",
+        )
+        val dateOrTimeKeywordHints = listOf(
+            "昨天", "前天", "大前天", "今天", "明天", "后天",
+            "早上", "早晨", "中午", "下午", "晚上", "傍晚", "深夜", "半夜",
+            "早餐", "午餐", "晚餐", "午饭", "晚饭",
+        )
+        val dateOrTimeRegex = Regex("\\d{1,2}:\\d{1,2}|\\d{1,2}\\s*(点|时)|\\d{1,2}月\\d{1,2}日|\\d{4}[-/.年]\\d{1,2}")
+
         val canonicalExpenseCategories = setOf(
             "餐饮美食",
             "交通出行",

@@ -30,6 +30,7 @@ object KeepAccountsDestination {
     const val SETTINGS_TYPE_HELP = "help"
     const val SETTINGS_TYPE_LEDGER = "ledger-settings"
     const val SETTINGS_TYPE_MY_NAME = "my-name"
+    const val SETTINGS_TYPE_AI_CAPABILITIES = "ai-capabilities"
 
     const val CATEGORY_MANAGEMENT = "category_management"
     const val LEDGER_SETTINGS = "ledger_settings"

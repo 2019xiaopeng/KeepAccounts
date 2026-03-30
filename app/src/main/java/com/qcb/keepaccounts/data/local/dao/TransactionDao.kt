@@ -22,8 +22,33 @@ interface TransactionDao {
     @Query("SELECT * FROM transactions ORDER BY recordTimestamp DESC")
     fun observeAllTransactions(): Flow<List<TransactionEntity>>
 
+    @Query("SELECT * FROM transactions ORDER BY recordTimestamp DESC LIMIT :limit")
+    suspend fun getRecentTransactions(limit: Int): List<TransactionEntity>
+
     @Query("SELECT * FROM transactions WHERE id = :id LIMIT 1")
     fun observeTransactionById(id: Long): Flow<TransactionEntity?>
+
+    @Query(
+        """
+        UPDATE transactions
+        SET type = :type,
+            amount = :amount,
+            categoryName = :categoryName,
+            categoryIcon = :categoryIcon,
+            remark = :remark,
+            recordTimestamp = :recordTimestamp
+        WHERE id = :id
+        """,
+    )
+    suspend fun updateTransactionById(
+        id: Long,
+        type: Int,
+        amount: Double,
+        categoryName: String,
+        categoryIcon: String,
+        remark: String,
+        recordTimestamp: Long,
+    )
 
     @Query("DELETE FROM transactions WHERE id = :id")
     suspend fun deleteTransactionById(id: Long)

@@ -265,6 +265,13 @@ fun ProfileScreen(
                     ),
                     MenuEntry(
                         Icons.Rounded.SmartToy,
+                        "AI 对话可做事项",
+                        "记录收支、修改最近一笔、按条件修正",
+                        null,
+                        KeepAccountsDestination.settingsRoute(KeepAccountsDestination.SETTINGS_TYPE_AI_CAPABILITIES),
+                    ),
+                    MenuEntry(
+                        Icons.Rounded.SmartToy,
                         "帮助与反馈中心",
                         null,
                         null,
