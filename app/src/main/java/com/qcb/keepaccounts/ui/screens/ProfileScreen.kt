@@ -43,6 +43,7 @@ import com.qcb.keepaccounts.ui.components.glassCard
 import com.qcb.keepaccounts.ui.components.rememberTopBarCollapseProgress
 import com.qcb.keepaccounts.ui.model.AiAssistantConfig
 import com.qcb.keepaccounts.ui.model.AppThemePreset
+import com.qcb.keepaccounts.ui.model.summary
 import com.qcb.keepaccounts.ui.navigation.KeepAccountsDestination
 import com.qcb.keepaccounts.ui.theme.MintGreen
 import com.qcb.keepaccounts.ui.theme.WarmBrown
@@ -174,7 +175,7 @@ fun ProfileScreen(
                             Column {
                                 Text(text = aiConfig.name, color = WarmBrown, fontWeight = FontWeight.Bold, fontSize = 15.sp)
                                 Text(
-                                    text = when (aiConfig.tone.name) {
+                                    text = "${aiConfig.rolePreset.summary()} · " + when (aiConfig.tone.name) {
                                         "TSUNDERE" -> "傲娇毒舌"
                                         "RATIONAL" -> "理智管家"
                                         else -> "贴心治愈"

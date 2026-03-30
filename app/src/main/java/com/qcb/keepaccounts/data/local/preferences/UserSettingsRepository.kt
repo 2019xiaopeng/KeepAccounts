@@ -10,9 +10,11 @@ import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.qcb.keepaccounts.ui.model.AiAssistantConfig
+import com.qcb.keepaccounts.ui.model.AiRolePreset
 import com.qcb.keepaccounts.ui.model.AiTone
 import com.qcb.keepaccounts.ui.model.AppThemePreset
 import com.qcb.keepaccounts.ui.model.ChatBackgroundPreset
+import com.qcb.keepaccounts.ui.model.OocGuardLevel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
@@ -59,6 +61,9 @@ class UserSettingsRepository(
                     avatar = preferences[Keys.AI_AVATAR] ?: "🌊",
                     avatarUri = preferences[Keys.AI_AVATAR_URI],
                     tone = parseTone(preferences[Keys.AI_TONE]),
+                    rolePreset = parseRolePreset(preferences[Keys.AI_ROLE_PRESET]),
+                    oocGuardEnabled = preferences[Keys.AI_OOC_GUARD_ENABLED] ?: true,
+                    oocGuardLevel = parseOocGuardLevel(preferences[Keys.AI_OOC_GUARD_LEVEL]),
                     chatBackground = parseBackground(preferences[Keys.AI_CHAT_BG]),
                     customChatBackgroundUri = preferences[Keys.AI_CHAT_BG_URI],
                 ),
@@ -146,6 +151,9 @@ class UserSettingsRepository(
         preferences[Keys.AI_AVATAR] = aiConfig.avatar.ifBlank { "🌊" }
         writeNullable(preferences, Keys.AI_AVATAR_URI, aiConfig.avatarUri)
         preferences[Keys.AI_TONE] = aiConfig.tone.name
+        preferences[Keys.AI_ROLE_PRESET] = aiConfig.rolePreset.name
+        preferences[Keys.AI_OOC_GUARD_ENABLED] = aiConfig.oocGuardEnabled
+        preferences[Keys.AI_OOC_GUARD_LEVEL] = aiConfig.oocGuardLevel.name
         preferences[Keys.AI_CHAT_BG] = aiConfig.chatBackground.name
         writeNullable(preferences, Keys.AI_CHAT_BG_URI, aiConfig.customChatBackgroundUri)
     }
@@ -178,6 +186,9 @@ class UserSettingsRepository(
         val AI_AVATAR = stringPreferencesKey("ai_avatar")
         val AI_AVATAR_URI = stringPreferencesKey("ai_avatar_uri")
         val AI_TONE = stringPreferencesKey("ai_tone")
+        val AI_ROLE_PRESET = stringPreferencesKey("ai_role_preset")
+        val AI_OOC_GUARD_ENABLED = booleanPreferencesKey("ai_ooc_guard_enabled")
+        val AI_OOC_GUARD_LEVEL = stringPreferencesKey("ai_ooc_guard_level")
         val AI_CHAT_BG = stringPreferencesKey("ai_chat_background")
         val AI_CHAT_BG_URI = stringPreferencesKey("ai_chat_background_uri")
     }
@@ -223,6 +234,14 @@ private fun parseTheme(raw: String?): AppThemePreset {
 
 private fun parseTone(raw: String?): AiTone {
     return AiTone.entries.firstOrNull { it.name == raw } ?: AiTone.HEALING
+}
+
+private fun parseRolePreset(raw: String?): AiRolePreset {
+    return AiRolePreset.entries.firstOrNull { it.name == raw } ?: AiRolePreset.XAVIER
+}
+
+private fun parseOocGuardLevel(raw: String?): OocGuardLevel {
+    return OocGuardLevel.entries.firstOrNull { it.name == raw } ?: OocGuardLevel.BALANCED
 }
 
 private fun parseBackground(raw: String?): ChatBackgroundPreset {

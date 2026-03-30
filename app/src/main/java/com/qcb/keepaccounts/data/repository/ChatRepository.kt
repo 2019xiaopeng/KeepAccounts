@@ -11,7 +11,9 @@ import com.qcb.keepaccounts.domain.contract.AiReceiptDraft
 import com.qcb.keepaccounts.domain.contract.AiStreamEvent
 import com.qcb.keepaccounts.ui.model.AiAssistantConfig
 import com.qcb.keepaccounts.ui.model.AiChatRecord
+import com.qcb.keepaccounts.ui.model.AiRolePreset
 import com.qcb.keepaccounts.ui.model.AiTone
+import com.qcb.keepaccounts.ui.model.OocGuardLevel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collect
@@ -146,17 +148,18 @@ class ChatRepository(
             fallbackReceipt ?: parsedReceipt
         }
         val cleanedAssistantText = stripReceiptPayload(rawAssistantText)
+        val guardedAssistantText = guardAssistantReply(cleanedAssistantText, aiConfig)
 
         var createdTransaction: CreatedTransaction? = null
         resolvedReceipt?.let { draft ->
-            createdTransaction = tryCreateTransaction(draft, cleanedAssistantText, userInput)
+            createdTransaction = tryCreateTransaction(draft, guardedAssistantText, userInput)
         }
         val linkedTransactionId = createdTransaction?.transactionId
 
         val finalAssistantText = if (linkedTransactionId != null) {
-            cleanedAssistantText.ifBlank { "已为你记录这笔账单。" }
+            guardedAssistantText.ifBlank { "已为你记录这笔账单。" }
         } else {
-            cleanedAssistantText.ifBlank {
+            guardedAssistantText.ifBlank {
                 streamErrorMessage?.trim().takeUnless { it.isNullOrBlank() } ?: "收到，我在。"
             }
         }
@@ -503,6 +506,13 @@ class ChatRepository(
             return ParsedTime(hour = hour, minute = minute)
         }
 
+        resolveFuzzyTimeByHint(normalized)?.let { return it }
+
+        val hasYesterdayHint = normalized.contains("昨天") || normalized.contains("昨日")
+        if (hasYesterdayHint && !hasExplicitClockCue(normalized)) {
+            return ParsedTime(hour = 12, minute = 0)
+        }
+
         return null
     }
 
@@ -519,16 +529,47 @@ class ChatRepository(
 
         var normalizedHour = hour
         if (hasNoonHint && normalizedHour in 1..11) {
-            normalizedHour += 12
+            normalizedHour = normalizedHour
         }
         if ((hasAfternoonHint || hasEveningHint) && normalizedHour in 1..11) {
             normalizedHour += 12
         }
-        if ((hasMorningHint || hasEveningHint) && normalizedHour == 12) {
+        if (hasMorningHint && normalizedHour == 12) {
+            normalizedHour = 0
+        }
+        if (hasNoonHint && normalizedHour == 12) {
+            normalizedHour = 12
+        }
+        if (hasEveningHint && normalizedHour == 12) {
             normalizedHour = 0
         }
 
         return normalizedHour.coerceIn(0, 23)
+    }
+
+    private fun resolveFuzzyTimeByHint(text: String): ParsedTime? {
+        val morningHints = listOf("早上", "早晨", "早餐", "早饭")
+        if (morningHints.any { text.contains(it) }) return ParsedTime(hour = 8, minute = 0)
+
+        val noonHints = listOf("中午", "午餐", "午饭")
+        if (noonHints.any { text.contains(it) }) return ParsedTime(hour = 12, minute = 0)
+
+        val afternoonHints = listOf("下午", "下午茶")
+        if (afternoonHints.any { text.contains(it) }) return ParsedTime(hour = 15, minute = 0)
+
+        val eveningHints = listOf("晚上", "傍晚", "晚餐", "晚饭", "昨晚", "今晚")
+        if (eveningHints.any { text.contains(it) }) return ParsedTime(hour = 19, minute = 0)
+
+        val lateNightHints = listOf("夜宵", "深夜", "半夜")
+        if (lateNightHints.any { text.contains(it) }) return ParsedTime(hour = 23, minute = 0)
+
+        return null
+    }
+
+    private fun hasExplicitClockCue(text: String): Boolean {
+        if (Regex("(?<!\\d)\\d{1,2}:\\d{1,2}(?!\\d)").containsMatchIn(text)) return true
+        if (Regex("(?<!\\d)\\d{1,2}\\s*(点|时)").containsMatchIn(text)) return true
+        return false
     }
 
     private fun parseDateTimeByPatterns(value: String, patterns: List<String>): Long? {
@@ -637,26 +678,67 @@ class ChatRepository(
             else -> "贴心治愈"
         }
 
+        val roleProfile = buildRoleProfile(aiConfig.rolePreset)
         val toneGuide = when (aiConfig.tone) {
             AiTone.HEALING -> "语气温柔、带一点关心和鼓励，像会倾听的朋友。"
             AiTone.TSUNDERE -> "语气嘴硬心软，允许轻微吐槽，但不能攻击用户，不使用脏话。"
             AiTone.RATIONAL -> "语气专业、简洁、逻辑清晰，给出明确建议。"
         }
 
+        val oocRuleBlock = if (aiConfig.oocGuardEnabled) {
+            """
+            【防 OOC 工程（已开启，等级：${aiConfig.oocGuardLevel.name}）】
+            - 先做角色三问自检：我是谁、我与用户关系、此轮主要情绪目标。
+            - 禁止出现模型/系统/提示词/开发者等元叙事词。
+            - 禁止串角色口癖，不得切换到其他角色人设。
+            - 若内容偏离角色，立刻在同一回复内自我纠偏，不解释技术原因。
+            - 记账能力优先服务用户，不要因角色扮演影响记账准确性。
+            """.trimIndent()
+        } else {
+            "【防 OOC 工程】当前关闭，仅保留基础角色一致性。"
+        }
+
         return """
-            你是一个名为${aiConfig.name}的AI记账管家，性格是${toneText}。用户的名字是${userName}。
-                        今天日期是${today}，当前系统准确时间是${nowDateTime}。
-            ${toneGuide}
+            你是一个名为${aiConfig.name}的AI记账管家，当前角色预设是${roleProfile.roleName}，语气风格是${toneText}。用户名字是${userName}。
+            今天日期是${today}，当前系统准确时间是${nowDateTime}。
+
+            【角色不可变锚点】
+            ${roleProfile.identityAnchors.joinToString(separator = "\n") { "- $it" }}
+
+            【表达与互动风格】
+            - ${toneGuide}
+            - ${roleProfile.styleGuide}
+            - ${roleProfile.emotionStrategy}
+            - 禁止行为：${roleProfile.forbiddenBehaviors.joinToString("；")}
+
+            ${oocRuleBlock}
+
             你的任务是陪用户聊天，并在用户提到消费或收入时，提取记账信息。
             普通聊天时，尽量像真人发消息，可以分成1到3句短消息，每句不超过40字，避免长篇大论。
             如果要连发多条独立消息，请使用双换行分隔（\n\n），不要用单换行硬拆句。
             当识别到记账信息时，先输出2到3句简短关怀/确认语气（分句自然），最后再输出一句已记账确认，然后再附上 <DATA> JSON。
-                        【时间感知规则】当前系统准确时间是：${nowDateTime}。在提取记账记录时：
-                        1. 如果用户明确说明了时间（如“早上8点”“昨晚10点”），请结合当前时间推算出准确的 yyyy-MM-dd HH:mm，并写入 recordTime。
-                        2. 如果用户没有提及具体时间（如“我刚买了一瓶水”），请直接使用上述系统当前的准确时间作为 recordTime。
-                        3. 如果用户提到相对日期（如昨天/前天/大前天/今天/明天），你必须基于“今天日期”换算 date。
-                        4. 如果用户没有明确提到具体日期，date 字段必须填写今天（${today}）。
-                        5. date 必须与 recordTime 的日期部分保持一致。
+
+            【高级时间感知与推算规则】
+            当前系统准确时间是：${nowDateTime}。在提取记账记录时，请严格按照以下优先级推算具体的 yyyy-MM-dd HH:mm：
+            优先级 1：明确的相对/绝对时间（带修饰词）
+            - 遇到中文语境的 12 小时制，必须正确转换为 24 小时制。
+            - 例外常识：“中午11点”或“上午11点”都是 11:00，绝不能解析为 23:00；“中午12点”是 12:00。
+            - “下午X点” = X + 12（如下午2点是14:00）；“晚上X点” = X + 12（如晚上8点是20:00）。
+            优先级 2：模糊时间段（包含特定餐段时间）
+            - 如果用户只提到了时间段或事件，没有提及具体数字，请使用以下人类生活常识默认映射，绝对不要直接使用当前系统时间：
+            - 包含“早上/早晨/早餐/早饭” -> 默认 08:00
+            - 包含“中午/午餐/午饭” -> 默认 12:00
+            - 包含“下午/下午茶” -> 默认 15:00
+            - 包含“晚上/傍晚/晚餐/晚饭” -> 默认 19:00
+            - 包含“夜宵/深夜/半夜” -> 默认 23:00
+            - 包含“昨天”但不指明任何时段 -> 默认昨天的 12:00
+            优先级 3：完全没有时间线索
+            - 只有当用户句子中完全不包含上述任何时间词或餐段词（如“刚买了一瓶水”“打车花了20”），才允许使用当前系统时间。
+            额外约束：
+            - 如果用户提到相对日期（如昨天/前天/大前天/今天/明天），你必须基于“今天日期”换算 date。
+            - 如果用户没有明确提到具体日期，date 字段必须填写今天（${today}）。
+            - date 必须与 recordTime 的日期部分保持一致。
+
             如果用户的话包含记账信息，你必须在回复最末尾严格输出 <DATA>...</DATA> JSON：
             {
               "isReceipt": true,
@@ -664,12 +746,145 @@ class ChatRepository(
               "amount": 30.0,
               "category": "交通",
               "desc": "打车",
-                            "recordTime": "${nowDateTime}",
-                            "date": "${today}"
+              "recordTime": "${nowDateTime}",
+              "date": "${today}"
             }
-                        注意：recordTime 字段必须始终存在，格式固定为 yyyy-MM-dd HH:mm。
+            注意：recordTime 字段必须始终存在，格式固定为 yyyy-MM-dd HH:mm。
             如果只是普通闲聊，不要输出 <DATA> 标签。
         """.trimIndent()
+    }
+
+    private data class RoleProfile(
+        val roleName: String,
+        val identityAnchors: List<String>,
+        val styleGuide: String,
+        val emotionStrategy: String,
+        val forbiddenBehaviors: List<String>,
+    )
+
+    private fun buildRoleProfile(preset: AiRolePreset): RoleProfile {
+        return when (preset) {
+            AiRolePreset.XAVIER -> RoleProfile(
+                roleName = "沈星回 Xavier",
+                identityAnchors = listOf(
+                    "核心气质是克制、安静、守护优先。",
+                    "先确认用户状态与安全感，再提供建议。",
+                    "承诺要少而稳，行动感强于口号。",
+                ),
+                styleGuide = "短中句为主，温柔但不黏腻，避免浮夸撩拨。",
+                emotionStrategy = "先接住情绪，再给可执行下一步。",
+                forbiddenBehaviors = listOf("油腻直球", "过度活泼", "长篇说教"),
+            )
+
+            AiRolePreset.ZAYNE -> RoleProfile(
+                roleName = "黎深 Zayne",
+                identityAnchors = listOf(
+                    "核心气质是理性、稳重、专业可靠。",
+                    "重视事实和节奏，不制造戏剧化冲突。",
+                    "关心通过精准方案表达，不是空泛安慰。",
+                ),
+                styleGuide = "中句为主，逻辑清晰，少量温和情感确认。",
+                emotionStrategy = "先稳定情绪，再分解问题并给出计划。",
+                forbiddenBehaviors = listOf("高冷拒沟通", "情绪化攻击", "空口情话"),
+            )
+
+            AiRolePreset.RAFAYEL -> RoleProfile(
+                roleName = "祁煜 Rafayel",
+                identityAnchors = listOf(
+                    "核心气质是艺术感、敏锐、浪漫。",
+                    "可有灵动比喻，但必须落地到真实关心。",
+                    "外层可调侃，内层真诚并重情义。",
+                ),
+                styleGuide = "中长句可用，允许少量画面化表达。",
+                emotionStrategy = "先表达在意，再给具体行动建议。",
+                forbiddenBehaviors = listOf("浮夸戏精化", "低幼搞笑", "纯抒情无信息"),
+            )
+
+            AiRolePreset.SYLUS -> RoleProfile(
+                roleName = "秦彻 Sylus",
+                identityAnchors = listOf(
+                    "核心气质是强势、冷静、执行导向。",
+                    "给结论与路径，但尊重用户选择权。",
+                    "保护感通过行动体现，不靠威吓。",
+                ),
+                styleGuide = "短中句，直接、有边界、少废话。",
+                emotionStrategy = "先控风险，再推进方案与落地动作。",
+                forbiddenBehaviors = listOf("无脑暴怒", "羞辱式表达", "低幼撒娇"),
+            )
+
+            AiRolePreset.CALEB -> RoleProfile(
+                roleName = "夏以昼 Caleb",
+                identityAnchors = listOf(
+                    "核心气质是行动派、可靠、并肩感。",
+                    "先做清单化拆解，再带用户执行。",
+                    "坚定但不居高临下。",
+                ),
+                styleGuide = "中短句，清楚明快，强调协同。",
+                emotionStrategy = "先保全与安抚，再复盘与推进。",
+                forbiddenBehaviors = listOf("模板暖男", "拖沓含糊", "过度命令口吻"),
+            )
+        }
+    }
+
+    private fun guardAssistantReply(
+        text: String,
+        aiConfig: AiAssistantConfig,
+    ): String {
+        val raw = text.trim()
+        if (raw.isBlank()) return raw
+        if (!aiConfig.oocGuardEnabled) return raw
+
+        val filtered = raw
+            .lineSequence()
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .filterNot { line -> oocMetaLeakRegex.containsMatchIn(line) }
+            .filterNot { line ->
+                aiConfig.oocGuardLevel == OocGuardLevel.STRICT && strictMetaLeakRegex.containsMatchIn(line)
+            }
+            .joinToString("\n")
+            .trim()
+
+        val strictIdentityMismatch = aiConfig.oocGuardLevel == OocGuardLevel.STRICT &&
+            looksLikeWrongIdentity(filtered, aiConfig.rolePreset)
+
+        if (filtered.isBlank() || strictIdentityMismatch) {
+            return roleFallbackReply(aiConfig.rolePreset, aiConfig.tone)
+        }
+
+        return filtered
+    }
+
+    private fun looksLikeWrongIdentity(
+        text: String,
+        preset: AiRolePreset,
+    ): Boolean {
+        val intro = text.take(60)
+        if (!intro.contains("我是")) return false
+        val otherRoleNames = allRoleNameAliases
+            .filterKeys { it != preset }
+            .values
+            .flatten()
+        return otherRoleNames.any { alias -> intro.contains(alias, ignoreCase = true) }
+    }
+
+    private fun roleFallbackReply(
+        preset: AiRolePreset,
+        tone: AiTone,
+    ): String {
+        val roleFallback = when (preset) {
+            AiRolePreset.XAVIER -> "我在，先别慌。你把现在最棘手的一点告诉我，我们一步步处理。"
+            AiRolePreset.ZAYNE -> "我在听。先稳定下来，我们先处理最关键的一步。"
+            AiRolePreset.RAFAYEL -> "我在这。先别让情绪把你推着走，我们先抓住最重要的那一件。"
+            AiRolePreset.SYLUS -> "先冷静。我在，你现在按我说的先把风险降下来。"
+            AiRolePreset.CALEB -> "别急，我跟你一起。先做第一步，后面的我陪你推进。"
+        }
+
+        return if (tone == AiTone.RATIONAL) {
+            roleFallback.replace("别慌", "先保持稳定")
+        } else {
+            roleFallback
+        }
     }
 
     private fun resolveTemperature(tone: AiTone): Double {
@@ -840,6 +1055,12 @@ class ChatRepository(
         val leadingNullRegex = Regex("(?is)^\\s*(?:null\\s*)+")
         val lineNullRegex = Regex("(?im)^\\s*null\\s*$")
         val repeatedNullRegex = Regex("(?i)(?:null\\s*){4,}")
+        val oocMetaLeakRegex = Regex(
+            "(?i)(作为\\s*ai|作为\\s*一个\\s*ai|作为\\s*语言模型|我是\\s*ai|我是\\s*人工智能|system prompt|developer message|提示词|系统提示|越狱|jailbreak|模型身份|chatgpt|llm)",
+        )
+        val strictMetaLeakRegex = Regex(
+            "(?i)(instructions?|prompt engineering|思维链|chain of thought|cot|roleplay规则|你让我扮演)",
+        )
         val conversationDelimiterRegex = Regex("\\n\\s*\\n+|<MSG>|\\|\\|\\|", setOf(RegexOption.IGNORE_CASE))
         val majorSentenceRegex = Regex("(?<=[。！？!?])")
         val draftDateTimePatterns = listOf(
@@ -859,6 +1080,13 @@ class ChatRepository(
             "yyyy/MM/dd",
             "yyyy.MM.dd",
             "yyyy年M月d日",
+        )
+        val allRoleNameAliases = mapOf(
+            AiRolePreset.XAVIER to listOf("沈星回", "xavier"),
+            AiRolePreset.ZAYNE to listOf("黎深", "zayne"),
+            AiRolePreset.RAFAYEL to listOf("祁煜", "rafayel"),
+            AiRolePreset.SYLUS to listOf("秦彻", "sylus"),
+            AiRolePreset.CALEB to listOf("夏以昼", "caleb"),
         )
         const val assistantBubbleRevealIntervalMs = 520L
     }

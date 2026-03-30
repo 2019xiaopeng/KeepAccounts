@@ -32,6 +32,8 @@ import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
@@ -57,8 +59,12 @@ import com.qcb.keepaccounts.data.local.media.persistImageForSlot
 import com.qcb.keepaccounts.ui.components.glassCard
 import com.qcb.keepaccounts.ui.model.AiAssistantConfig
 import com.qcb.keepaccounts.ui.model.AiChatRecord
+import com.qcb.keepaccounts.ui.model.AiRolePreset
 import com.qcb.keepaccounts.ui.model.AiTone
 import com.qcb.keepaccounts.ui.model.ChatBackgroundPreset
+import com.qcb.keepaccounts.ui.model.OocGuardLevel
+import com.qcb.keepaccounts.ui.model.displayName
+import com.qcb.keepaccounts.ui.model.summary
 import com.qcb.keepaccounts.ui.theme.WarmBrown
 import com.qcb.keepaccounts.ui.theme.WarmBrownMuted
 import com.qcb.keepaccounts.ui.theme.WatermelonRed
@@ -87,7 +93,10 @@ fun AISettingsScreen(
     var avatar by rememberSaveable { mutableStateOf(config.avatar) }
     var avatarUri by rememberSaveable { mutableStateOf(config.avatarUri) }
     var tone by rememberSaveable { mutableStateOf(config.tone) }
-    var background by rememberSaveable { mutableStateOf(ChatBackgroundPreset.NONE) }
+    var rolePreset by rememberSaveable { mutableStateOf(config.rolePreset) }
+    var oocGuardEnabled by rememberSaveable { mutableStateOf(config.oocGuardEnabled) }
+    var oocGuardLevel by rememberSaveable { mutableStateOf(config.oocGuardLevel) }
+    var background by rememberSaveable { mutableStateOf(config.chatBackground) }
     var customBackgroundUri by rememberSaveable { mutableStateOf(config.customChatBackgroundUri) }
     var selectedDateMillis by rememberSaveable { mutableStateOf(System.currentTimeMillis()) }
     var showDatePicker by rememberSaveable { mutableStateOf(false) }
@@ -193,6 +202,118 @@ fun AISettingsScreen(
                     ),
                     modifier = Modifier.fillMaxWidth(),
                 )
+            }
+        }
+
+        item {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .glassCard(shape = RoundedCornerShape(24.dp), glowColor = accentColor.copy(alpha = 0.16f))
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(text = "角色设定", color = WarmBrown, fontWeight = FontWeight.Bold)
+                Text(
+                    text = "选择你希望 AI 管家长期扮演的角色基调",
+                    color = WarmBrownMuted,
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 12.sp,
+                )
+
+                AiRoleRow(
+                    title = AiRolePreset.XAVIER.displayName(),
+                    desc = AiRolePreset.XAVIER.summary(),
+                    selected = rolePreset == AiRolePreset.XAVIER,
+                    accentColor = accentColor,
+                    onClick = { rolePreset = AiRolePreset.XAVIER },
+                )
+                AiRoleRow(
+                    title = AiRolePreset.ZAYNE.displayName(),
+                    desc = AiRolePreset.ZAYNE.summary(),
+                    selected = rolePreset == AiRolePreset.ZAYNE,
+                    accentColor = accentColor,
+                    onClick = { rolePreset = AiRolePreset.ZAYNE },
+                )
+                AiRoleRow(
+                    title = AiRolePreset.RAFAYEL.displayName(),
+                    desc = AiRolePreset.RAFAYEL.summary(),
+                    selected = rolePreset == AiRolePreset.RAFAYEL,
+                    accentColor = accentColor,
+                    onClick = { rolePreset = AiRolePreset.RAFAYEL },
+                )
+                AiRoleRow(
+                    title = AiRolePreset.SYLUS.displayName(),
+                    desc = AiRolePreset.SYLUS.summary(),
+                    selected = rolePreset == AiRolePreset.SYLUS,
+                    accentColor = accentColor,
+                    onClick = { rolePreset = AiRolePreset.SYLUS },
+                )
+                AiRoleRow(
+                    title = AiRolePreset.CALEB.displayName(),
+                    desc = AiRolePreset.CALEB.summary(),
+                    selected = rolePreset == AiRolePreset.CALEB,
+                    accentColor = accentColor,
+                    onClick = { rolePreset = AiRolePreset.CALEB },
+                )
+            }
+        }
+
+        item {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .glassCard(shape = RoundedCornerShape(24.dp), glowColor = accentColor.copy(alpha = 0.16f))
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(text = "防 OOC 工程", color = WarmBrown, fontWeight = FontWeight.Bold)
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color.White.copy(alpha = 0.62f), RoundedCornerShape(14.dp))
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(text = "启用角色一致性保护", color = WarmBrown, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        Text(text = "自动抑制跳戏、元叙事和串角色口癖", color = WarmBrownMuted, fontSize = 12.sp)
+                    }
+                    Switch(
+                        checked = oocGuardEnabled,
+                        onCheckedChange = { oocGuardEnabled = it },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = accentColor,
+                        ),
+                    )
+                }
+
+                if (oocGuardEnabled) {
+                    OocGuardLevelRow(
+                        title = "轻量",
+                        desc = "只拦截明显元提示词泄露",
+                        selected = oocGuardLevel == OocGuardLevel.RELAXED,
+                        accentColor = accentColor,
+                        onClick = { oocGuardLevel = OocGuardLevel.RELAXED },
+                    )
+                    OocGuardLevelRow(
+                        title = "平衡",
+                        desc = "默认推荐，兼顾自然度与角色稳定",
+                        selected = oocGuardLevel == OocGuardLevel.BALANCED,
+                        accentColor = accentColor,
+                        onClick = { oocGuardLevel = OocGuardLevel.BALANCED },
+                    )
+                    OocGuardLevelRow(
+                        title = "严格",
+                        desc = "高强度角色护栏，优先不跑偏",
+                        selected = oocGuardLevel == OocGuardLevel.STRICT,
+                        accentColor = accentColor,
+                        onClick = { oocGuardLevel = OocGuardLevel.STRICT },
+                    )
+                }
             }
         }
 
@@ -478,6 +599,9 @@ fun AISettingsScreen(
                                 avatar = avatar,
                                 avatarUri = avatarUri,
                                 tone = tone,
+                                rolePreset = rolePreset,
+                                oocGuardEnabled = oocGuardEnabled,
+                                oocGuardLevel = oocGuardLevel,
                                 chatBackground = background,
                                 customChatBackgroundUri = customBackgroundUri,
                             ),
@@ -534,6 +658,54 @@ private fun formatTimeText(timestamp: Long): String {
 
 @Composable
 private fun ToneRow(
+    title: String,
+    desc: String,
+    selected: Boolean,
+    accentColor: Color,
+    onClick: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                color = if (selected) accentColor.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.5f),
+                shape = RoundedCornerShape(16.dp),
+            )
+            .appPressable { onClick() }
+            .padding(10.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Text(text = title, color = WarmBrown, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+        Text(text = desc, color = WarmBrownMuted, fontSize = 12.sp)
+    }
+}
+
+@Composable
+private fun AiRoleRow(
+    title: String,
+    desc: String,
+    selected: Boolean,
+    accentColor: Color,
+    onClick: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                color = if (selected) accentColor.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.5f),
+                shape = RoundedCornerShape(16.dp),
+            )
+            .appPressable { onClick() }
+            .padding(10.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Text(text = title, color = WarmBrown, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+        Text(text = desc, color = WarmBrownMuted, fontSize = 12.sp)
+    }
+}
+
+@Composable
+private fun OocGuardLevelRow(
     title: String,
     desc: String,
     selected: Boolean,

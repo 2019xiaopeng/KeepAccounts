@@ -58,6 +58,20 @@ enum class AiTone {
     RATIONAL,
 }
 
+enum class AiRolePreset {
+    XAVIER,
+    ZAYNE,
+    RAFAYEL,
+    SYLUS,
+    CALEB,
+}
+
+enum class OocGuardLevel {
+    RELAXED,
+    BALANCED,
+    STRICT,
+}
+
 enum class ChatBackgroundPreset {
     NONE,
     OCEAN,
@@ -70,9 +84,40 @@ data class AiAssistantConfig(
     val avatar: String = "🌊",
     val avatarUri: String? = null,
     val tone: AiTone = AiTone.HEALING,
+    val rolePreset: AiRolePreset = AiRolePreset.XAVIER,
+    val oocGuardEnabled: Boolean = true,
+    val oocGuardLevel: OocGuardLevel = OocGuardLevel.BALANCED,
     val chatBackground: ChatBackgroundPreset = ChatBackgroundPreset.NONE,
     val customChatBackgroundUri: String? = null,
 )
+
+fun AiRolePreset.displayName(): String {
+    return when (this) {
+        AiRolePreset.XAVIER -> "沈星回 Xavier"
+        AiRolePreset.ZAYNE -> "黎深 Zayne"
+        AiRolePreset.RAFAYEL -> "祁煜 Rafayel"
+        AiRolePreset.SYLUS -> "秦彻 Sylus"
+        AiRolePreset.CALEB -> "夏以昼 Caleb"
+    }
+}
+
+fun AiRolePreset.summary(): String {
+    return when (this) {
+        AiRolePreset.XAVIER -> "克制守护型"
+        AiRolePreset.ZAYNE -> "理性稳重型"
+        AiRolePreset.RAFAYEL -> "浪漫艺术型"
+        AiRolePreset.SYLUS -> "强势掌控型"
+        AiRolePreset.CALEB -> "行动可靠型"
+    }
+}
+
+fun OocGuardLevel.displayName(): String {
+    return when (this) {
+        OocGuardLevel.RELAXED -> "轻量"
+        OocGuardLevel.BALANCED -> "平衡"
+        OocGuardLevel.STRICT -> "严格"
+    }
+}
 
 data class ManualEntryPrefill(
     val type: String = "expense",
