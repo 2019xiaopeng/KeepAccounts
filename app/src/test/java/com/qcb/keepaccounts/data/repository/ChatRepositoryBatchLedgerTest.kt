@@ -20,91 +20,142 @@ import org.junit.Test
 class ChatRepositoryBatchLedgerTest {
 
     @Test
-    fun sendMessage_supportsMultipleDataBlocksAndCreatesThreeTransactions() = runBlocking {
-        val chatMessageDao = FakeChatMessageDao()
-        val transactionDao = FakeTransactionDao()
-        val repository = ChatRepository(
-            chatMessageDao = chatMessageDao,
-            transactionDao = transactionDao,
-            aiChatGateway = FakeAiChatGateway(
-                """
-                收到啦。
-                
-                我来帮你整理好。
-                
-                已经记好了。
-                <DATA>{"isReceipt":true,"action":"create","amount":3.5,"category":"购物消费","desc":"杨桃"}</DATA>
-                <DATA>{"isReceipt":true,"action":"create","amount":18,"category":"餐饮美食","desc":"中餐"}</DATA>
-                <DATA>{"isReceipt":true,"action":"create","amount":16.9,"category":"餐饮美食","desc":"奶茶加蛋糕"}</DATA>
-                """.trimIndent(),
-            ),
-        )
+    fun sendMessage_supportsMultipleDataBlocksAndCreatesThreeTransactions() {
+        runBlocking {
+            val chatMessageDao = FakeChatMessageDao()
+            val transactionDao = FakeTransactionDao()
+            val repository = ChatRepository(
+                chatMessageDao = chatMessageDao,
+                transactionDao = transactionDao,
+                aiChatGateway = FakeAiChatGateway(
+                    """
+                    收到啦。
+                    
+                    我来帮你整理好。
+                    
+                    已经记好了。
+                    <DATA>{"isReceipt":true,"action":"create","amount":3.5,"category":"购物消费","desc":"杨桃"}</DATA>
+                    <DATA>{"isReceipt":true,"action":"create","amount":18,"category":"餐饮美食","desc":"中餐"}</DATA>
+                    <DATA>{"isReceipt":true,"action":"create","amount":16.9,"category":"餐饮美食","desc":"奶茶加蛋糕"}</DATA>
+                    """.trimIndent(),
+                ),
+            )
 
-        repository.sendMessage(
-            userInput = "3.5的杨桃，18块钱的中餐，16.9的奶茶加蛋糕",
-            aiConfig = AiAssistantConfig(),
-            userName = "测试用户",
-        )
+            repository.sendMessage(
+                userInput = "3.5的杨桃，18块钱的中餐，16.9的奶茶加蛋糕",
+                aiConfig = AiAssistantConfig(),
+                userName = "测试用户",
+            )
 
-        assertEquals(3, transactionDao.countTransactions())
+            assertEquals(3, transactionDao.countTransactions())
 
-        val assistantReceipt = repository.observeChatRecords()
-            .first()
-            .lastOrNull { it.role == "assistant" && it.isReceipt }
+            val assistantReceipt = repository.observeChatRecords()
+                .first()
+                .lastOrNull { it.role == "assistant" && it.isReceipt }
 
-        assertNotNull(assistantReceipt)
-        assertEquals(listOf(1L, 2L, 3L), assistantReceipt?.transactionIds)
-        assertEquals(3, assistantReceipt?.receiptSummary?.successCount)
-        assertEquals(0, assistantReceipt?.receiptSummary?.failureCount)
-        assertEquals(3, assistantReceipt?.receiptSummary?.items?.size)
+            assertNotNull(assistantReceipt)
+            assertEquals(listOf(1L, 2L, 3L), assistantReceipt?.transactionIds)
+            assertEquals(3, assistantReceipt?.receiptSummary?.successCount)
+            assertEquals(0, assistantReceipt?.receiptSummary?.failureCount)
+            assertEquals(3, assistantReceipt?.receiptSummary?.items?.size)
+        }
     }
 
     @Test
-    fun sendMessage_supportsItemsPayloadAndKeepsPartialSuccessWhenOneCategoryMissing() = runBlocking {
-        val chatMessageDao = FakeChatMessageDao()
-        val transactionDao = FakeTransactionDao()
-        val repository = ChatRepository(
-            chatMessageDao = chatMessageDao,
-            transactionDao = transactionDao,
-            aiChatGateway = FakeAiChatGateway(
-                """
-                收到啦。
-                
-                我来帮你整理好。
-                
-                批量记账已处理完成。
-                <DATA>{
-                  "isReceipt": true,
-                  "action": "create",
-                  "items": [
-                    {"amount": 3.5, "category": "购物消费", "desc": "杨桃"},
-                    {"amount": 18, "desc": "中餐"},
-                    {"amount": 16.9, "category": "餐饮美食", "desc": "奶茶加蛋糕"}
-                  ]
-                }</DATA>
-                """.trimIndent(),
-            ),
-        )
+    fun sendMessage_supportsItemsPayloadAndKeepsPartialSuccessWhenOneCategoryMissing() {
+        runBlocking {
+            val chatMessageDao = FakeChatMessageDao()
+            val transactionDao = FakeTransactionDao()
+            val repository = ChatRepository(
+                chatMessageDao = chatMessageDao,
+                transactionDao = transactionDao,
+                aiChatGateway = FakeAiChatGateway(
+                    """
+                    收到啦。
+                    
+                    我来帮你整理好。
+                    
+                    批量记账已处理完成。
+                    <DATA>{
+                      "isReceipt": true,
+                      "action": "create",
+                      "items": [
+                        {"amount": 3.5, "category": "购物消费", "desc": "杨桃"},
+                        {"amount": 18, "desc": "中餐"},
+                        {"amount": 16.9, "category": "餐饮美食", "desc": "奶茶加蛋糕"}
+                      ]
+                    }</DATA>
+                    """.trimIndent(),
+                ),
+            )
 
-        repository.sendMessage(
-            userInput = "3.5的杨桃，18块钱的中餐，16.9的奶茶加蛋糕",
-            aiConfig = AiAssistantConfig(),
-            userName = "测试用户",
-        )
+            repository.sendMessage(
+                userInput = "3.5的杨桃，18块钱的中餐，16.9的奶茶加蛋糕",
+                aiConfig = AiAssistantConfig(),
+                userName = "测试用户",
+            )
 
-        assertEquals(2, transactionDao.countTransactions())
+            assertEquals(2, transactionDao.countTransactions())
 
-        val assistantReceipt = repository.observeChatRecords()
-            .first()
-            .lastOrNull { it.role == "assistant" && it.isReceipt }
+            val assistantReceipt = repository.observeChatRecords()
+                .first()
+                .lastOrNull { it.role == "assistant" && it.isReceipt }
 
-        assertNotNull(assistantReceipt)
-        assertEquals(listOf(1L, 2L), assistantReceipt?.transactionIds)
-        assertEquals(2, assistantReceipt?.receiptSummary?.successCount)
-        assertEquals(1, assistantReceipt?.receiptSummary?.failureCount)
-        assertEquals(3, assistantReceipt?.receiptSummary?.items?.size)
-        val failedItem = assistantReceipt?.receiptSummary?.items?.firstOrNull { it.status == "failed" }
-        assertEquals("这笔账单缺少分类，补一句分类后我再试一次。", failedItem?.failureReason)
+            assertNotNull(assistantReceipt)
+            assertEquals(listOf(1L, 2L), assistantReceipt?.transactionIds)
+            assertEquals(2, assistantReceipt?.receiptSummary?.successCount)
+            assertEquals(1, assistantReceipt?.receiptSummary?.failureCount)
+            assertEquals(3, assistantReceipt?.receiptSummary?.items?.size)
+            val failedItem = assistantReceipt?.receiptSummary?.items?.firstOrNull { it.status == "failed" }
+            assertEquals("这笔账单缺少分类，补一句分类后我再试一次。", failedItem?.failureReason)
+        }
+    }
+
+    @Test
+    fun sendMessage_marksAllFailedBatchAsReceiptAndShowsStructuredFailures() {
+        runBlocking {
+            val chatMessageDao = FakeChatMessageDao()
+            val transactionDao = FakeTransactionDao()
+            val repository = ChatRepository(
+                chatMessageDao = chatMessageDao,
+                transactionDao = transactionDao,
+                aiChatGateway = FakeAiChatGateway(
+                    """
+                    我来试着帮你记一下。
+                    <DATA>{
+                      "isReceipt": true,
+                      "action": "create",
+                      "items": [
+                        {"amount": 18, "desc": "中餐"},
+                        {"amount": 16.9, "desc": "奶茶加蛋糕"}
+                      ]
+                    }</DATA>
+                    """.trimIndent(),
+                ),
+            )
+
+            repository.sendMessage(
+                userInput = "18块钱的中餐，16.9的奶茶加蛋糕",
+                aiConfig = AiAssistantConfig(),
+                userName = "测试用户",
+            )
+
+            assertEquals(0, transactionDao.countTransactions())
+
+            val assistantReceipt = repository.observeChatRecords()
+                .first()
+                .lastOrNull { it.role == "assistant" && it.isReceipt }
+
+            assertNotNull(assistantReceipt)
+            assertEquals(emptyList<Long>(), assistantReceipt?.transactionIds)
+            assertEquals(0, assistantReceipt?.receiptSummary?.successCount)
+            assertEquals(2, assistantReceipt?.receiptSummary?.failureCount)
+            assertEquals(2, assistantReceipt?.receiptSummary?.items?.size)
+            assistantReceipt?.receiptSummary?.items?.forEach { item ->
+                assertEquals("failed", item.status)
+                assertEquals("这笔账单缺少分类，补一句分类后我再试一次。", item.failureReason)
+            }
+        }
     }
 }
 

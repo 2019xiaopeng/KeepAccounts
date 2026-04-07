@@ -234,7 +234,10 @@ class ChatRepository(
             )
         }
 
-        if (transactionApplyResult.hasSuccess && linkedTransactionId != null) {
+        val shouldRenderReceiptCard = normalizedReceipts.isNotEmpty() &&
+            (transactionApplyResult.hasSuccess || transactionApplyResult.failedTransactions.isNotEmpty())
+
+        if (shouldRenderReceiptCard) {
             val replyChunks = ensureReceiptConversationChunks(
                 chunks = splitAssistantReply(finalAssistantText),
                 draft = normalizedReceipts.firstOrNull(),
@@ -1198,8 +1201,6 @@ class ChatRepository(
     }
 
     private fun buildReceiptMetaTag(result: ApplyTransactionsResult): String {
-        if (!result.hasSuccess) return ""
-
         val primary = result.primaryAppliedTransaction
         val payload = JSONObject().apply {
             put("isReceipt", true)
