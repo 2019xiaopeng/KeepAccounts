@@ -1,67 +1,140 @@
-# API 接口文档 - AI 智能记账管家 (Android 16 版)
+# API 接口文档（KeepAccounts 当前实现）
 
-本项目为纯本地 Android 应用，核心数据存储在本地 SQLite (Room) 中，**绝对不上云**。目前本应用唯一的且必须的外部网络请求，正是用于对话理解与解析单据的核心大脑——调用 **SiliconFlow API**。
+本项目是纯本地 Android 应用。除 AI 对话能力外，不依赖业务后端。
 
-除了访问该外网接口，其余业务（增删改查、读取列表、报表统计等）均定义为内部接口 (Room DAO)。
+- 本地存储：Room + DataStore
+- 外部网络：仅 SiliconFlow `/chat/completions`
 
 ---
 
-## 1. 外部大模型 API：SiliconFlow 聊天与解析流
-系统在与用户进行情感对话或接收记账指令（如：“今天打车花了30”）时，向该接口发请求并要求同时返回自然语言回复和格式化的 JSON 单据。
+## 1. 外部接口：SiliconFlow 流式对话
 
-### 1.1 接口基础
-- **Base URL**: `https://api.siliconflow.cn/v1`
-- **Endpoint**: `/chat/completions`
-- **Method**: `POST`
-- **鉴权 Header**: 
-  - `Authorization: Bearer YOUR_SILICONFLOW_API_KEY` (由用户在应用本地填写的 Key 或编译注入配置)
-  - `Content-Type: application/json`
+### 1.1 基础信息
 
-### 1.2 请求载荷 (Request Body)
-此处展示了如何巧妙绑定 System Prompt 将记账数据强制锁定并结构化的方案。
+- Base URL: `https://api.siliconflow.cn/v1`
+- Endpoint: `POST /chat/completions`
+- 客户端接口：`SiliconFlowApi.streamChatCompletions(@Body request)`
+- 传输方式：`@Streaming`（逐行读取 `data:` 事件）
+
+### 1.2 鉴权与请求头
+
+- `Authorization: Bearer YOUR_SILICONFLOW_API_KEY`
+- `Content-Type: application/json`
+
+### 1.3 请求体（简化示例）
 
 ```json
 {
-  "model": "Pro/moonshotai/Kimi-K2.5", // 推荐遵循指令强的大模型
+  "model": "Pro/moonshotai/Kimi-K2.5",
   "messages": [
     {
       "role": "system",
-      "content": "你是一个名为 {aiName} 的 AI 记账管家，性格是 {aiTone}。用户的名字是 {userName}。你的任务是陪用户聊天，并在用户提到消费或收入时，提取记账信息。\n如果用户的话包含记账信息，你必须在回复的最末尾，严格使用 <DATA> 和 </DATA> 包括出对应的 JSON 串。例如：\n<DATA>\n{\n  \"isReceipt\": true,\n  \"action\": \"create\", // 可选: create, update, delete\n  \"amount\": 30.0,\n  \"category\": \"交通\",\n  \"desc\": \"打车\",\n  \"date\": \"2026-03-27\"\n}\n</DATA>\n如果仅是普通闲聊寒暄，正常回复陪伴语言即可，绝对不要输出 <DATA> 标签段。"
+      "content": "你是记账管家... 当识别到记账信息时，必须在末尾输出 <DATA> JSON"
     },
     {
       "role": "user",
-      "content": "今天中午吃黄焖鸡花了 25 块钱"
+      "content": "昨天晚上打车花了30"
     }
   ],
-  "temperature": 0.3, // 保持低温度约束结构稳定性
-  "stream": true      // 使用 SSE 机制获得打字机陪伴感
+  "temperature": 0.3,
+  "stream": true
 }
 ```
 
-### 1.3 客户端拆解逻辑 (Client Stream Parsing)
-Android 端使用 `OkHttp SSE` 流式接受大语言模型的返回字粒（Char chunks）。
-在 ViewModel 数据流中进行特殊判断：
-- 一直输出字直到遇到特殊拦截字符串 `<DATA>`。
-- 探测到 `<DATA>` 后截断不向 Compose UI Emit 流发送文字。
-- 将随后的 JSON chunk 储存在缓存中，直到接收到 `</DATA>`。
-- 执行本地 JSON 反序列化解析，通过后台协程写入 Room 数据库，完成记录创建操作。
+### 1.4 流式响应解析约定
+
+网关逐行处理 `data:` 事件：
+
+1. 提取 `choices[0].delta.content`。
+2. 普通文本片段输出为 `AiStreamEvent.TextDelta`。
+3. 遇到 `<DATA>...</DATA>` 时缓存并解析为 `AiReceiptDraft`，输出 `AiStreamEvent.ReceiptParsed`。
+4. 过滤隐藏片段（如 `<note>...</note>`、`<think>...</think>`），不进入 UI。
+5. 收到 `[DONE]` 后输出 `AiStreamEvent.Completed`。
 
 ---
 
-## 2. 内部数据边界 (Room DAO Interfaces)
-为了架构清晰，客户端对于各页面的驱动严格依靠向 DAO 获取响应式资源流（Flow）。
+## 2. `<DATA>` 回执契约
 
-### 2.1 账单管理边界 `TransactionDao`
-- **单增 `insertTransaction`**: 将上文 AI 解析出来的账单实体或用户手动填写的实体写入。
-- **单改 `updateTransaction`**: 点击列表单条记录拉起面板页修改实体后执行，或 AI 指令执行。
-- **单删 `deleteTransaction`**: 在左滑悬浮按钮处点红色的删除触发。
-- **流视图 `getTransactionsByMonth(year: Int, month: Int)`**: 返回一个观察型的 `Flow<List<Transaction>>`。首页视图和 Ledger 的年度/月度统计均收集 (collect) 此流。底层记录任何改变立即自动驱使所有报表 UI 重绘。
+### 2.1 当前使用的数据结构
 
-### 2.2 聊天气泡库管理 `ChatDao`
-- **保存 `insertChatMessage`**: 收包完成后，分别保存含 JSON 与不含 JSON 的对话，供退出软件时存留记录。
-- **流图 `getChatHistory`**: `Flow<List<ChatMessage>>`，挂载至 ChatScreen 展现长长的历史海洋。
+```json
+{
+  "isReceipt": true,
+  "action": "create",
+  "amount": 30.0,
+  "category": "交通",
+  "desc": "打车",
+  "recordTime": "2026-03-29 19:00",
+  "date": "2026-03-29"
+}
+```
 
-### 2.3 终端配置访问 `UserPreferencesRepository`
-负责 DataStore 的访问。由 ProfileScreen 等设置界面调起：
-- 获取配置： `val preferencesFlow: Flow<UserPreferences>` (包括 aiName, aiTone, avatar路径, themeMode等)
-- 推送原子变更： `suspend fun updateTheme(themeStr: String)` 等单向写操作，一旦写入触发 Compose 主题系统重算呈现全局秒换肤。
+### 2.2 字段说明
+
+| 字段 | 类型 | 说明 |
+| :--- | :--- | :--- |
+| `isReceipt` | Boolean | 是否为记账回执 |
+| `action` | String | 当前主要使用 `create` |
+| `amount` | Double? | 金额 |
+| `category` | String? | 分类名 |
+| `desc` | String? | 备注 |
+| `recordTime` | String? | 记录时间（`yyyy-MM-dd HH:mm`） |
+| `date` | String? | 日期（兼容字段） |
+
+### 2.3 客户端时间落库优先级
+
+`ChatRepository.resolveRecordTimestamp` 使用以下优先级：
+
+1. 用户原始输入中的显式日期/时间
+2. `recordTime`
+3. `date`
+4. 当前系统时间
+
+补充：支持相对日期与模糊时段默认映射（如早上 08:00、中午 12:00、晚上 19:00）。
+
+---
+
+## 3. 本地内部接口（DAO）
+
+### 3.1 `TransactionDao`
+
+- `insertTransaction(transaction): Long`
+- `insertTransactions(transactions)`
+- `countTransactions(): Int`
+- `observeAllTransactions(): Flow<List<TransactionEntity>>`
+- `observeTransactionById(id): Flow<TransactionEntity?>`
+- `deleteTransactionById(id)`
+
+### 3.2 `ChatMessageDao`
+
+- `insertMessage(message): Long`
+- `observeAllMessages(): Flow<List<ChatMessageEntity>>`
+- `getRecentMessages(limit): List<ChatMessageEntity>`
+- `getMessageById(id): ChatMessageEntity?`
+- `updateMessage(id, content, isReceipt, transactionId)`
+- `deleteMessagesByIds(ids)`
+- `deleteMessageById(id)`
+- `clearMessages()`
+
+---
+
+## 4. 错误与提示语策略
+
+网关已对常见网络错误做用户可读映射：
+
+- `401`: API Key 或 Base URL 配置异常
+- `403`: 权限不足
+- `429`: 请求频率过高
+- `5xx`: 服务端异常
+- 网络不可用/超时：本地提示重试
+
+---
+
+## 5. 边界说明
+
+当前版本尚未提供以下“文件 API”能力：
+
+- CSV/JSON 真实导出
+- CSV/JSON 真实导入
+
+设置页相关入口目前仅为交互占位，不涉及实际文件读写。

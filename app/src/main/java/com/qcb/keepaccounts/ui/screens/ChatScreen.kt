@@ -63,6 +63,8 @@ import coil.compose.AsyncImage
 import com.qcb.keepaccounts.ui.components.glassCard
 import com.qcb.keepaccounts.ui.model.AiAssistantConfig
 import com.qcb.keepaccounts.ui.model.AiChatRecord
+import com.qcb.keepaccounts.ui.model.AiChatReceiptItem
+import com.qcb.keepaccounts.ui.model.AiChatReceiptSummary
 import com.qcb.keepaccounts.ui.model.ChatBackgroundPreset
 import com.qcb.keepaccounts.ui.model.ManualEntryPrefill
 import com.qcb.keepaccounts.ui.model.ThemePalette
@@ -84,6 +86,7 @@ private data class DemoMessage(
     val role: String,
     val text: String,
     val isReceipt: Boolean = false,
+    val receiptSummary: AiChatReceiptSummary? = null,
     val receiptCategory: String = "",
     val receiptAmount: String = "",
     val receiptRemark: String = "",
@@ -319,22 +322,27 @@ private fun chatBackgroundBrush(preset: ChatBackgroundPreset, palette: ThemePale
 private fun AiChatRecord.toDemoMessage(): DemoMessage {
     val normalizedRole = if (role == "assistant") "ai" else role
     val payload = parseReceiptPayload(content)
+    val resolvedReceiptSummary = receiptSummary ?: payload?.toReceiptSummary()
+    val primaryReceiptItem = resolvedReceiptSummary?.items?.firstOrNull { it.status == "success" }
     val pureText = stripReceiptPayload(content)
     val visibleText = pureText.ifBlank {
-        if (isReceipt || payload != null) "已经帮主人记好啦，要好好照顾自己哦" else content.trim()
+        if (isReceipt || resolvedReceiptSummary != null || payload != null) "已经帮主人记好啦，要好好照顾自己哦" else content.trim()
     }
-    val parsedAmount = payload?.amount?.takeIf { it.isNotBlank() }
+    val parsedAmount = primaryReceiptItem?.amount?.takeIf { it.isNotBlank() }
+        ?: payload?.amount?.takeIf { it.isNotBlank() }
         ?: parseAmount(visibleText)
         ?: "0.00"
-    val showReceipt = isReceipt || payload != null
+    val showReceipt = isReceipt || resolvedReceiptSummary != null || payload != null
     val resolvedIsIncome = when {
         receiptType != null -> receiptType == 1
+        primaryReceiptItem?.isIncome != null -> primaryReceiptItem.isIncome
         payload?.isIncome != null -> payload.isIncome
+        primaryReceiptItem?.category?.contains("收入") == true -> true
         payload?.category?.contains("收入") == true -> true
         else -> false
     }
     val resolvedReceiptTimestamp = if (showReceipt) {
-        receiptRecordTimestamp ?: payload?.recordTimestamp ?: timestamp
+        primaryReceiptItem?.recordTimestamp ?: receiptRecordTimestamp ?: payload?.recordTimestamp ?: timestamp
     } else {
         null
     }
@@ -344,9 +352,22 @@ private fun AiChatRecord.toDemoMessage(): DemoMessage {
         role = normalizedRole,
         text = visibleText,
         isReceipt = showReceipt,
-        receiptCategory = if (showReceipt) payload?.category?.ifBlank { "已识别" } ?: "已识别" else "",
+        receiptSummary = resolvedReceiptSummary,
+        receiptCategory = if (showReceipt) {
+            primaryReceiptItem?.category?.ifBlank { "已识别" }
+                ?: payload?.category?.ifBlank { "已识别" }
+                ?: "已识别"
+        } else {
+            ""
+        },
         receiptAmount = parsedAmount,
-        receiptRemark = if (showReceipt) payload?.desc?.ifBlank { visibleText } ?: visibleText else "",
+        receiptRemark = if (showReceipt) {
+            primaryReceiptItem?.desc?.ifBlank { visibleText }
+                ?: payload?.desc?.ifBlank { visibleText }
+                ?: visibleText
+        } else {
+            ""
+        },
         receiptRecordTimestamp = resolvedReceiptTimestamp,
         receiptIsIncome = showReceipt && resolvedIsIncome,
     )
@@ -387,6 +408,26 @@ private fun parseReceiptPayload(text: String): ParsedReceiptPayload? {
             isIncome = isIncome,
         )
     }.getOrNull()
+}
+
+private fun ParsedReceiptPayload.toReceiptSummary(): AiChatReceiptSummary {
+    return AiChatReceiptSummary(
+        isBatch = false,
+        successCount = 1,
+        failureCount = 0,
+        items = listOf(
+            AiChatReceiptItem(
+                index = 1,
+                status = "success",
+                action = "create",
+                category = category,
+                amount = amount,
+                desc = desc,
+                recordTimestamp = recordTimestamp,
+                isIncome = isIncome,
+            ),
+        ),
+    )
 }
 
 private fun parsePayloadRecordTimestamp(json: JSONObject): Long? {
@@ -706,6 +747,12 @@ private fun ReceiptCard(
     onEdit: () -> Unit,
 ) {
     var confirmDelete by rememberSaveable(message.id) { mutableStateOf(false) }
+    val receiptSummary = message.receiptSummary
+    val receiptItems = receiptSummary?.items.orEmpty()
+    val successItems = receiptItems.filter { it.status == "success" }
+    val failureItems = receiptItems.filter { it.status == "failed" }
+    val isBatchReceipt = receiptSummary?.isBatch == true || receiptItems.size > 1 || failureItems.isNotEmpty()
+    val canEditSingleReceipt = !isBatchReceipt && successItems.size == 1 && failureItems.isEmpty()
     val receiptDateTimestamp = message.receiptRecordTimestamp ?: message.timestamp
     val amountPrefix = if (message.receiptIsIncome) "+" else "-"
     val amountColor = if (message.receiptIsIncome) IncomeGreen else WatermelonRed
@@ -723,18 +770,39 @@ private fun ReceiptCard(
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(
-            text = "🤍 已记账成功 🤍",
+            text = if (isBatchReceipt) "🤍 批量处理结果 🤍" else "🤍 已记账成功 🤍",
             color = MintGreen,
             fontWeight = FontWeight.ExtraBold,
             fontSize = 13.sp,
             modifier = Modifier.align(Alignment.CenterHorizontally),
         )
 
-        ReceiptRow(icon = Icons.Rounded.Category, label = "📁 分类", value = message.receiptCategory)
-        ReceiptRow(icon = Icons.Rounded.AttachMoney, label = "💰 金额", value = "$amountPrefix${message.receiptAmount}", valueColor = amountColor)
-        ReceiptRow(icon = Icons.Rounded.MoreHoriz, label = "📝 备注", value = message.receiptRemark)
-        ReceiptRow(icon = Icons.Rounded.Today, label = "📅 日期", value = formatReceiptDate(receiptDateTimestamp))
-        ReceiptRow(icon = Icons.Rounded.Schedule, label = "🕒 记录时间", value = formatReceiptTime(receiptDateTimestamp))
+        if (isBatchReceipt) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ReceiptCountChip(
+                    label = "成功 ${receiptSummary?.successCount ?: successItems.size}",
+                    containerColor = IncomeGreen.copy(alpha = 0.14f),
+                    textColor = IncomeGreen,
+                )
+                ReceiptCountChip(
+                    label = "失败 ${receiptSummary?.failureCount ?: failureItems.size}",
+                    containerColor = WatermelonRed.copy(alpha = 0.12f),
+                    textColor = WatermelonRed,
+                )
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                receiptItems.forEach { item ->
+                    BatchReceiptItemCard(item = item)
+                }
+            }
+        } else {
+            ReceiptRow(icon = Icons.Rounded.Category, label = "📁 分类", value = message.receiptCategory)
+            ReceiptRow(icon = Icons.Rounded.AttachMoney, label = "💰 金额", value = "$amountPrefix${message.receiptAmount}", valueColor = amountColor)
+            ReceiptRow(icon = Icons.Rounded.MoreHoriz, label = "📝 备注", value = message.receiptRemark)
+            ReceiptRow(icon = Icons.Rounded.Today, label = "📅 日期", value = formatReceiptDate(receiptDateTimestamp))
+            ReceiptRow(icon = Icons.Rounded.Schedule, label = "🕒 记录时间", value = formatReceiptTime(receiptDateTimestamp))
+        }
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             if (confirmDelete) {
@@ -775,17 +843,30 @@ private fun ReceiptCard(
                     }
                 }
             } else {
-                Row(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(999.dp))
-                        .background(Color(0xFFF3F4F6))
-                        .appPressable { onEdit() }
-                        .padding(vertical = 8.dp),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(text = "✏️ 修改", color = WarmBrown, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                if (canEditSingleReceipt) {
+                    Row(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(Color(0xFFF3F4F6))
+                            .appPressable { onEdit() }
+                            .padding(vertical = 8.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(text = "✏️ 修改", color = WarmBrown, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    }
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(Color(0xFFF7FAF8))
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(text = "批量结果请到账本页逐笔调整", color = WarmBrownMuted, fontWeight = FontWeight.Medium, fontSize = 11.sp)
+                    }
                 }
                 Row(
                     modifier = Modifier
@@ -801,6 +882,113 @@ private fun ReceiptCard(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ReceiptCountChip(
+    label: String,
+    containerColor: Color,
+    textColor: Color,
+) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(containerColor)
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+    ) {
+        Text(text = label, color = textColor, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+    }
+}
+
+@Composable
+private fun BatchReceiptItemCard(item: AiChatReceiptItem) {
+    val isSuccess = item.status == "success"
+    val cardColor = if (isSuccess) Color(0xFFF7FFFB) else Color(0xFFFFF5F5)
+    val borderTextColor = if (isSuccess) IncomeGreen else WatermelonRed
+    val amountColor = when (item.isIncome) {
+        true -> IncomeGreen
+        false -> WatermelonRed
+        null -> WarmBrown
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(cardColor)
+            .padding(horizontal = 10.dp, vertical = 9.dp),
+        verticalArrangement = Arrangement.spacedBy(5.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            ReceiptCountChip(
+                label = if (isSuccess) "成功" else "失败",
+                containerColor = borderTextColor.copy(alpha = 0.12f),
+                textColor = borderTextColor,
+            )
+            Text(text = "第${item.index}笔", color = WarmBrownMuted, fontWeight = FontWeight.Medium, fontSize = 11.sp)
+        }
+
+        Text(
+            text = buildBatchReceiptSummary(item),
+            color = WarmBrown,
+            fontWeight = FontWeight.Bold,
+            fontSize = 12.sp,
+        )
+
+        item.desc.takeIf { it.isNotBlank() }?.let {
+            Text(text = it, color = WarmBrownMuted, fontWeight = FontWeight.Medium, fontSize = 11.sp)
+        }
+
+        if (isSuccess) {
+            item.recordTimestamp?.let {
+                Text(
+                    text = "${formatReceiptDate(it)} ${formatReceiptTime(it)}",
+                    color = WarmBrownMuted.copy(alpha = 0.9f),
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 11.sp,
+                )
+            }
+        } else {
+            Text(
+                text = item.failureReason?.takeIf { it.isNotBlank() }?.let { "失败原因：$it" } ?: "失败原因：请稍后重试",
+                color = WatermelonRed,
+                fontWeight = FontWeight.Bold,
+                fontSize = 11.sp,
+            )
+        }
+
+        item.amount.takeIf { it.isNotBlank() }?.let {
+            Text(
+                text = buildBatchReceiptAmount(item),
+                color = amountColor,
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 13.sp,
+            )
+        }
+    }
+}
+
+private fun buildBatchReceiptSummary(item: AiChatReceiptItem): String {
+    val actionText = if (item.action.equals("update", ignoreCase = true)) "修改" else "新增"
+    val categoryText = item.category.ifBlank { "已识别" }
+    return "$actionText · $categoryText"
+}
+
+private fun buildBatchReceiptAmount(item: AiChatReceiptItem): String {
+    val prefix = when (item.isIncome) {
+        true -> "+"
+        false -> "-"
+        null -> ""
+    }
+    return if (item.amount.isBlank()) {
+        "金额待确认"
+    } else {
+        "$prefix${item.amount}"
     }
 }
 

@@ -11,11 +11,14 @@ import com.qcb.keepaccounts.domain.contract.AiReceiptDraft
 import com.qcb.keepaccounts.domain.contract.AiStreamEvent
 import com.qcb.keepaccounts.ui.model.AiAssistantConfig
 import com.qcb.keepaccounts.ui.model.AiChatRecord
+import com.qcb.keepaccounts.ui.model.AiChatReceiptItem
+import com.qcb.keepaccounts.ui.model.AiChatReceiptSummary
 import com.qcb.keepaccounts.ui.model.AiTone
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
+import org.json.JSONArray
 import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -33,11 +36,34 @@ class ChatRepository(
         val transactionId: Long,
         val type: Int,
         val action: String,
+        val draft: AiReceiptDraft,
+        val index: Int = 0,
     )
 
     private data class ApplyTransactionResult(
         val appliedTransaction: AppliedTransaction?,
         val fallbackMessage: String? = null,
+    )
+
+    private data class FailedTransaction(
+        val index: Int,
+        val draft: AiReceiptDraft,
+        val reason: String,
+    )
+
+    private data class ApplyTransactionsResult(
+        val appliedTransactions: List<AppliedTransaction> = emptyList(),
+        val failedTransactions: List<FailedTransaction> = emptyList(),
+    ) {
+        val hasSuccess: Boolean get() = appliedTransactions.isNotEmpty()
+        val primaryAppliedTransaction: AppliedTransaction? get() = appliedTransactions.firstOrNull()
+        val createCount: Int get() = appliedTransactions.count { it.action == ACTION_CREATE }
+        val updateCount: Int get() = appliedTransactions.count { it.action == ACTION_UPDATE }
+    }
+
+    private data class TransactionBinding(
+        val transactionId: Long,
+        val action: String,
     )
 
     fun observeChatRecords(): Flow<List<AiChatRecord>> {
@@ -49,6 +75,19 @@ class ChatRepository(
 
             messages.map { entity ->
                 val linkedTransaction = entity.transactionId?.let(transactionById::get)
+                val transactionBindings = parseTransactionBindings(entity.transactionBindings)
+                val transactionIds = transactionBindings
+                    .map { it.transactionId }
+                    .ifEmpty { listOfNotNull(entity.transactionId) }
+                val receiptSummary = parseReceiptSummary(
+                    content = entity.content,
+                    isReceipt = entity.isReceipt,
+                    linkedTransaction = linkedTransaction,
+                    transactionBindings = transactionBindings,
+                    transactionById = transactionById,
+                    fallbackTimestamp = entity.timestamp,
+                )
+                val primaryReceiptItem = receiptSummary?.items?.firstOrNull { it.status == RECEIPT_STATUS_SUCCESS }
                 AiChatRecord(
                     id = entity.id,
                     timestamp = entity.timestamp,
@@ -56,8 +95,10 @@ class ChatRepository(
                     content = entity.content,
                     isReceipt = entity.isReceipt,
                     transactionId = entity.transactionId,
-                    receiptRecordTimestamp = linkedTransaction?.recordTimestamp,
-                    receiptType = linkedTransaction?.type,
+                    transactionIds = transactionIds,
+                    receiptRecordTimestamp = linkedTransaction?.recordTimestamp ?: primaryReceiptItem?.recordTimestamp,
+                    receiptType = linkedTransaction?.type ?: primaryReceiptItem?.isIncome?.let { if (it) 1 else 0 },
+                    receiptSummary = receiptSummary,
                 )
             }
         }
@@ -66,7 +107,12 @@ class ChatRepository(
     suspend fun deleteMessage(messageId: Long) {
         val message = chatMessageDao.getMessageById(messageId) ?: return
         chatMessageDao.deleteMessageById(messageId)
-        message.transactionId?.let { transactionDao.deleteTransactionById(it) }
+        val boundCreateIds = parseTransactionBindings(message.transactionBindings)
+            .filter { it.action == ACTION_CREATE }
+            .map { it.transactionId }
+            .ifEmpty { listOfNotNull(message.transactionId) }
+            .distinct()
+        boundCreateIds.forEach { transactionDao.deleteTransactionById(it) }
     }
 
     suspend fun sendMessage(
@@ -95,7 +141,7 @@ class ChatRepository(
         }
 
         val textBuffer = StringBuilder()
-        var parsedReceipt: AiReceiptDraft? = null
+        val parsedReceipts = mutableListOf<AiReceiptDraft>()
         var streamErrorMessage: String? = null
         val assistantMessageIds = mutableListOf<Long>()
         val streamBaseTimestamp = System.currentTimeMillis() + 1
@@ -127,6 +173,7 @@ class ChatRepository(
                             baseTimestamp = streamBaseTimestamp,
                             isReceiptLast = false,
                             receiptTransactionId = null,
+                            receiptTransactionBindings = null,
                         )
                         if (pacedChunks.size > lastRenderedChunks.size) {
                             lastBubbleRevealAt = System.currentTimeMillis()
@@ -135,7 +182,7 @@ class ChatRepository(
                     }
                 }
 
-                is AiStreamEvent.ReceiptParsed -> parsedReceipt = event.draft
+                is AiStreamEvent.ReceiptParsed -> parsedReceipts += event.drafts
                 is AiStreamEvent.Error -> {
                     streamErrorMessage = event.message.ifBlank { "AI 服务暂时不可用，请稍后重试。" }
                 }
@@ -145,60 +192,56 @@ class ChatRepository(
         }
 
         val rawAssistantText = textBuffer.toString().trim()
-        val fallbackReceipt = extractReceiptDraftFromText(rawAssistantText)
-        val resolvedReceipt = if (parsedReceipt?.isReceipt == true) {
-            parsedReceipt
-        } else {
-            fallbackReceipt ?: parsedReceipt
-        }
+        val fallbackReceipts = extractReceiptDraftsFromText(rawAssistantText)
+        val resolvedReceipts = resolveReceiptDrafts(parsedReceipts, fallbackReceipts)
         val cleanedAssistantText = stripReceiptPayload(rawAssistantText)
 
-        val normalizedReceipt = resolvedReceipt?.let { draft ->
-            val normalizedAction = normalizeReceiptAction(draft, userInput)
-            if (draft.action.equals(normalizedAction, ignoreCase = true)) {
-                draft
-            } else {
-                draft.copy(action = normalizedAction)
-            }
-        }
-
-        var appliedTransaction: AppliedTransaction? = null
-        var transactionFallbackMessage: String? = null
-        normalizedReceipt?.let { draft ->
-            val result = applyReceiptTransaction(draft, cleanedAssistantText, userInput)
-            appliedTransaction = result.appliedTransaction
-            transactionFallbackMessage = result.fallbackMessage
-        }
-        val linkedTransactionId = appliedTransaction?.transactionId
-
-        val finalAssistantText = if (linkedTransactionId != null) {
-            cleanedAssistantText.ifBlank {
-                if (appliedTransaction?.action == ACTION_UPDATE) {
-                    "已帮你修改这笔记录。"
+        val normalizedReceipts = resolvedReceipts
+            .filter { it.isReceipt }
+            .map { draft ->
+                val normalizedAction = normalizeReceiptAction(draft, userInput)
+                if (draft.action.equals(normalizedAction, ignoreCase = true)) {
+                    draft
                 } else {
-                    "已为你记录这笔账单。"
+                    draft.copy(action = normalizedAction)
                 }
             }
+        val transactionApplyResult = applyReceiptTransactions(
+            drafts = normalizedReceipts,
+            assistantText = cleanedAssistantText,
+            userInput = userInput,
+        )
+        val appliedTransaction = transactionApplyResult.primaryAppliedTransaction
+        val linkedTransactionId = appliedTransaction?.transactionId
+        val transactionBindings = buildTransactionBindingsPayload(transactionApplyResult.appliedTransactions)
+        val summaryText = buildApplySummaryText(transactionApplyResult)
+        val finalAssistantText = if (transactionApplyResult.hasSuccess) {
+            mergeAssistantText(
+                baseText = cleanedAssistantText,
+                extraText = summaryText.takeIf {
+                    shouldAppendApplySummary(
+                        result = transactionApplyResult,
+                        totalDraftCount = normalizedReceipts.size,
+                    )
+                },
+                fallbackText = defaultReceiptMessage(transactionApplyResult),
+            )
         } else {
-            cleanedAssistantText.ifBlank {
-                transactionFallbackMessage
-                    ?: streamErrorMessage?.trim().takeUnless { it.isNullOrBlank() }
-                    ?: "收到，我在。"
-            }
+            mergeAssistantText(
+                baseText = cleanedAssistantText,
+                extraText = summaryText,
+                fallbackText = streamErrorMessage?.trim().takeUnless { it.isNullOrBlank() } ?: "收到，我在。",
+            )
         }
 
-        if (linkedTransactionId != null) {
+        if (transactionApplyResult.hasSuccess && linkedTransactionId != null) {
             val replyChunks = ensureReceiptConversationChunks(
                 chunks = splitAssistantReply(finalAssistantText),
-                draft = normalizedReceipt,
+                draft = normalizedReceipts.firstOrNull(),
             )
 
-            val receiptMeta = normalizedReceipt?.let { buildReceiptMetaTag(it, appliedTransaction?.type) }.orEmpty()
-            val defaultReceiptText = if (appliedTransaction?.action == ACTION_UPDATE) {
-                "已帮你修改这笔记录。"
-            } else {
-                "已为你记录这笔账单。"
-            }
+            val receiptMeta = buildReceiptMetaTag(transactionApplyResult)
+            val defaultReceiptText = defaultReceiptMessage(transactionApplyResult)
             val receiptText = replyChunks.lastOrNull()?.ifBlank { defaultReceiptText } ?: defaultReceiptText
             val receiptContent = if (receiptMeta.isBlank()) {
                 receiptText
@@ -225,6 +268,7 @@ class ChatRepository(
                 baseTimestamp = streamBaseTimestamp,
                 isReceiptLast = true,
                 receiptTransactionId = linkedTransactionId,
+                receiptTransactionBindings = transactionBindings,
             )
             return
         }
@@ -244,6 +288,7 @@ class ChatRepository(
             baseTimestamp = streamBaseTimestamp,
             isReceiptLast = false,
             receiptTransactionId = null,
+            receiptTransactionBindings = null,
         )
     }
 
@@ -267,6 +312,7 @@ class ChatRepository(
                 baseTimestamp = baseTimestamp,
                 isReceiptLast = false,
                 receiptTransactionId = null,
+                receiptTransactionBindings = null,
             )
             current = partial
         }
@@ -295,6 +341,7 @@ class ChatRepository(
         baseTimestamp: Long,
         isReceiptLast: Boolean,
         receiptTransactionId: Long?,
+        receiptTransactionBindings: String?,
     ) {
         val normalizedChunks = chunks
             .map { it.trim() }
@@ -312,6 +359,7 @@ class ChatRepository(
                     content = chunk,
                     isReceipt = markAsReceipt,
                     transactionId = transactionId,
+                    transactionBindings = if (markAsReceipt) receiptTransactionBindings else null,
                 )
             } else {
                 val insertedId = chatMessageDao.insertMessage(
@@ -320,6 +368,7 @@ class ChatRepository(
                         content = chunk,
                         isReceipt = markAsReceipt,
                         transactionId = transactionId,
+                        transactionBindings = if (markAsReceipt) receiptTransactionBindings else null,
                         timestamp = baseTimestamp + index,
                     ),
                 )
@@ -336,6 +385,37 @@ class ChatRepository(
                 messageIds.removeAt(messageIds.lastIndex)
             }
         }
+    }
+
+    private suspend fun applyReceiptTransactions(
+        drafts: List<AiReceiptDraft>,
+        assistantText: String,
+        userInput: String,
+    ): ApplyTransactionsResult {
+        if (drafts.isEmpty()) return ApplyTransactionsResult()
+
+        val applied = mutableListOf<AppliedTransaction>()
+        val failed = mutableListOf<FailedTransaction>()
+
+        drafts.forEachIndexed { index, draft ->
+            val result = applyReceiptTransaction(draft, assistantText, userInput)
+            val order = index + 1
+            val appliedTransaction = result.appliedTransaction
+            if (appliedTransaction != null) {
+                applied += appliedTransaction.copy(index = order)
+            } else {
+                failed += FailedTransaction(
+                    index = order,
+                    draft = draft,
+                    reason = result.fallbackMessage ?: "这笔账单缺少必要信息，暂时没法处理。",
+                )
+            }
+        }
+
+        return ApplyTransactionsResult(
+            appliedTransactions = applied,
+            failedTransactions = failed,
+        )
     }
 
     private suspend fun applyReceiptTransaction(
@@ -366,6 +446,12 @@ class ChatRepository(
                 )
             }
         } else {
+            if (draft.category.isNullOrBlank()) {
+                return ApplyTransactionResult(
+                    appliedTransaction = null,
+                    fallbackMessage = "这笔账单缺少分类，补一句分类后我再试一次。",
+                )
+            }
             val created = tryCreateTransaction(draft, assistantText, userInput, rawAmount)
             ApplyTransactionResult(appliedTransaction = created)
         }
@@ -408,6 +494,7 @@ class ChatRepository(
             transactionId = transactionId,
             type = type,
             action = ACTION_CREATE,
+            draft = draft,
         )
     }
 
@@ -454,6 +541,7 @@ class ChatRepository(
             transactionId = target.id,
             type = type,
             action = ACTION_UPDATE,
+            draft = draft,
         )
     }
 
@@ -1083,20 +1171,18 @@ class ChatRepository(
         }
     }
 
-    private fun extractReceiptDraftFromText(text: String): AiReceiptDraft? {
-        val payload = findPayload(text, "DATA") ?: findPayload(text, "RECEIPT") ?: return null
-        return runCatching {
-            val json = JSONObject(payload)
-            AiReceiptDraft(
-                isReceipt = json.optBoolean("isReceipt", true),
-                action = json.optString("action", "create"),
-                amount = if (json.has("amount") && !json.isNull("amount")) json.optDouble("amount") else null,
-                category = json.optString("category").takeIf { it.isNotBlank() },
-                desc = json.optString("desc").takeIf { it.isNotBlank() },
-                recordTime = json.optString("recordTime").takeIf { it.isNotBlank() },
-                date = json.optString("date").takeIf { it.isNotBlank() },
-            )
-        }.getOrNull()
+    private fun resolveReceiptDrafts(
+        parsedReceipts: List<AiReceiptDraft>,
+        fallbackReceipts: List<AiReceiptDraft>,
+    ): List<AiReceiptDraft> {
+        val preferredFallback = fallbackReceipts.takeIf { it.size >= parsedReceipts.size && it.isNotEmpty() }
+        return preferredFallback ?: parsedReceipts
+    }
+
+    private fun extractReceiptDraftsFromText(text: String): List<AiReceiptDraft> {
+        val payloads = findPayloads(text, "DATA") + findPayloads(text, "RECEIPT")
+        if (payloads.isEmpty()) return emptyList()
+        return payloads.flatMap(::parseReceiptPayloadDrafts)
     }
 
     private fun stripReceiptPayload(text: String): String {
@@ -1111,30 +1197,401 @@ class ChatRepository(
             .trim()
     }
 
-    private fun buildReceiptMetaTag(draft: AiReceiptDraft, resolvedType: Int?): String {
-        val typeValue = resolvedType?.let { if (it == 1) "income" else "expense" }
-            ?: draft.amount?.let { if (it < 0) "expense" else "income" }
+    private fun buildReceiptMetaTag(result: ApplyTransactionsResult): String {
+        if (!result.hasSuccess) return ""
+
+        val primary = result.primaryAppliedTransaction
         val payload = JSONObject().apply {
             put("isReceipt", true)
-            put("action", draft.action.ifBlank { "create" })
-            draft.amount?.let { put("amount", abs(it)) }
-            draft.category?.let { put("category", it) }
-            draft.desc?.let { put("desc", it) }
-            draft.recordTime?.let { put("recordTime", it) }
-            draft.date?.let { put("date", it) }
-            typeValue?.let { put("type", it) }
+            put("mode", if (result.appliedTransactions.size + result.failedTransactions.size > 1 || result.failedTransactions.isNotEmpty()) "batch" else "single")
+            put("successCount", result.appliedTransactions.size)
+            put("failureCount", result.failedTransactions.size)
+            put("createCount", result.createCount)
+            put("updateCount", result.updateCount)
+            primary?.let { applied ->
+                val typeValue = if (applied.type == 1) "income" else "expense"
+                put("action", applied.action.ifBlank { ACTION_CREATE })
+                applied.draft.amount?.let { put("amount", abs(it)) }
+                applied.draft.category?.let { put("category", it) }
+                applied.draft.desc?.let { put("desc", it) }
+                applied.draft.recordTime?.let { put("recordTime", it) }
+                applied.draft.date?.let { put("date", it) }
+                put("type", typeValue)
+            }
+            put(
+                "items",
+                JSONArray().apply {
+                    result.appliedTransactions.forEach { applied ->
+                        put(
+                            JSONObject().apply {
+                                put("index", applied.index)
+                                put("status", "success")
+                                put("transactionId", applied.transactionId)
+                                put("action", applied.action)
+                                put("type", if (applied.type == 1) "income" else "expense")
+                                applied.draft.amount?.let { put("amount", abs(it)) }
+                                applied.draft.category?.let { put("category", it) }
+                                applied.draft.desc?.let { put("desc", it) }
+                                applied.draft.recordTime?.let { put("recordTime", it) }
+                                applied.draft.date?.let { put("date", it) }
+                            },
+                        )
+                    }
+                    result.failedTransactions.forEach { failed ->
+                        put(
+                            JSONObject().apply {
+                                put("index", failed.index)
+                                put("status", "failed")
+                                put("action", failed.draft.action.ifBlank { ACTION_CREATE })
+                                put("reason", failed.reason)
+                                failed.draft.amount?.let { put("amount", abs(it)) }
+                                failed.draft.category?.let { put("category", it) }
+                                failed.draft.desc?.let { put("desc", it) }
+                                failed.draft.recordTime?.let { put("recordTime", it) }
+                                failed.draft.date?.let { put("date", it) }
+                            },
+                        )
+                    }
+                },
+            )
         }
         return "<RECEIPT>${payload}</RECEIPT>"
     }
 
     private fun findPayload(text: String, tag: String): String? {
+        return findPayloads(text, tag).firstOrNull()
+    }
+
+    private fun findPayloads(text: String, tag: String): List<String> {
         val regex = Regex("<$tag>(.*?)</$tag>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
-        return regex.find(text)?.groupValues?.getOrNull(1)?.trim()?.takeIf { it.isNotBlank() }
+        return regex.findAll(text)
+            .mapNotNull { it.groupValues.getOrNull(1)?.trim()?.takeIf { value -> value.isNotBlank() } }
+            .toList()
+    }
+
+    private fun parseReceiptPayloadDrafts(payload: String): List<AiReceiptDraft> {
+        return runCatching {
+            val json = JSONObject(payload)
+            val parentDraft = json.toReceiptDraft()
+            val items = json.optJSONArray("items")
+            if (items == null || items.length() == 0) {
+                listOf(parentDraft)
+            } else {
+                buildList {
+                    for (index in 0 until items.length()) {
+                        val item = items.optJSONObject(index) ?: continue
+                        add(item.toReceiptDraft(parentDraft))
+                    }
+                }
+            }
+        }.getOrDefault(emptyList())
+    }
+
+    private fun JSONObject.toReceiptDraft(parent: AiReceiptDraft? = null): AiReceiptDraft {
+        return AiReceiptDraft(
+            isReceipt = if (has("isReceipt")) optBoolean("isReceipt", parent?.isReceipt ?: true) else parent?.isReceipt ?: true,
+            action = optString("action").takeIf { it.isNotBlank() } ?: parent?.action ?: ACTION_CREATE,
+            amount = if (has("amount") && !isNull("amount")) optDouble("amount") else parent?.amount,
+            category = optString("category").takeIf { it.isNotBlank() } ?: parent?.category,
+            desc = optString("desc").takeIf { it.isNotBlank() } ?: parent?.desc,
+            recordTime = optString("recordTime").takeIf { it.isNotBlank() } ?: parent?.recordTime,
+            date = optString("date").takeIf { it.isNotBlank() } ?: parent?.date,
+        )
+    }
+
+    private fun shouldAppendApplySummary(
+        result: ApplyTransactionsResult,
+        totalDraftCount: Int,
+    ): Boolean {
+        if (!result.hasSuccess) return result.failedTransactions.isNotEmpty()
+        if (result.failedTransactions.isNotEmpty()) return true
+        if (totalDraftCount > 1) return true
+        return result.createCount > 0 && result.updateCount > 0
+    }
+
+    private fun buildApplySummaryText(result: ApplyTransactionsResult): String {
+        if (result.appliedTransactions.isEmpty() && result.failedTransactions.isEmpty()) return ""
+
+        val summaryParts = mutableListOf<String>()
+        if (result.appliedTransactions.isNotEmpty()) {
+            summaryParts += "成功${result.appliedTransactions.size}笔"
+        }
+        if (result.failedTransactions.isNotEmpty()) {
+            summaryParts += "失败${result.failedTransactions.size}笔"
+        }
+
+        val actionParts = mutableListOf<String>()
+        if (result.createCount > 0) {
+            actionParts += "新增${result.createCount}笔"
+        }
+        if (result.updateCount > 0) {
+            actionParts += "修改${result.updateCount}笔"
+        }
+
+        val failureText = result.failedTransactions
+            .joinToString("\n") { "第${it.index}笔失败：${it.reason}" }
+
+        return buildList {
+            if (summaryParts.isNotEmpty()) {
+                add("批量处理结果：${summaryParts.joinToString("，")}。")
+            }
+            if (actionParts.isNotEmpty()) {
+                add("执行明细：${actionParts.joinToString("，")}。")
+            }
+            if (failureText.isNotBlank()) {
+                add(failureText)
+            }
+        }.joinToString("\n")
+    }
+
+    private fun defaultReceiptMessage(result: ApplyTransactionsResult): String {
+        if (!result.hasSuccess) return "我暂时没成功处理这些账单。"
+        if (result.appliedTransactions.size == 1 && result.failedTransactions.isEmpty()) {
+            return if (result.primaryAppliedTransaction?.action == ACTION_UPDATE) {
+                "已帮你修改这笔记录。"
+            } else {
+                "已为你记录这笔账单。"
+            }
+        }
+        return "批量记账已处理完成。"
+    }
+
+    private fun mergeAssistantText(
+        baseText: String,
+        extraText: String?,
+        fallbackText: String,
+    ): String {
+        val parts = buildList {
+            baseText.trim().takeIf { it.isNotBlank() }?.let(::add)
+            extraText?.trim()?.takeIf { it.isNotBlank() }?.let(::add)
+        }
+        return parts.joinToString("\n\n").ifBlank { fallbackText }
+    }
+
+    private fun buildTransactionBindingsPayload(appliedTransactions: List<AppliedTransaction>): String? {
+        if (appliedTransactions.isEmpty()) return null
+        return JSONArray().apply {
+            appliedTransactions.forEach { applied ->
+                put(
+                    JSONObject().apply {
+                        put("transactionId", applied.transactionId)
+                        put("action", applied.action)
+                    },
+                )
+            }
+        }.toString()
+    }
+
+    private fun parseTransactionBindings(raw: String?): List<TransactionBinding> {
+        val payload = raw?.trim().orEmpty()
+        if (payload.isBlank()) return emptyList()
+        return runCatching {
+            val array = JSONArray(payload)
+            buildList {
+                for (index in 0 until array.length()) {
+                    val item = array.optJSONObject(index) ?: continue
+                    val transactionId = item.optLong("transactionId")
+                    if (transactionId <= 0L) continue
+                    add(
+                        TransactionBinding(
+                            transactionId = transactionId,
+                            action = item.optString("action").ifBlank { ACTION_CREATE },
+                        ),
+                    )
+                }
+            }
+        }.getOrDefault(emptyList())
+    }
+
+    private fun parseReceiptSummary(
+        content: String,
+        isReceipt: Boolean,
+        linkedTransaction: TransactionEntity?,
+        transactionBindings: List<TransactionBinding>,
+        transactionById: Map<Long, TransactionEntity>,
+        fallbackTimestamp: Long,
+    ): AiChatReceiptSummary? {
+        val payload = findPayload(content, "RECEIPT") ?: findPayload(content, "DATA")
+        if (payload == null) {
+            if (!isReceipt || linkedTransaction == null) return null
+            return AiChatReceiptSummary(
+                isBatch = false,
+                successCount = 1,
+                failureCount = 0,
+                items = listOf(
+                    AiChatReceiptItem(
+                        index = 1,
+                        status = RECEIPT_STATUS_SUCCESS,
+                        action = ACTION_CREATE,
+                        category = linkedTransaction.categoryName.ifBlank { "已识别" },
+                        amount = formatReceiptAmount(linkedTransaction.amount),
+                        desc = linkedTransaction.remark,
+                        recordTimestamp = linkedTransaction.recordTimestamp,
+                        isIncome = linkedTransaction.type == 1,
+                        transactionId = linkedTransaction.id,
+                    ),
+                ),
+            )
+        }
+
+        val json = runCatching { JSONObject(payload) }.getOrNull() ?: return null
+        val successBindings = transactionBindings.mapNotNull { binding ->
+            transactionById[binding.transactionId]?.let { binding to it }
+        }
+        var successBindingCursor = 0
+        val items = buildList {
+            val rawItems = json.optJSONArray("items")
+            if (rawItems != null && rawItems.length() > 0) {
+                for (arrayIndex in 0 until rawItems.length()) {
+                    val itemJson = rawItems.optJSONObject(arrayIndex) ?: continue
+                    val status = normalizeReceiptStatus(itemJson.optString("status"))
+                    val fallbackBinding = if (status == RECEIPT_STATUS_SUCCESS) {
+                        successBindings.getOrNull(successBindingCursor)
+                    } else {
+                        null
+                    }
+                    if (status == RECEIPT_STATUS_SUCCESS && successBindingCursor < successBindings.size) {
+                        successBindingCursor += 1
+                    }
+                    val explicitTransactionId = itemJson.optLong("transactionId").takeIf { it > 0L }
+                    val transactionId = explicitTransactionId ?: fallbackBinding?.first?.transactionId
+                    val resolvedTransaction = explicitTransactionId?.let(transactionById::get) ?: fallbackBinding?.second
+                    add(
+                        buildReceiptItem(
+                            sourceJson = itemJson,
+                            fallbackJson = json,
+                            defaultIndex = arrayIndex + 1,
+                            status = status,
+                            linkedTransaction = resolvedTransaction,
+                            fallbackTimestamp = fallbackTimestamp,
+                            transactionId = transactionId,
+                        ),
+                    )
+                }
+            } else if (isReceipt || linkedTransaction != null) {
+                add(
+                    buildReceiptItem(
+                        sourceJson = json,
+                        fallbackJson = null,
+                        defaultIndex = 1,
+                        status = normalizeReceiptStatus(json.optString("status")),
+                        linkedTransaction = linkedTransaction,
+                        fallbackTimestamp = fallbackTimestamp,
+                        transactionId = linkedTransaction?.id,
+                    ),
+                )
+            }
+        }
+        if (items.isEmpty()) return null
+
+        val successCount = if (json.has("successCount") && !json.isNull("successCount")) {
+            json.optInt("successCount").coerceAtLeast(0)
+        } else {
+            items.count { it.status == RECEIPT_STATUS_SUCCESS }
+        }
+        val failureCount = if (json.has("failureCount") && !json.isNull("failureCount")) {
+            json.optInt("failureCount").coerceAtLeast(0)
+        } else {
+            items.count { it.status == RECEIPT_STATUS_FAILED }
+        }
+        val isBatchMode = json.optString("mode").equals("batch", ignoreCase = true) ||
+            items.size > 1 ||
+            successCount > 1 ||
+            failureCount > 0
+
+        return AiChatReceiptSummary(
+            isBatch = isBatchMode,
+            successCount = successCount,
+            failureCount = failureCount,
+            items = items,
+        )
+    }
+
+    private fun buildReceiptItem(
+        sourceJson: JSONObject,
+        fallbackJson: JSONObject?,
+        defaultIndex: Int,
+        status: String,
+        linkedTransaction: TransactionEntity?,
+        fallbackTimestamp: Long,
+        transactionId: Long?,
+    ): AiChatReceiptItem {
+        return AiChatReceiptItem(
+            index = sourceJson.optInt("index").takeIf { it > 0 } ?: defaultIndex,
+            status = status,
+            action = sourceJson.optString("action")
+                .takeIf { it.isNotBlank() }
+                ?: fallbackJson?.optString("action")?.takeIf { it.isNotBlank() }
+                ?: ACTION_CREATE,
+            category = sourceJson.optString("category")
+                .takeIf { it.isNotBlank() }
+                ?: fallbackJson?.optString("category")?.takeIf { it.isNotBlank() }
+                ?: linkedTransaction?.categoryName
+                ?: "已识别",
+            amount = parseReceiptAmount(sourceJson)
+                ?: fallbackJson?.let(::parseReceiptAmount)
+                ?: linkedTransaction?.amount?.let(::formatReceiptAmount)
+                ?: "",
+            desc = sourceJson.optString("desc")
+                .takeIf { it.isNotBlank() }
+                ?: fallbackJson?.optString("desc")?.takeIf { it.isNotBlank() }
+                ?: linkedTransaction?.remark
+                ?: "",
+            recordTimestamp = parseReceiptRecordTimestamp(sourceJson)
+                ?: fallbackJson?.let(::parseReceiptRecordTimestamp)
+                ?: linkedTransaction?.recordTimestamp
+                ?: fallbackTimestamp,
+            isIncome = parseReceiptType(sourceJson)
+                ?: fallbackJson?.let(::parseReceiptType)
+                ?: linkedTransaction?.type?.let { it == 1 },
+            transactionId = transactionId,
+            failureReason = sourceJson.optString("reason").takeIf { it.isNotBlank() },
+        )
+    }
+
+    private fun normalizeReceiptStatus(rawStatus: String?): String {
+        return when (rawStatus?.trim()?.lowercase(Locale.ROOT)) {
+            RECEIPT_STATUS_FAILED, "failure", "error" -> RECEIPT_STATUS_FAILED
+            else -> RECEIPT_STATUS_SUCCESS
+        }
+    }
+
+    private fun parseReceiptAmount(json: JSONObject): String? {
+        if (!json.has("amount") || json.isNull("amount")) return null
+        return formatReceiptAmount(json.optDouble("amount"))
+    }
+
+    private fun formatReceiptAmount(amount: Double): String {
+        return String.format(Locale.CHINA, "%.2f", abs(amount))
+    }
+
+    private fun parseReceiptType(json: JSONObject): Boolean? {
+        val typeValue = json.optString("type").trim().lowercase(Locale.ROOT)
+        val typeNumber = if (json.has("type") && !json.isNull("type")) {
+            json.optInt("type", -1)
+        } else {
+            -1
+        }
+        return when {
+            typeValue == "income" || typeValue == "1" -> true
+            typeValue == "expense" || typeValue == "0" -> false
+            typeNumber == 1 -> true
+            typeNumber == 0 -> false
+            else -> null
+        }
+    }
+
+    private fun parseReceiptRecordTimestamp(json: JSONObject): Long? {
+        parseRecordTimeFromDraft(json.optString("recordTime").takeIf { it.isNotBlank() }, Calendar.getInstance())?.let { return it }
+        parseDateFromDraft(json.optString("date").takeIf { it.isNotBlank() }, Calendar.getInstance())?.let { return it }
+        return null
     }
 
     private companion object {
         const val ACTION_CREATE = "create"
         const val ACTION_UPDATE = "update"
+        const val RECEIPT_STATUS_SUCCESS = "success"
+        const val RECEIPT_STATUS_FAILED = "failed"
 
         val updateIntentHints = listOf("记错", "改成", "改为", "不对", "修改", "更正")
         val incomeKeywordHints = listOf("工资", "收入", "奖金", "报销", "收款", "进账")
