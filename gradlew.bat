@@ -38,6 +38,12 @@ if not defined GRADLE_USER_HOME (
         set GRADLE_USER_HOME=%SystemDrive%\gradle-user-home\keepaccounts
     )
 )
+if not defined ANDROID_HOME (
+    if not defined ANDROID_SDK_ROOT (
+        for /f "usebackq delims=" %%i in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "$studioFiles = Get-ChildItem (Join-Path $env:APPDATA 'Google') -Recurse -Filter 'android.sdk.path.xml' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName; $studioSdk = $null; foreach ($file in $studioFiles) { try { [xml]$xml = Get-Content $file; $value = $xml.application.component.option.value; if ($value -and (Test-Path $value)) { $studioSdk = $value; break } } catch {} }; $paths = @($studioSdk, $env:ANDROID_HOME, $env:ANDROID_SDK_ROOT, (Join-Path $env:LOCALAPPDATA 'Android\Sdk'), 'E:\SDK', 'D:\Android\Sdk', 'C:\Users\Public\Android\Sdk') | Where-Object { $_ -and (Test-Path $_) }; $paths | Select-Object -First 1"`) do set "ANDROID_HOME=%%i"
+        if defined ANDROID_HOME set "ANDROID_SDK_ROOT=%ANDROID_HOME%"
+    )
+)
 
 @rem Resolve any "." and ".." in APP_HOME to make it shorter.
 for %%i in ("%APP_HOME%") do set APP_HOME=%%~fi

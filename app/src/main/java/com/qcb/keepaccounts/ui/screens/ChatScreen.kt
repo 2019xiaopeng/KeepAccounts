@@ -61,6 +61,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.qcb.keepaccounts.ui.components.glassCard
+import com.qcb.keepaccounts.ui.format.semanticDateTimeText
 import com.qcb.keepaccounts.ui.model.AiAssistantConfig
 import com.qcb.keepaccounts.ui.model.AiChatRecord
 import com.qcb.keepaccounts.ui.model.AiChatReceiptItem
@@ -91,6 +92,7 @@ private data class DemoMessage(
     val receiptAmount: String = "",
     val receiptRemark: String = "",
     val receiptRecordTimestamp: Long? = null,
+    val receiptTransactionId: Long? = null,
     val receiptIsIncome: Boolean = false,
 )
 
@@ -255,6 +257,7 @@ fun ChatScreen(
                         onEdit = {
                             onOpenManualEntry(
                                 ManualEntryPrefill(
+                                    transactionId = message.receiptTransactionId,
                                     type = if (message.receiptIsIncome) "income" else "expense",
                                     category = message.receiptCategory,
                                     desc = message.receiptRemark,
@@ -369,6 +372,7 @@ private fun AiChatRecord.toDemoMessage(): DemoMessage {
             ""
         },
         receiptRecordTimestamp = resolvedReceiptTimestamp,
+        receiptTransactionId = transactionId,
         receiptIsIncome = showReceipt && resolvedIsIncome,
     )
 }
@@ -754,6 +758,7 @@ private fun ReceiptCard(
     val isBatchReceipt = receiptSummary?.isBatch == true || receiptItems.size > 1 || failureItems.isNotEmpty()
     val canEditSingleReceipt = !isBatchReceipt && successItems.size == 1 && failureItems.isEmpty()
     val receiptDateTimestamp = message.receiptRecordTimestamp ?: message.timestamp
+    val semanticReceiptDateTime = semanticDateTimeText(receiptDateTimestamp)
     val amountPrefix = if (message.receiptIsIncome) "+" else "-"
     val amountColor = if (message.receiptIsIncome) IncomeGreen else WatermelonRed
 
@@ -800,8 +805,8 @@ private fun ReceiptCard(
             ReceiptRow(icon = Icons.Rounded.Category, label = "📁 分类", value = message.receiptCategory)
             ReceiptRow(icon = Icons.Rounded.AttachMoney, label = "💰 金额", value = "$amountPrefix${message.receiptAmount}", valueColor = amountColor)
             ReceiptRow(icon = Icons.Rounded.MoreHoriz, label = "📝 备注", value = message.receiptRemark)
-            ReceiptRow(icon = Icons.Rounded.Today, label = "📅 日期", value = formatReceiptDate(receiptDateTimestamp))
-            ReceiptRow(icon = Icons.Rounded.Schedule, label = "🕒 记录时间", value = formatReceiptTime(receiptDateTimestamp))
+            ReceiptRow(icon = Icons.Rounded.Today, label = "📅 日期", value = semanticReceiptDateTime.dateText)
+            ReceiptRow(icon = Icons.Rounded.Schedule, label = "🕒 记录时间", value = semanticReceiptDateTime.timeText)
         }
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
@@ -947,7 +952,7 @@ private fun BatchReceiptItemCard(item: AiChatReceiptItem) {
         if (isSuccess) {
             item.recordTimestamp?.let {
                 Text(
-                    text = "${formatReceiptDate(it)} ${formatReceiptTime(it)}",
+                    text = semanticDateTimeText(it).dateTimeText,
                     color = WarmBrownMuted.copy(alpha = 0.9f),
                     fontWeight = FontWeight.Medium,
                     fontSize = 11.sp,
@@ -1162,27 +1167,9 @@ private fun InputBar(
 
 private fun formatHeaderSubtitle(timestamp: Long?): String {
     if (timestamp == null) return "开始聊聊吧"
-
-    val now = Calendar.getInstance()
-    val target = Calendar.getInstance().apply { timeInMillis = timestamp }
-    val sameDay = now.get(Calendar.YEAR) == target.get(Calendar.YEAR) &&
-        now.get(Calendar.DAY_OF_YEAR) == target.get(Calendar.DAY_OF_YEAR)
-
-    return if (sameDay) {
-        "今天 ${SimpleDateFormat("HH:mm", Locale.CHINA).format(Date(timestamp))}"
-    } else {
-        SimpleDateFormat("MM-dd HH:mm", Locale.CHINA).format(Date(timestamp))
-    }
-}
-
-private fun formatReceiptDate(timestamp: Long): String {
-    return SimpleDateFormat("yyyy-MM-dd", Locale.CHINA).format(Date(timestamp))
-}
-
-private fun formatReceiptTime(timestamp: Long): String {
-    return SimpleDateFormat("HH:mm", Locale.CHINA).format(Date(timestamp))
+    return semanticDateTimeText(timestamp).dateTimeText
 }
 
 private fun formatBubbleTime(timestamp: Long): String {
-    return SimpleDateFormat("HH:mm", Locale.CHINA).format(Date(timestamp))
+    return semanticDateTimeText(timestamp).timeText
 }
