@@ -74,3 +74,47 @@ git status --short --branch
 ```
 
 执行结果：
+
+```text
+git merge-base --is-ancestor => exit code 0（release 基线是功能分支祖先）
+git rev-list --left-right --count => 0       1
+git log --oneline release..feat => 729e633 feat(ai): phase2 simplified time semantics
+git status --short --branch => 工作树干净
+```
+
+结论：
+
+- `feat/p2-time-semantics` 可正常向 `release/ai-4phase-2026q2` 发起 PR。
+- P2 首次主提交与 release 基线关系正确。
+
+## 2026-04-08 收口补充（Phase2 完整结束）
+
+### 本轮新增提交
+
+1. `d0b3c9c` feat(ai): phase2 semantic relative-date search indexing
+2. `9254e81` feat(ai): phase2 align chat receipt date text
+
+### 本轮新增文档与 ADR
+
+1. `docs/adr/035-phase2-relative-date-search-indexing.md`
+2. `docs/adr/036-phase2-chat-receipt-datetext-alignment.md`
+3. `docs/p2-t2-verification-evidence.md`（重写修复乱码并补全证据）
+
+### 推送与分支策略
+
+执行命令（走 7890 代理）：
+
+```powershell
+git -c http.proxy=http://127.0.0.1:7890 -c https.proxy=http://127.0.0.1:7890 push -u origin feat/p2-time-semantics-partial
+git -c http.proxy=http://127.0.0.1:7890 -c https.proxy=http://127.0.0.1:7890 push origin feat/p2-time-semantics-partial:feat/p2-time-semantics
+```
+
+执行目标：
+
+1. 保留 `feat/p2-time-semantics-partial` 作为完整审计分支。
+2. 将同一提交快进到正式分支 `feat/p2-time-semantics`，结束 Phase2 开发。
+
+### 最终结论
+
+1. Phase2 代码、测试、文档已收口。
+2. 分支成果已推送远端，可直接发起 PR 到 `release/ai-4phase-2026q2`。
