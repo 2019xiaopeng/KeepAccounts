@@ -9,8 +9,11 @@
 1. `./gradlew.bat :app:compileDebugKotlin :app:testDebugUnitTest --tests "com.qcb.keepaccounts.domain.agent.QueryDslEngineTest" --tests "com.qcb.keepaccounts.data.repository.ChatRepositoryBatchLedgerTest"`
 2. `./gradlew.bat :app:testDebugUnitTest --tests "com.qcb.keepaccounts.data.agent.AgentQualityFeedbackRepositoryTest" --tests "com.qcb.keepaccounts.domain.agent.AgentStyleFormatterTest" --tests "com.qcb.keepaccounts.data.repository.ChatRepositoryBatchLedgerTest"`
 3. `./gradlew.bat :app:testDebugUnitTest`
+4. `for i in 1..3: ./gradlew.bat :app:testDebugUnitTest --tests "ChatRepositoryBatchLedgerTest.sendMessage_queryRecentOneRoutesToQueryToolAndBypassesGateway" --tests "ChatRepositoryBatchLedgerTest.sendMessage_statsSameMerchantRoutesToStatsToolAndReturnsMerchantFrequency"`
 
 结果：全部通过。
+
+补充结论：第 4 项三轮重复执行均通过，query/stats 主路径在重复场景下保持稳定。
 
 ## 2. 需求对照验证
 
