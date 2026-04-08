@@ -1,5 +1,10 @@
 package com.qcb.keepaccounts.data.repository
 
+import com.qcb.keepaccounts.data.agent.AgentQualityFeedbackInput
+import com.qcb.keepaccounts.data.agent.AgentQualityFeedbackRepository
+import com.qcb.keepaccounts.data.agent.AgentQualityMetrics
+import com.qcb.keepaccounts.data.agent.AgentQualityStage
+import com.qcb.keepaccounts.data.agent.AgentRoutePath
 import com.qcb.keepaccounts.data.agent.AgentReplayService
 import com.qcb.keepaccounts.data.local.dao.ChatMessageDao
 import com.qcb.keepaccounts.data.local.dao.TransactionDao
@@ -14,6 +19,8 @@ import com.qcb.keepaccounts.domain.agent.AgentToolCallRecord
 import com.qcb.keepaccounts.domain.agent.AgentToolName
 import com.qcb.keepaccounts.domain.agent.AgentToolStatus
 import com.qcb.keepaccounts.domain.agent.AgentErrorCode
+import com.qcb.keepaccounts.domain.agent.AgentStyleFormatter
+import com.qcb.keepaccounts.domain.agent.AgentWriteStyleFacts
 import com.qcb.keepaccounts.domain.agent.LedgerTransactionSnapshot
 import com.qcb.keepaccounts.domain.agent.LedgerAgentOrchestrator
 import com.qcb.keepaccounts.domain.agent.NoOpAgentRunLogger
@@ -52,7 +59,11 @@ class ChatRepository(
     private val aiChatGateway: AiChatGateway,
     private val agentRunLogger: AgentRunLogger = NoOpAgentRunLogger,
     private val agentReplayService: AgentReplayService? = null,
+    private val qualityFeedbackRepository: AgentQualityFeedbackRepository? = null,
     private val requestIdProvider: () -> String = { UUID.randomUUID().toString() },
+    private val styleFormatter: AgentStyleFormatter = AgentStyleFormatter(),
+    private val agentDefaultPathEnabled: Boolean = true,
+    private val promptFallbackEnabled: Boolean = true,
     private val agentOrchestrator: LedgerAgentOrchestrator = LedgerAgentOrchestrator(
         runLogger = agentRunLogger,
     ),
@@ -99,6 +110,14 @@ class ChatRepository(
         val argsJson: String,
         val resultJson: String,
         val assistantReply: String,
+        val errorCode: AgentErrorCode? = null,
+        val errorMessage: String? = null,
+    )
+
+    private data class WriteIntentExecutionResult(
+        val status: AgentToolStatus,
+        val assistantReply: String,
+        val applyResult: ApplyTransactionsResult,
         val errorCode: AgentErrorCode? = null,
         val errorMessage: String? = null,
     )
@@ -185,14 +204,109 @@ class ChatRepository(
             ),
         )
 
-        val queryPlan = buildQueryIntentPlan(userInput)
-        if (queryPlan != null) {
-            handleQueryIntent(
-                requestId = requestId,
-                userInput = userInput,
-                plan = queryPlan,
+        val isCorrectionInput = isUserCorrectionInput(userInput)
+        if (isCorrectionInput) {
+            qualityFeedbackRepository?.markLatestAsCorrectionSample(
+                correctedByRequestId = requestId,
+                correctionInput = userInput,
             )
-            return
+        }
+
+        if (agentDefaultPathEnabled) {
+            val queryPlan = buildQueryIntentPlan(userInput)
+            if (queryPlan != null) {
+                val execution = handleQueryIntent(
+                    requestId = requestId,
+                    userInput = userInput,
+                    plan = queryPlan,
+                )
+                recordQualityFeedback(
+                    requestId = requestId,
+                    routePath = AgentRoutePath.AGENT_PRIMARY,
+                    stage = AgentQualityStage.TOOL_EXECUTION,
+                    userInput = userInput,
+                    expectedAction = queryPlan.toolName.name,
+                    actualAction = execution.toolName.name,
+                    runStatus = if (execution.status == AgentToolStatus.SUCCESS) "SUCCESS" else "FAILED",
+                    fallbackUsed = false,
+                    isMisjudged = isCorrectionInput || execution.status != AgentToolStatus.SUCCESS,
+                    errorCode = execution.errorCode?.name,
+                    errorMessage = execution.errorMessage,
+                    metadataJson = execution.resultJson,
+                )
+                return
+            }
+
+            val writeDrafts = buildWriteDraftsFromInput(userInput)
+            if (writeDrafts.isNotEmpty()) {
+                val execution = handleWriteIntent(
+                    requestId = requestId,
+                    userInput = userInput,
+                    drafts = writeDrafts,
+                )
+                recordQualityFeedback(
+                    requestId = requestId,
+                    routePath = AgentRoutePath.AGENT_PRIMARY,
+                    stage = AgentQualityStage.TOOL_EXECUTION,
+                    userInput = userInput,
+                    expectedAction = writeDrafts.firstOrNull()?.action,
+                    actualAction = writeDrafts.firstOrNull()?.action,
+                    runStatus = if (execution.status == AgentToolStatus.SUCCESS) "SUCCESS" else "FAILED",
+                    fallbackUsed = false,
+                    isMisjudged = isCorrectionInput || execution.status != AgentToolStatus.SUCCESS,
+                    errorCode = execution.errorCode?.name,
+                    errorMessage = execution.errorMessage,
+                    metadataJson = buildReceiptMetaTag(execution.applyResult),
+                )
+                return
+            }
+
+            if (!promptFallbackEnabled) {
+                val assistantMessageIds = mutableListOf<Long>()
+                syncAssistantReplyChunks(
+                    messageIds = assistantMessageIds,
+                    chunks = splitAssistantReply(
+                        styleFormatter.formatFallback(
+                            reason = "prompt_fallback_disabled",
+                            requestId = requestId,
+                        ),
+                    ),
+                    baseTimestamp = System.currentTimeMillis() + 1,
+                    isReceiptLast = false,
+                    receiptTransactionId = null,
+                    receiptTransactionBindings = null,
+                )
+                recordQualityFeedback(
+                    requestId = requestId,
+                    routePath = AgentRoutePath.FALLBACK_BLOCKED,
+                    stage = AgentQualityStage.INTENT_ROUTING,
+                    userInput = userInput,
+                    expectedAction = null,
+                    actualAction = null,
+                    runStatus = "FAILED",
+                    fallbackUsed = true,
+                    isMisjudged = true,
+                    errorCode = AgentErrorCode.TOOL_NOT_IMPLEMENTED.name,
+                    errorMessage = "prompt fallback disabled",
+                    metadataJson = null,
+                )
+                return
+            }
+
+            recordQualityFeedback(
+                requestId = requestId,
+                routePath = AgentRoutePath.PROMPT_FALLBACK,
+                stage = AgentQualityStage.INTENT_ROUTING,
+                userInput = userInput,
+                expectedAction = null,
+                actualAction = null,
+                runStatus = "FALLBACK",
+                fallbackUsed = true,
+                isMisjudged = isCorrectionInput,
+                errorCode = null,
+                errorMessage = null,
+                metadataJson = null,
+            )
         }
 
         val recentMessages = chatMessageDao.getRecentMessages(limit = 24).asReversed()
@@ -705,7 +819,7 @@ class ChatRepository(
         requestId: String,
         userInput: String,
         plan: QueryIntentPlan,
-    ) {
+    ): QueryIntentExecutionResult {
         val context = AgentRequestContext(
             requestId = requestId,
             idempotencyKey = buildIdempotencyKey(userInput, emptyList()),
@@ -779,6 +893,8 @@ class ChatRepository(
             receiptTransactionId = null,
             receiptTransactionBindings = null,
         )
+
+        return execution
     }
 
     private suspend fun executeQueryIntentPlan(
@@ -851,6 +967,237 @@ class ChatRepository(
                 queryArgs = buildQueryArgsFromText(input),
             )
         }
+    }
+
+    private fun buildWriteDraftsFromInput(userInput: String): List<AiReceiptDraft> {
+        val input = userInput.trim()
+        if (input.isBlank()) return emptyList()
+
+        val hasWriteHint = writeIntentHints.any { hint -> input.contains(hint) }
+        val hasAmount = parseAmountCandidates(input).isNotEmpty()
+        if (!hasWriteHint && !hasAmount) return emptyList()
+
+        val action = when {
+            deleteIntentHints.any { hint -> input.contains(hint) } -> ACTION_DELETE
+            updateIntentHints.any { hint -> input.contains(hint) } -> ACTION_UPDATE
+            else -> ACTION_CREATE
+        }
+
+        val transactionId = parseTransactionIdHint(input)
+        val dateHint = resolveRelativeDateKeyword(input)
+
+        if (action == ACTION_DELETE) {
+            return listOf(
+                AiReceiptDraft(
+                    isReceipt = true,
+                    action = ACTION_DELETE,
+                    amount = parseAmountCandidates(input).firstOrNull(),
+                    category = inferCategoryFromText(input, type = 0),
+                    desc = input.take(24),
+                    recordTime = null,
+                    date = dateHint,
+                    transactionId = transactionId,
+                ),
+            )
+        }
+
+        if (action == ACTION_UPDATE) {
+            val amount = parseAmountCandidates(input).firstOrNull()
+            return if (amount != null || transactionId != null) {
+                listOf(
+                    AiReceiptDraft(
+                        isReceipt = true,
+                        action = ACTION_UPDATE,
+                        amount = amount,
+                        category = inferCategoryFromText(input, type = 0),
+                        desc = input.take(24),
+                        recordTime = null,
+                        date = dateHint,
+                        transactionId = transactionId,
+                    ),
+                )
+            } else {
+                emptyList()
+            }
+        }
+
+        val segments = input.split(Regex("[，,、；;]\\s*"))
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+
+        val draftList = mutableListOf<AiReceiptDraft>()
+        segments.forEach { segment ->
+            val amount = parseAmountCandidates(segment).firstOrNull() ?: return@forEach
+            val inferredCategory = inferCategoryFromText(segment, type = 0)
+                ?: inferCategoryFromText(input, type = 0)
+            val desc = normalizeWriteDesc(segment)
+            draftList += AiReceiptDraft(
+                isReceipt = true,
+                action = ACTION_CREATE,
+                amount = amount,
+                category = inferredCategory,
+                desc = desc,
+                recordTime = null,
+                date = dateHint,
+                transactionId = null,
+            )
+        }
+
+        if (draftList.isNotEmpty()) return draftList
+
+        val singleAmount = parseAmountCandidates(input).firstOrNull() ?: return emptyList()
+        return listOf(
+            AiReceiptDraft(
+                isReceipt = true,
+                action = ACTION_CREATE,
+                amount = singleAmount,
+                category = inferCategoryFromText(input, type = 0),
+                desc = normalizeWriteDesc(input),
+                recordTime = null,
+                date = dateHint,
+                transactionId = null,
+            ),
+        )
+    }
+
+    private fun parseAmountCandidates(text: String): List<Double> {
+        val withCurrency = amountWithCurrencyRegex.findAll(text)
+            .mapNotNull { it.groupValues.getOrNull(1)?.toDoubleOrNull() }
+            .filter { it > 0.0 }
+            .toList()
+        if (withCurrency.isNotEmpty()) return withCurrency
+
+        return plainAmountRegex.findAll(text)
+            .mapNotNull { it.groupValues.getOrNull(1)?.toDoubleOrNull() }
+            .filter { amount -> amount > 0.0 && amount < 100000.0 }
+            .toList()
+    }
+
+    private fun parseTransactionIdHint(text: String): Long? {
+        return transactionIdRegex.find(text)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.toLongOrNull()
+            ?.takeIf { it > 0L }
+    }
+
+    private fun resolveRelativeDateKeyword(text: String): String? {
+        return when {
+            text.contains("大前天") -> "大前天"
+            text.contains("前天") -> "前天"
+            text.contains("昨天") || text.contains("昨日") -> "昨天"
+            text.contains("今天") || text.contains("今日") -> "今天"
+            else -> null
+        }
+    }
+
+    private fun normalizeWriteDesc(text: String): String {
+        return text
+            .replace(amountWithCurrencyRegex, "")
+            .replace("记一笔", "")
+            .replace("记账", "")
+            .replace("花了", "")
+            .replace("消费", "")
+            .replace("买了", "")
+            .trim()
+            .ifBlank { text.trim() }
+            .take(24)
+    }
+
+    private suspend fun handleWriteIntent(
+        requestId: String,
+        userInput: String,
+        drafts: List<AiReceiptDraft>,
+    ): WriteIntentExecutionResult {
+        val applyResult = applyReceiptTransactions(
+            requestId = requestId,
+            drafts = drafts,
+            assistantText = "",
+            userInput = userInput,
+        )
+
+        val status = when {
+            applyResult.hasSuccess && applyResult.failedTransactions.isEmpty() -> AgentToolStatus.SUCCESS
+            applyResult.hasSuccess -> AgentToolStatus.PARTIAL_SUCCESS
+            else -> AgentToolStatus.FAILURE
+        }
+
+        val styleReply = styleFormatter.formatWrite(
+            facts = AgentWriteStyleFacts(
+                successCount = applyResult.appliedTransactions.size,
+                failureCount = applyResult.failedTransactions.size,
+                createCount = applyResult.createCount,
+                updateCount = applyResult.updateCount,
+                deleteCount = applyResult.deleteCount,
+                errors = applyResult.errors,
+            ),
+            requestId = requestId,
+        )
+
+        val receiptContent = "${styleReply}\n${buildReceiptMetaTag(applyResult)}"
+        val assistantMessageIds = mutableListOf<Long>()
+        syncAssistantReplyChunks(
+            messageIds = assistantMessageIds,
+            chunks = listOf(receiptContent),
+            baseTimestamp = System.currentTimeMillis() + 1,
+            isReceiptLast = true,
+            receiptTransactionId = applyResult.primaryAppliedTransaction?.transactionId,
+            receiptTransactionBindings = buildTransactionBindingsPayload(applyResult.appliedTransactions),
+        )
+
+        return WriteIntentExecutionResult(
+            status = status,
+            assistantReply = styleReply,
+            applyResult = applyResult,
+            errorCode = if (status == AgentToolStatus.FAILURE) AgentErrorCode.VALIDATION_FAILED else null,
+            errorMessage = if (status == AgentToolStatus.FAILURE) {
+                applyResult.errors.firstOrNull() ?: "写入执行失败"
+            } else {
+                null
+            },
+        )
+    }
+
+    private suspend fun recordQualityFeedback(
+        requestId: String,
+        routePath: AgentRoutePath,
+        stage: AgentQualityStage,
+        userInput: String,
+        expectedAction: String?,
+        actualAction: String?,
+        runStatus: String,
+        fallbackUsed: Boolean,
+        isMisjudged: Boolean,
+        errorCode: String?,
+        errorMessage: String?,
+        metadataJson: String?,
+    ) {
+        qualityFeedbackRepository?.record(
+            AgentQualityFeedbackInput(
+                requestId = requestId,
+                routePath = routePath,
+                stage = stage,
+                userInput = userInput,
+                expectedAction = expectedAction,
+                actualAction = actualAction,
+                runStatus = runStatus,
+                fallbackUsed = fallbackUsed,
+                isMisjudged = isMisjudged,
+                errorCode = errorCode,
+                errorMessage = errorMessage,
+                metadataJson = metadataJson,
+                createdAt = System.currentTimeMillis(),
+            ),
+        )
+    }
+
+    suspend fun getAgentQualityMetrics(windowDays: Int = 30): AgentQualityMetrics? {
+        val sinceMillis = System.currentTimeMillis() - windowDays.coerceAtLeast(1) * oneDayMillis
+        return qualityFeedbackRepository?.computeMetrics(sinceMillis)
+    }
+
+    private fun isUserCorrectionInput(text: String): Boolean {
+        return correctionIntentHints.any { hint -> text.contains(hint) }
     }
 
     private fun buildQueryArgsFromText(userInput: String): AgentToolArgs.QueryTransactionsArgs {
@@ -1030,37 +1377,48 @@ class ChatRepository(
     ): String {
         if (result.status == AgentToolStatus.FAILURE) {
             val reason = result.validationIssues.firstOrNull()?.message ?: "查询条件暂时不合法，请补充后我再查一次。"
-            return "我先帮你检查了查询条件：$reason"
+            return styleFormatter.formatQuery(
+                structuredFacts = "结构化结果：queryValidation=failed，reason=$reason。",
+                explainabilityLine = "依据：tool=queryTransactions。",
+                caringLine = "你补充一下条件，我会马上重试并给出可追踪结果。",
+            )
         }
 
         val payload = result.result ?: return "我查了一下，暂时没有可展示的账单数据。"
         if (payload.items.isEmpty()) {
-            return "在 ${payload.explainability.timeWindow} 这个窗口里，我没有找到匹配记录。"
+            return styleFormatter.formatQuery(
+                structuredFacts = "结构化结果：matchedItems=0，timeWindow=${payload.explainability.timeWindow}。",
+                explainabilityLine = "依据：aggregationMethod=${payload.explainability.aggregationMethod}，sampleSize=${payload.explainability.sampleSize}，sortKey=${payload.explainability.sortKey}。",
+                caringLine = "这个时间段暂时没有匹配账单，你可以换个关键词或时间范围试试。",
+            )
         }
 
         val first = payload.items.first()
-        val head = when {
+        val structuredFacts = when {
             args.limit == 1 && args.sortKey == "record_time_desc" -> {
-                "最近一笔是：${first.categoryName}${formatReceiptAmount(first.amount)}（${first.remark}）。"
+                "结构化结果：latestRecord=${first.categoryName}${formatReceiptAmount(first.amount)}（${first.remark}），matchedItems=${payload.items.size}。"
             }
 
             args.sortKey == "amount_desc" -> {
-                "花得最多的一笔是：${first.categoryName}${formatReceiptAmount(first.amount)}（${first.remark}）。"
+                "结构化结果：maxAmountRecord=${first.categoryName}${formatReceiptAmount(first.amount)}（${first.remark}），matchedItems=${payload.items.size}。"
             }
 
             !args.filters.keyword.isNullOrBlank() -> {
-                "和“${args.filters.keyword}”相关的记录里，优先结果是：${first.categoryName}${formatReceiptAmount(first.amount)}（${first.remark}）。"
+                "结构化结果：keyword=${args.filters.keyword}，topRecord=${first.categoryName}${formatReceiptAmount(first.amount)}（${first.remark}），matchedItems=${payload.items.size}。"
             }
 
             else -> {
-                "我找到了 ${payload.items.size} 条记录，第一条是：${first.categoryName}${formatReceiptAmount(first.amount)}（${first.remark}）。"
+                "结构化结果：matchedItems=${payload.items.size}，topRecord=${first.categoryName}${formatReceiptAmount(first.amount)}（${first.remark}）。"
             }
         }
 
-        return listOf(
-            head,
-            "依据：aggregationMethod=${payload.explainability.aggregationMethod}，sampleSize=${payload.explainability.sampleSize}，timeWindow=${payload.explainability.timeWindow}，sortKey=${payload.explainability.sortKey}。",
-        ).joinToString(separator = "\n\n")
+        val explainabilityLine = "依据：aggregationMethod=${payload.explainability.aggregationMethod}，sampleSize=${payload.explainability.sampleSize}，timeWindow=${payload.explainability.timeWindow}，sortKey=${payload.explainability.sortKey}。"
+        val caringLine = "如果你愿意，我可以继续把同窗口内的关键波动点也一起列出来。"
+        return styleFormatter.formatQuery(
+            structuredFacts = structuredFacts,
+            explainabilityLine = explainabilityLine,
+            caringLine = caringLine,
+        )
     }
 
     private fun buildStatsAssistantReply(
@@ -1070,42 +1428,53 @@ class ChatRepository(
     ): String {
         if (result.status == AgentToolStatus.FAILURE) {
             val reason = result.validationIssues.firstOrNull()?.message ?: "统计条件暂时不合法，请补充后我再算一次。"
-            return "我先帮你检查了统计条件：$reason"
+            return styleFormatter.formatStats(
+                structuredFacts = "结构化结果：statsValidation=failed，reason=$reason。",
+                explainabilityLine = "依据：tool=querySpendingStats。",
+                caringLine = "你补充一下统计范围或维度，我会马上重新计算。",
+            )
         }
 
         val payload = result.result ?: return "我先试着统计了一下，但当前还没有可展示的数据。"
         if (payload.buckets.isEmpty()) {
-            return "在 ${payload.explainability.timeWindow} 的范围里，暂无可用统计结果。"
+            return styleFormatter.formatStats(
+                structuredFacts = "结构化结果：bucketCount=0，timeWindow=${payload.explainability.timeWindow}。",
+                explainabilityLine = "依据：aggregationMethod=${payload.explainability.aggregationMethod}，sampleSize=${payload.explainability.sampleSize}，sortKey=${payload.explainability.sortKey}。",
+                caringLine = "这个范围里暂时没有统计结果，我们可以换个时间窗再看。",
+            )
         }
 
         val top = payload.buckets.first()
-        val head = when {
+        val structuredFacts = when {
             args.groupBy == "merchant" && args.metric == "frequency" -> {
-                "你最近最常去的是：${top.key}（${top.value.toInt()} 次）。"
+                "结构化结果：topMerchant=${top.key}，frequency=${top.value.toInt()}，bucketCount=${payload.buckets.size}。"
             }
 
             args.groupBy == "timeslot" && args.metric == "frequency" -> {
-                "你最近最常消费的时段是：${top.key}（${top.value.toInt()} 次）。"
+                "结构化结果：topTimeslot=${top.key}，frequency=${top.value.toInt()}，bucketCount=${payload.buckets.size}。"
             }
 
             args.metric == "category_ratio" -> {
                 val percent = String.format(Locale.CHINA, "%.1f%%", top.value * 100.0)
-                "占比最高的是：${top.key}（$percent）。"
+                "结构化结果：topRatio=${top.key}，value=$percent，bucketCount=${payload.buckets.size}。"
             }
 
             args.metric == "frequency" -> {
-                "最频繁的是：${top.key}（${top.value.toInt()} 次）。"
+                "结构化结果：topFrequency=${top.key}，value=${top.value.toInt()}，bucketCount=${payload.buckets.size}。"
             }
 
             else -> {
-                "金额最高的是：${top.key}（${formatReceiptAmount(top.value)}）。"
+                "结构化结果：topAmount=${top.key}，value=${formatReceiptAmount(top.value)}，bucketCount=${payload.buckets.size}。"
             }
         }
 
-        return listOf(
-            head,
-            "依据：aggregationMethod=${payload.explainability.aggregationMethod}，sampleSize=${payload.explainability.sampleSize}，timeWindow=${payload.explainability.timeWindow}，sortKey=${payload.explainability.sortKey}。",
-        ).joinToString(separator = "\n\n")
+        val explainabilityLine = "依据：aggregationMethod=${payload.explainability.aggregationMethod}，sampleSize=${payload.explainability.sampleSize}，timeWindow=${payload.explainability.timeWindow}，sortKey=${payload.explainability.sortKey}。"
+        val caringLine = "如果你需要，我还可以把第二、第三名也按同口径列给你。"
+        return styleFormatter.formatStats(
+            structuredFacts = structuredFacts,
+            explainabilityLine = explainabilityLine,
+            caringLine = caringLine,
+        )
     }
 
     private fun AgentToolArgs.QueryTransactionsArgs.toQueryArgsJson(): String {
@@ -2572,11 +2941,15 @@ class ChatRepository(
 
         val updateIntentHints = listOf("记错", "改成", "改为", "不对", "修改", "更正")
         val deleteIntentHints = listOf("删除", "删掉", "删了", "移除", "清除", "去掉")
+        val correctionIntentHints = listOf("不是这个意思", "你理解错了", "我不是要", "我说的是", "纠正", "不对")
         val deleteConfirmHints = listOf("确认删除", "确认", "确定", "继续删除", "删吧", "是的删除")
         val deleteGenericKeywordHints = listOf("最近", "全部", "所有", "账单", "记录", "删除", "删掉", "清空")
         val incomeKeywordHints = listOf("工资", "收入", "奖金", "报销", "收款", "进账")
         val expenseKeywordHints = listOf("花了", "花费", "支出", "消费", "买了", "付款", "付了")
         val writeIntentHints = updateIntentHints + deleteIntentHints + incomeKeywordHints + expenseKeywordHints + listOf("记账", "入账")
+        val amountWithCurrencyRegex = Regex("(\\d+(?:\\.\\d+)?)\\s*(?:元|块|人民币|RMB|rmb|￥|¥)")
+        val plainAmountRegex = Regex("(?<!\\d)(\\d{1,6}(?:\\.\\d{1,2})?)(?!\\d)")
+        val transactionIdRegex = Regex("(?:交易|账单|记录)?\\s*(?:ID|id|Id|编号|号)?\\s*[:：#]?\\s*(\\d{1,18})")
 
         val queryStrongIntentHints = listOf(
             "最近一笔", "最新一笔", "查询", "查一下", "看看记录", "最高", "花得最多",

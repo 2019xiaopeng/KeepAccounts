@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Room
 import com.qcb.keepaccounts.BuildConfig
 import com.qcb.keepaccounts.data.agent.AgentJsonlMirrorStore
+import com.qcb.keepaccounts.data.agent.AgentQualityFeedbackRepository
 import com.qcb.keepaccounts.data.agent.AgentReplayService
 import com.qcb.keepaccounts.data.agent.RoomAgentRunLogger
 import com.qcb.keepaccounts.data.local.AppDatabase
@@ -41,7 +42,10 @@ class DefaultAppContainer(context: Context) : AppContainer {
         context,
         AppDatabase::class.java,
         "keep_accounts.db",
-    ).addMigrations(AppDatabase.MIGRATION_2_3).build()
+    ).addMigrations(
+        AppDatabase.MIGRATION_2_3,
+        AppDatabase.MIGRATION_3_4,
+    ).build()
 
     private val jsonlMirrorStore: AgentJsonlMirrorStore by lazy {
         AgentJsonlMirrorStore(
@@ -62,6 +66,12 @@ class DefaultAppContainer(context: Context) : AppContainer {
             runDao = database.agentRunDao(),
             toolCallDao = database.agentToolCallDao(),
             jsonlMirrorStore = jsonlMirrorStore,
+        )
+    }
+
+    private val agentQualityFeedbackRepository by lazy {
+        AgentQualityFeedbackRepository(
+            dao = database.agentQualityFeedbackDao(),
         )
     }
 
@@ -113,6 +123,7 @@ class DefaultAppContainer(context: Context) : AppContainer {
             aiChatGateway = aiChatGateway,
             agentRunLogger = agentRunLogger,
             agentReplayService = agentReplayService,
+            qualityFeedbackRepository = agentQualityFeedbackRepository,
         )
     }
 

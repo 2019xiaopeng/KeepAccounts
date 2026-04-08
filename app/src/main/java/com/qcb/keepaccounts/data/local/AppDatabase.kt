@@ -5,11 +5,13 @@ import androidx.room.Database
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.qcb.keepaccounts.data.local.dao.AgentQualityFeedbackDao
 import com.qcb.keepaccounts.data.local.dao.AgentRunDao
 import com.qcb.keepaccounts.data.local.dao.AgentToolCallDao
 import com.qcb.keepaccounts.data.local.dao.ChatMessageDao
 import com.qcb.keepaccounts.data.local.dao.TransactionDao
 import com.qcb.keepaccounts.data.local.dao.UserConfigDao
+import com.qcb.keepaccounts.data.local.entity.AgentQualityFeedbackEntity
 import com.qcb.keepaccounts.data.local.entity.AgentRunEntity
 import com.qcb.keepaccounts.data.local.entity.AgentToolCallEntity
 import com.qcb.keepaccounts.data.local.entity.ChatMessageEntity
@@ -23,8 +25,9 @@ import com.qcb.keepaccounts.data.local.entity.UserConfigEntity
         UserConfigEntity::class,
         AgentRunEntity::class,
         AgentToolCallEntity::class,
+        AgentQualityFeedbackEntity::class,
     ],
-    version = 3,
+    version = 4,
     autoMigrations = [
         AutoMigration(from = 1, to = 2),
     ],
@@ -36,6 +39,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun userConfigDao(): UserConfigDao
     abstract fun agentRunDao(): AgentRunDao
     abstract fun agentToolCallDao(): AgentToolCallDao
+    abstract fun agentQualityFeedbackDao(): AgentQualityFeedbackDao
 
     companion object {
         val MIGRATION_2_3: Migration = object : Migration(2, 3) {
@@ -91,6 +95,48 @@ abstract class AppDatabase : RoomDatabase() {
                 )
                 database.execSQL(
                     "CREATE INDEX IF NOT EXISTS `index_agent_tool_calls_timestamp` ON `agent_tool_calls` (`timestamp`)",
+                )
+            }
+        }
+
+        val MIGRATION_3_4: Migration = object : Migration(3, 4) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `agent_quality_feedback` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `requestId` TEXT NOT NULL,
+                        `routePath` TEXT NOT NULL,
+                        `stage` TEXT NOT NULL,
+                        `userInput` TEXT NOT NULL,
+                        `expectedAction` TEXT,
+                        `actualAction` TEXT,
+                        `runStatus` TEXT NOT NULL,
+                        `fallbackUsed` INTEGER NOT NULL,
+                        `isMisjudged` INTEGER NOT NULL,
+                        `isCorrectionSample` INTEGER NOT NULL,
+                        `correctedByRequestId` TEXT,
+                        `errorCode` TEXT,
+                        `errorMessage` TEXT,
+                        `metadataJson` TEXT,
+                        `createdAt` INTEGER NOT NULL
+                    )
+                    """.trimIndent(),
+                )
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_agent_quality_feedback_requestId` ON `agent_quality_feedback` (`requestId`)",
+                )
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_agent_quality_feedback_createdAt` ON `agent_quality_feedback` (`createdAt`)",
+                )
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_agent_quality_feedback_routePath` ON `agent_quality_feedback` (`routePath`)",
+                )
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_agent_quality_feedback_isMisjudged` ON `agent_quality_feedback` (`isMisjudged`)",
+                )
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_agent_quality_feedback_isCorrectionSample` ON `agent_quality_feedback` (`isCorrectionSample`)",
                 )
             }
         }

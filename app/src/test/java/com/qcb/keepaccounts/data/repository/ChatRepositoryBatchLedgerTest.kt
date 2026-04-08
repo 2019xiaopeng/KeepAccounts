@@ -90,6 +90,7 @@ class ChatRepositoryBatchLedgerTest {
                     }</DATA>
                     """.trimIndent(),
                 ),
+                agentDefaultPathEnabled = false,
             )
 
             repository.sendMessage(
@@ -135,6 +136,7 @@ class ChatRepositoryBatchLedgerTest {
                     }</DATA>
                     """.trimIndent(),
                 ),
+                agentDefaultPathEnabled = false,
             )
 
             repository.sendMessage(
@@ -404,7 +406,7 @@ class ChatRepositoryBatchLedgerTest {
                 .joinToString("\n") { it.content }
 
             assertEquals(0, gateway.requestCount)
-            assertEquals(true, assistantText.contains("最近一笔"))
+            assertEquals(true, assistantText.contains("latestRecord="))
             assertEquals(true, assistantText.contains("sampleSize="))
             assertEquals(true, assistantText.contains("aggregationMethod="))
         }
@@ -467,7 +469,7 @@ class ChatRepositoryBatchLedgerTest {
 
             assertEquals(0, gateway.requestCount)
             assertEquals(true, assistantText.contains("瑞幸咖啡"))
-            assertEquals(true, assistantText.contains("最常去"))
+            assertEquals(true, assistantText.contains("topMerchant="))
             assertEquals(true, assistantText.contains("sampleSize="))
         }
     }
