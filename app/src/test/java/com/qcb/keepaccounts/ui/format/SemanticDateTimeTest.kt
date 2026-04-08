@@ -17,8 +17,10 @@ class SemanticDateTimeTest {
         assertEquals("今天 04-07", today.dateText)
         assertEquals("今天 09:30", today.dateTimeText)
         assertEquals("昨天", yesterday.dateLabel)
+        assertEquals("昨天 04-06", yesterday.dateText)
         assertEquals("昨天 12:05", yesterday.dateTimeText)
         assertEquals("前天", beforeYesterday.dateLabel)
+        assertEquals("前天 04-05", beforeYesterday.dateText)
         assertEquals("前天 08:45", beforeYesterday.dateTimeText)
     }
 

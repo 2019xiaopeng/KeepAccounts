@@ -738,7 +738,7 @@ private fun ReceiptCard(
         ReceiptRow(icon = Icons.Rounded.Category, label = "📁 分类", value = message.receiptCategory)
         ReceiptRow(icon = Icons.Rounded.AttachMoney, label = "💰 金额", value = "$amountPrefix${message.receiptAmount}", valueColor = amountColor)
         ReceiptRow(icon = Icons.Rounded.MoreHoriz, label = "📝 备注", value = message.receiptRemark)
-        ReceiptRow(icon = Icons.Rounded.Today, label = "📅 日期", value = semanticReceiptDateTime.dateLabel)
+        ReceiptRow(icon = Icons.Rounded.Today, label = "📅 日期", value = semanticReceiptDateTime.dateText)
         ReceiptRow(icon = Icons.Rounded.Schedule, label = "🕒 记录时间", value = semanticReceiptDateTime.timeText)
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
