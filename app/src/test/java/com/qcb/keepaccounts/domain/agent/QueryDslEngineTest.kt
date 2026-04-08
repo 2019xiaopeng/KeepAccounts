@@ -108,6 +108,31 @@ class QueryDslEngineTest {
         assertTrue(abs(ratioSum - 1.0) < 0.001)
     }
 
+    @Test
+    fun querySpendingStats_mostFrequentMerchant_returnsTopMerchantByRemark() {
+        val dsl = builder.buildStats(
+            AgentToolArgs.QuerySpendingStatsArgs(
+                window = "last30days",
+                groupBy = "merchant",
+                metric = "frequency",
+                sortKey = "frequency_desc",
+                topN = 1,
+            ),
+        )
+
+        val source = listOf(
+            transaction(id = 101L, amount = 19.0, category = "餐饮美食", remark = "瑞幸咖啡", daysAgo = 1, hour = 9),
+            transaction(id = 102L, amount = 21.0, category = "餐饮美食", remark = "瑞幸咖啡", daysAgo = 2, hour = 9),
+            transaction(id = 103L, amount = 24.0, category = "餐饮美食", remark = "星巴克", daysAgo = 3, hour = 10),
+        )
+
+        val result = executor.executeStats(dsl, source)
+
+        assertEquals(1, result.buckets.size)
+        assertEquals("瑞幸咖啡", result.buckets.first().key)
+        assertEquals(2.0, result.buckets.first().value, 0.001)
+    }
+
     private fun sampleTransactions(): List<LedgerTransactionSnapshot> {
         return listOf(
             transaction(id = 1L, amount = 12.0, category = "餐饮美食", remark = "早餐", daysAgo = 0, hour = 9),

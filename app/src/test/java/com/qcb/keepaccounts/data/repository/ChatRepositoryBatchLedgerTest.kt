@@ -357,12 +357,138 @@ class ChatRepositoryBatchLedgerTest {
             assertEquals("count", result.result?.explainability?.aggregationMethod)
         }
     }
+
+    @Test
+    fun sendMessage_queryRecentOneRoutesToQueryToolAndBypassesGateway() {
+        runBlocking {
+            val now = System.currentTimeMillis()
+            val gateway = CountingAiChatGateway()
+            val repository = ChatRepository(
+                chatMessageDao = FakeChatMessageDao(),
+                transactionDao = FakeTransactionDao(
+                    initialTransactions = listOf(
+                        TransactionEntity(
+                            id = 11L,
+                            type = 0,
+                            amount = 26.0,
+                            categoryName = "餐饮美食",
+                            categoryIcon = "",
+                            remark = "晚饭",
+                            recordTimestamp = now - 1_000,
+                            createdTimestamp = now - 1_000,
+                        ),
+                        TransactionEntity(
+                            id = 12L,
+                            type = 0,
+                            amount = 15.0,
+                            categoryName = "饮品",
+                            categoryIcon = "",
+                            remark = "奶茶",
+                            recordTimestamp = now - 5_000,
+                            createdTimestamp = now - 5_000,
+                        ),
+                    ),
+                ),
+                aiChatGateway = gateway,
+            )
+
+            repository.sendMessage(
+                userInput = "帮我查最近一笔记录",
+                aiConfig = AiAssistantConfig(),
+                userName = "测试用户",
+            )
+
+            val assistantText = repository.observeChatRecords()
+                .first()
+                .filter { it.role == "assistant" }
+                .joinToString("\n") { it.content }
+
+            assertEquals(0, gateway.requestCount)
+            assertEquals(true, assistantText.contains("最近一笔"))
+            assertEquals(true, assistantText.contains("sampleSize="))
+            assertEquals(true, assistantText.contains("aggregationMethod="))
+        }
+    }
+
+    @Test
+    fun sendMessage_statsSameMerchantRoutesToStatsToolAndReturnsMerchantFrequency() {
+        runBlocking {
+            val now = System.currentTimeMillis()
+            val gateway = CountingAiChatGateway()
+            val repository = ChatRepository(
+                chatMessageDao = FakeChatMessageDao(),
+                transactionDao = FakeTransactionDao(
+                    initialTransactions = listOf(
+                        TransactionEntity(
+                            id = 21L,
+                            type = 0,
+                            amount = 18.0,
+                            categoryName = "餐饮美食",
+                            categoryIcon = "",
+                            remark = "瑞幸咖啡",
+                            recordTimestamp = now - 1_000,
+                            createdTimestamp = now - 1_000,
+                        ),
+                        TransactionEntity(
+                            id = 22L,
+                            type = 0,
+                            amount = 22.0,
+                            categoryName = "餐饮美食",
+                            categoryIcon = "",
+                            remark = "瑞幸咖啡",
+                            recordTimestamp = now - 2_000,
+                            createdTimestamp = now - 2_000,
+                        ),
+                        TransactionEntity(
+                            id = 23L,
+                            type = 0,
+                            amount = 30.0,
+                            categoryName = "餐饮美食",
+                            categoryIcon = "",
+                            remark = "星巴克",
+                            recordTimestamp = now - 3_000,
+                            createdTimestamp = now - 3_000,
+                        ),
+                    ),
+                ),
+                aiChatGateway = gateway,
+            )
+
+            repository.sendMessage(
+                userInput = "我是不是总吃同一家？",
+                aiConfig = AiAssistantConfig(),
+                userName = "测试用户",
+            )
+
+            val assistantText = repository.observeChatRecords()
+                .first()
+                .filter { it.role == "assistant" }
+                .joinToString("\n") { it.content }
+
+            assertEquals(0, gateway.requestCount)
+            assertEquals(true, assistantText.contains("瑞幸咖啡"))
+            assertEquals(true, assistantText.contains("最常去"))
+            assertEquals(true, assistantText.contains("sampleSize="))
+        }
+    }
 }
 
 private class FakeAiChatGateway(
     private val reply: String,
 ) : AiChatGateway {
     override fun streamReply(request: AiChatRequest): Flow<AiStreamEvent> = flow {
+        emit(AiStreamEvent.TextDelta(reply))
+        emit(AiStreamEvent.Completed)
+    }
+}
+
+private class CountingAiChatGateway(
+    private val reply: String = "unused",
+) : AiChatGateway {
+    var requestCount: Int = 0
+
+    override fun streamReply(request: AiChatRequest): Flow<AiStreamEvent> = flow {
+        requestCount += 1
         emit(AiStreamEvent.TextDelta(reply))
         emit(AiStreamEvent.Completed)
     }

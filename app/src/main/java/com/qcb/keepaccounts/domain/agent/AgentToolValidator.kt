@@ -7,7 +7,7 @@ class AgentToolValidator {
     private val allowedWindows = setOf("today", "yesterday", "last7days", "last30days", "last12months", "custom")
     private val allowedQuerySortKeys = setOf("record_time_desc", "amount_desc")
     private val allowedStatsSortKeys = setOf("value_desc", "frequency_desc")
-    private val allowedStatsGroupBy = setOf("category", "timeslot", "day", "month")
+    private val allowedStatsGroupBy = setOf("category", "merchant", "timeslot", "day", "month")
     private val allowedStatsMetrics = setOf("total_amount", "frequency", "category_ratio")
 
     fun validateCreateArgs(args: AgentToolArgs.CreateTransactionsArgs): List<AgentValidationIssue> {

@@ -26,6 +26,7 @@ enum class QuerySortKey(val wireValue: String) {
 
 enum class QueryGroupByDimension(val wireValue: String) {
     CATEGORY("category"),
+    MERCHANT("merchant"),
     TIME_SLOT("timeslot"),
     DAY("day"),
     MONTH("month"),
@@ -246,6 +247,7 @@ class QueryDslExecutor {
         val grouped = filtered.groupBy { transaction ->
             when (dsl.groupBy) {
                 QueryGroupByDimension.CATEGORY -> transaction.categoryName.ifBlank { "未分类" }
+                QueryGroupByDimension.MERCHANT -> transaction.remark.ifBlank { transaction.categoryName.ifBlank { "未知商家" } }
                 QueryGroupByDimension.TIME_SLOT -> resolveTimeSlot(transaction.recordTimestamp)
                 QueryGroupByDimension.DAY -> formatDate(transaction.recordTimestamp)
                 QueryGroupByDimension.MONTH -> formatMonth(transaction.recordTimestamp)
