@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.qcb.keepaccounts.data.local.entity.TransactionEntity
 import com.qcb.keepaccounts.ui.components.glassCard
+import com.qcb.keepaccounts.ui.format.buildSemanticDateSearchTexts
 import com.qcb.keepaccounts.ui.format.formatRelativeDateTime
 import com.qcb.keepaccounts.ui.format.formatSignedCurrency
 import com.qcb.keepaccounts.ui.icons.resolveCategoryIcon
@@ -48,8 +49,6 @@ import com.qcb.keepaccounts.ui.theme.MintGreen
 import com.qcb.keepaccounts.ui.theme.WarmBrown
 import com.qcb.keepaccounts.ui.theme.WarmBrownMuted
 import com.qcb.keepaccounts.ui.viewmodel.MainViewModel
-import java.text.SimpleDateFormat
-import java.util.Date
 import java.util.Locale
 
 @Composable
@@ -253,21 +252,10 @@ private fun tokenizeSearchQuery(raw: String): List<String> {
 }
 
 private fun buildSearchFields(tx: TransactionEntity): List<String> {
-    val date = Date(tx.recordTimestamp)
     val amount = trimSearchAmount(tx.amount)
     val signedAmount = if (tx.type == 1) "+$amount" else "-$amount"
     val typeKeyword = if (tx.type == 1) "收入" else "支出"
-
-    val dateFormats = listOf(
-        SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.CHINA),
-        SimpleDateFormat("yyyy-MM-dd", Locale.CHINA),
-        SimpleDateFormat("MM-dd", Locale.CHINA),
-        SimpleDateFormat("M月d日", Locale.CHINA),
-        SimpleDateFormat("yyyy年M月d日", Locale.CHINA),
-        SimpleDateFormat("HH:mm", Locale.CHINA),
-    )
-
-    val dateTexts = dateFormats.map { formatter -> formatter.format(date) }
+    val dateTexts = buildSemanticDateSearchTexts(tx.recordTimestamp)
 
     return buildList {
         add(normalizeSearchToken(tx.categoryName))
@@ -281,6 +269,11 @@ private fun buildSearchFields(tx: TransactionEntity): List<String> {
 
 private fun normalizeSearchToken(raw: String): String {
     return raw.lowercase(Locale.getDefault())
+        .replace("今日", "今天")
+        .replace("昨日", "昨天")
+        .replace("昨晚", "昨天")
+        .replace("昨夜", "昨天")
+        .replace("前日", "前天")
         .replace("￥", "")
         .replace("¥", "")
         .replace("元", "")

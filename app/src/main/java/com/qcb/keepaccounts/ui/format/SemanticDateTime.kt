@@ -72,6 +72,29 @@ fun formatClockTime(timestamp: Long): String {
     return SimpleDateFormat("HH:mm", Locale.CHINA).format(Date(timestamp))
 }
 
+fun buildSemanticDateSearchTexts(
+    timestamp: Long,
+    nowMillis: Long = System.currentTimeMillis(),
+): List<String> {
+    val date = Date(timestamp)
+    val semantic = semanticDateTimeText(timestamp, nowMillis)
+    val absoluteTexts = listOf(
+        SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.CHINA).format(date),
+        SimpleDateFormat("yyyy-MM-dd", Locale.CHINA).format(date),
+        SimpleDateFormat("MM-dd", Locale.CHINA).format(date),
+        SimpleDateFormat("M月d日", Locale.CHINA).format(date),
+        SimpleDateFormat("yyyy年M月d日", Locale.CHINA).format(date),
+        SimpleDateFormat("HH:mm", Locale.CHINA).format(date),
+    )
+
+    return buildList {
+        addAll(absoluteTexts)
+        add(semantic.dateLabel)
+        add(semantic.dateText)
+        add(semantic.dateTimeText)
+    }.distinct()
+}
+
 fun applyCurrentTimeToDate(
     selectedTimestamp: Long,
     nowMillis: Long = System.currentTimeMillis(),
