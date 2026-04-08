@@ -47,9 +47,11 @@ class SiliconFlowAiGateway(
                             remaining = ""
                         } else {
                             dataBuffer.append(remaining.substring(0, end))
-                            parseReceiptDraft(dataBuffer.toString())?.let { draft ->
-                                emit(AiStreamEvent.ReceiptParsed(draft))
-                            }
+                            parseReceiptDrafts(dataBuffer.toString())
+                                .takeIf { it.isNotEmpty() }
+                                ?.let { drafts ->
+                                    emit(AiStreamEvent.ReceiptParsed(drafts))
+                                }
                             dataBuffer.clear()
                             inDataSection = false
                             remaining = remaining.substring(end + "</DATA>".length)
@@ -138,21 +140,24 @@ class SiliconFlowAiGateway(
         }.getOrNull()
     }
 
-    private fun parseReceiptDraft(raw: String): AiReceiptDraft? {
-        if (raw.isBlank()) return null
+    private fun parseReceiptDrafts(raw: String): List<AiReceiptDraft> {
+        if (raw.isBlank()) return emptyList()
 
         return runCatching {
             val json = JSONObject(raw.trim())
-            AiReceiptDraft(
-                isReceipt = json.optBoolean("isReceipt", false),
-                action = json.optString("action", "create"),
-                amount = json.optDoubleOrNull("amount"),
-                category = json.optStringOrNull("category"),
-                desc = json.optStringOrNull("desc"),
-                recordTime = json.optStringOrNull("recordTime"),
-                date = json.optStringOrNull("date"),
-            )
-        }.getOrNull()
+            val parentDraft = json.toReceiptDraft()
+            val items = json.optJSONArray("items")
+            if (items == null || items.length() == 0) {
+                listOf(parentDraft)
+            } else {
+                buildList {
+                    for (index in 0 until items.length()) {
+                        val item = items.optJSONObject(index) ?: continue
+                        add(item.toReceiptDraft(parentDraft))
+                    }
+                }
+            }
+        }.getOrDefault(emptyList())
     }
 }
 
@@ -183,6 +188,18 @@ private fun JSONObject.optDoubleOrNull(key: String): Double? {
 private fun JSONObject.optStringOrNull(key: String): String? {
     if (!has(key) || isNull(key)) return null
     return optString(key).takeIf { it.isNotBlank() }
+}
+
+private fun JSONObject.toReceiptDraft(parent: AiReceiptDraft? = null): AiReceiptDraft {
+    return AiReceiptDraft(
+        isReceipt = if (has("isReceipt")) optBoolean("isReceipt", parent?.isReceipt ?: false) else parent?.isReceipt ?: true,
+        action = optStringOrNull("action") ?: parent?.action ?: "create",
+        amount = optDoubleOrNull("amount") ?: parent?.amount,
+        category = optStringOrNull("category") ?: parent?.category,
+        desc = optStringOrNull("desc") ?: parent?.desc,
+        recordTime = optStringOrNull("recordTime") ?: parent?.recordTime,
+        date = optStringOrNull("date") ?: parent?.date,
+    )
 }
 
 private fun JSONArray.toDeltaText(): String {

@@ -1,85 +1,152 @@
 # KeepAccounts 核心技术设计文档 (TRD)
 
-## 1. 架构原则与选型 (Architecture & Stack)
+## 1. 架构与技术栈
 
-系统从最初的云端同步设想完全迁移为 **Local-First (纯本地优先)** 的原生客户端架构：
-1.  **开发语言**: Kotlin (1.9+)
-2.  **UI 框架**: Jetpack Compose (响应式声明 UI)，利用 `Navigation Compose` 提供全屏/下沉页面的顺滑交互。
-3.  **状态与架构**: MVVM / MVI + Clean Architecture，采用 Kotlin Coroutines 异步编程与 `StateFlow` 实现 UDF (单向数据流)。
-4.  **本地数据库**: Room Database 作为唯一真理来源。任何新产生的流水（手动或AI解析），保存入库后通过 `Flow<List<Transaction>>` 驱动全量UI刷新。
-5.  **服务端/AI 交互**: 应用直接采用 Retrofit + OkHttp SSE 与 SiliconFlow 大模型端点进行会话，以获得类似 ChatGPT 的流式打字机回复，不架设自营服务器收集隐私。
+系统采用 **Android 本地优先 (Local-First)** 架构，目标是保证记账核心能力在离线场景下可用，并减少隐私暴露面。后续规划为在用户授权登录后提供**可选云同步**，但不改变离线可用的基础原则。
+
+1. 开发语言与平台
+- Kotlin 1.9+
+- Android 原生（Jetpack Compose）
+
+2. 分层结构
+- UI 层：`ui/screens` + `ui/components`，仅负责渲染与交互。
+- 状态层：`ui/viewmodel`，通过 `StateFlow` 暴露状态与事件。
+- 领域契约层：`domain/contract`，定义 AI 网关接口与流式事件模型。
+- 数据层：`data/repository` 负责业务编排，向下依赖 DAO 与远端网关。
+
+3. 本地存储
+- Room（SQLite）作为交易与聊天记录的事实源。
+- DataStore 保存用户偏好（主题、预算、提醒时间、AI 配置等）。
+
+4. 外部网络依赖
+- 仅调用 SiliconFlow `/chat/completions`（流式）。
+- 其余业务逻辑（账本、搜索、统计、设置）均本地完成。
 
 ---
 
-## 2. 数据库设计 (Room Database Schema)
-系统全面基于 SQLite。包含三个核心结构：
+## 2. 数据模型设计
 
-### 2.1 TransactionEntity (账单流水表)
+### 2.1 `TransactionEntity`（账单流水）
+
 | 字段名 | 类型 | 说明 |
 | :--- | :--- | :--- |
-| `id` | String (UUID)| 主键 |
-| `type` | Int | 0=支出(Expense), 1=收入(Income) |
-| `amount` | Double | 记录金额 |
-| `categoryName` | String | 分类名称（如：餐饮、日用） |
-| `categoryIcon` | String | 图标标识映射（对应于 Android 内部的 SVG Drawable 映射机制） |
-| `remark` | String | 用户备注 |
-| `recordTimestamp`| Long | 消费发生的实际时间戳（重要，日历图表依赖它处理对齐） |
-| `createdTimestamp`| Long | 生成的时间戳 |
+| `id` | Long（自增主键） | 交易主键 |
+| `type` | Int | `0=支出`，`1=收入` |
+| `amount` | Double | 金额（正值） |
+| `categoryName` | String | 分类名 |
+| `categoryIcon` | String | 分类图标标识（当前主要用于兼容字段） |
+| `remark` | String | 备注 |
+| `recordTimestamp` | Long | 交易发生时间（核心时间字段） |
+| `createdTimestamp` | Long | 入库时间 |
 
-### 2.2 ChatEntity (聊天记录缓存)
+### 2.2 `ChatMessageEntity`（聊天记录）
+
 | 字段名 | 类型 | 说明 |
 | :--- | :--- | :--- |
-| `id` | String (UUID)| 主键 |
-| `role` | String | 'user' / 'assistant' / 'system' |
-| `content` | String | 聊天文本内容 |
-| `timestamp`| Long | 发送时间 |
-| `isReceipt`| Boolean| 标示是否为“记账回执”卡片消息 |
-| `receiptId`| String | 外键关联到 `TransactionEntity.id` 以便展现 |
+| `id` | Long（自增主键） | 消息主键 |
+| `role` | String | `user` / `assistant` |
+| `content` | String | 消息正文（可能包含 `<DATA>...</DATA>`） |
+| `isReceipt` | Boolean | 是否为回执消息 |
+| `transactionId` | Long? | 可空外键，关联 `TransactionEntity.id` |
+| `timestamp` | Long | 消息时间 |
 
-### 2.3 Store (DataStore) 设定期
-放弃传统的 SharedPreferences，采用 Jetpack DataStore。
-维护参数如：`aiName` (AI 称呼)，`aiAvatarUri` (本地头像)，`aiTone` (性格预设)，`userName` (主人称谓)，`theme` (水彩薄荷绿/樱花粉红/天空湛蓝)。
+### 2.3 DataStore（用户设定）
 
----
-
-## 3. 面向 Android 16 的核心 UI 交互方案映射
-
-### 3.1 高级磨砂玻璃 (Glassmorphism)
-基于 Next.js 版本的 `Tailwind css blur` 效果，向 Kotlin 迁移需要封装：
-```kotlin
-Modifier.graphicsLayer {
-    // Android 12+ 高性能支持
-    renderEffect = BlurEffect(radiusX = 50f, radiusY = 50f, edgeTreatment = TileMode.Decal)
-}.background(Color.White.copy(alpha = 0.4f))
-```
-统一使用此修饰并搭配大圆角 ( `RoundedCornerShape(32.dp)` ) 构建所有卡片。
-
-### 3.2 图标像素级迁移策略
-严格废弃硬编码 Emoji (跨设备跨系统渲染不一致且不够精细)，将 Web 原型使用的高达几百个 `lucide-react` 线条 SVG 移植至 Android：
-*   **格式**: VectorDrawable (XML) 
-*   **统一粗细**: 控制 strokeWidth 统一恒定为 `2.5` 以提供统一饱满的治愈氛围。
-
-### 3.3 图表面板重构
-使用 `com.patrykandpatrick.vico:compose-m3`：
-*   将历史 Web 版本的原柱状图迁移为更为平滑治愈的 **曲线图 (Line Chart)**。
-*   X/Y 轴与颜色随月度/年度维度，以及明暗颜色主题 (Expense/Income/Balance) 实时切换组合。
+核心字段（`UserSettingsState`）：
+- 用户信息：`userName`、`homeSlogan`、`userAvatarUri`
+- 主题配置：`theme`
+- AI 配置：`aiConfig`（名称、头像、语气、聊天背景）
+- 账本配置：`ledgerCurrency`、`defaultLedgerName`、`reminderTime`、`monthlyBudget`
+- 分类配置：`manualCategories`
 
 ---
 
-## 4. 平台硬件与 Android 16 独占特性
+## 3. 关键业务流
 
-### 4.1 语音引擎对接
-调用 Android 原生 API 进行录音。
-*   **Service**: 封装 `SpeechRecognizer`，提供长按/按两下/摇局手机启动 `startListening()` 和 `stopListening()`。
-*   **输出流**: 使用 `Coroutines Flow` 进行 Partial Results 与 Final Result 回调并填入输入框。
+### 3.1 手动记账链路
 
-### 4.2 Rich Ongoing Notifications (状态栏彩色胶囊 / 灵动岛)
-利用 Android 16 前台服务特性 (Foreground Service)：
-*   启动独立 Service (需 `FOREGROUND_SERVICE` 与 `FOREGROUND_SERVICE_MICROPHONE` 权限)。
-*   在 `Notification.Builder` 中配合 `setOngoingStyle()`/类似最新胶囊流特性，渲染出：正在录音（橙色呼吸胶囊） -> 正在传输分析大模型（水彩薄荷绿旋转胶囊）的状态闭环，允许用户在锁屏亦能快速唤醒记账并获得强烈的多任务体验反馈。
+`ManualEntryScreen` -> `MainViewModel.addManualTransaction` -> `TransactionRepository.insertTransaction` -> `TransactionDao.insertTransaction`。
+
+交易入库后，由 `observeAllTransactions(): Flow<List<TransactionEntity>>` 触发首页、账本、搜索等页面自动刷新。
+
+### 3.2 AI 对话记账链路
+
+1. `ChatScreen` 提交用户输入。
+2. `ChatViewModel` 调用 `ChatRepository.sendMessage`。
+3. `ChatRepository` 组装系统提示词（含当前日期时间与时间推算规则），调用 `AiChatGateway.streamReply`。
+4. `SiliconFlowAiGateway` 解析流：
+- 普通文本 -> `AiStreamEvent.TextDelta`
+- `<DATA>...</DATA>` -> `AiStreamEvent.ReceiptParsed(AiReceiptDraft)`
+5. `ChatRepository` 根据 `AiReceiptDraft` 生成交易并落库，同时将 `transactionId` 回写到聊天消息。
+
+### 3.3 记账时间解析策略（当前实现）
+
+`resolveRecordTimestamp` 优先级：
+1. 用户原始输入中的显式日期/时间（最高优先级）
+2. AI 回执 `recordTime`
+3. AI 回执 `date`
+4. 当前系统时间
+
+补充规则：
+- 支持相对日期（今天/昨天/前天/大前天/明天/后天）。
+- 支持中文时段映射：早上 08:00、中午 12:00、下午 15:00、晚上 19:00、深夜 23:00。
+- “昨天”无明确时分时，默认 12:00。
+
+### 3.4 账本时间过滤与趋势渲染
+
+`MainViewModel` 使用 `StateFlow + combine` 维护：
+- `ledgerTimeSelection`（年/月）
+- `ledgerFilterMode`（月/年）
+- `filteredTransactions`（账本明细唯一消费流）
+
+趋势图采用 `List<Double?>`：
+- 当前月仅绘制到今天；未来日期填 `null`。
+- 绘制时遇 `null` 断线，形成“未来留白”。
+
+### 3.5 每日提醒通知
+
+已实现 `AlarmManager + BroadcastReceiver + NotificationCompat` 链路：
+- 支持设置提醒时间。
+- 支持开机后自动恢复提醒。
 
 ---
 
-## 5. 安全及架构注意事项
-*   网络请求只与 SiliconFlow 进行单点交互。对大模型吐出的内容执行：`流拦截 -> <DATA>...</DATA> Json 解析 -> 过滤展示到屏幕 -> DB 落地` 的全流程隔离管线。
-*   主题变量 (Color) 将不走硬代码，从顶层 `CompositionLocalProvider` 中注入 `LocalAppColors`，实现切换时不刷新 Activity 仅触发 Recomposition 以完成一键主题切换功能。
+## 4. 实现状态对齐（2026-03）
+
+| 能力 | 状态 | 说明 |
+| :--- | :--- | :--- |
+| 文本 AI 对话记账 | 已实现 | 流式文本 + 回执解析 + 入库 |
+| 回执 `recordTime` 全链路 | 已实现 | Prompt、网关、解析、入库、UI 已对齐 |
+| 账本月/年联动过滤 | 已实现 | 由 ViewModel 派生流统一驱动 |
+| 当前月趋势未来留白 | 已实现 | `null` 点位 + 断线绘制 |
+| 搜索（时间/金额/分类/备注） | 已实现 | 本地多条件匹配 |
+| CSV/JSON 导入导出真实读写 | 暂缓 | 当前仅保留入口，作为离线备份迁移低优先级方案 |
+| 语音输入（SpeechRecognizer） | 不单列开发 | 依赖系统输入法语音能力，应用内 Mic 暂不实现 |
+| 图片/OCR 记账 | 未实现 | 聊天页暂无图片上传与 OCR 解析链路 |
+| Rich Ongoing Notifications | 未实现 | 暂无前台服务胶囊通知能力 |
+| 分类拖拽排序/图标编辑 | 未实现 | 当前仅支持分类新增与删除 |
+| 账号登录/身份绑定（含微信） | 规划中 | 先完成技术选型与合规评估 |
+| 可选云同步（多设备） | 规划中 | Local-First 前提下处理冲突合并与离线回放 |
+| AI 人性化交互策略 | 规划中 | 需补齐澄清、纠错、可解释建议策略 |
+
+---
+
+## 5. 设计约束与风险提示
+
+1. 时间语义风险
+- 中文自然语言时间语义复杂，任何 prompt 规则更新都应同步本地解析策略，避免“模型正确、客户端回退错误”。
+
+2. 数据一致性风险
+- 聊天回执展示时间必须优先使用交易 `recordTimestamp`，避免消息时间与账本时间不一致。
+
+3. 功能文案风险
+- 设置页文案与真实能力需保持一致。对“占位入口”必须显式标注未完成，避免误导测试与验收。
+
+4. 构建验证建议
+- 文档更新后的功能开发建议至少执行一次 `:app:compileDebugKotlin` 验证主链路可编译。
+
+5. 同步一致性风险
+- 多设备编辑同一时间窗口的账单时需定义冲突优先级（时间戳、字段级合并、人工确认），否则会出现数据“互相覆盖”。
+
+6. 合规与隐私风险
+- 登录与微信绑定涉及用户标识和授权管理，需在落地前明确数据最小化采集、授权撤回与隐私条款更新策略。

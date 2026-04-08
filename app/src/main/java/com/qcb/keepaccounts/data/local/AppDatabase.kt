@@ -1,5 +1,6 @@
 package com.qcb.keepaccounts.data.local
 
+import androidx.room.AutoMigration
 import androidx.room.Database
 import androidx.room.RoomDatabase
 import com.qcb.keepaccounts.data.local.dao.ChatMessageDao
@@ -15,7 +16,10 @@ import com.qcb.keepaccounts.data.local.entity.UserConfigEntity
         ChatMessageEntity::class,
         UserConfigEntity::class,
     ],
-    version = 1,
+    version = 2,
+    autoMigrations = [
+        AutoMigration(from = 1, to = 2),
+    ],
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {

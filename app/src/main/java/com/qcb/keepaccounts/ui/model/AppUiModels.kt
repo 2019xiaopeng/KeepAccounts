@@ -82,6 +82,26 @@ data class ManualEntryPrefill(
     val recordTimestamp: Long? = null,
 )
 
+data class AiChatReceiptItem(
+    val index: Int = 1,
+    val status: String = "success",
+    val action: String = "create",
+    val category: String = "",
+    val amount: String = "",
+    val desc: String = "",
+    val recordTimestamp: Long? = null,
+    val isIncome: Boolean? = null,
+    val transactionId: Long? = null,
+    val failureReason: String? = null,
+)
+
+data class AiChatReceiptSummary(
+    val isBatch: Boolean = false,
+    val successCount: Int = 0,
+    val failureCount: Int = 0,
+    val items: List<AiChatReceiptItem> = emptyList(),
+)
+
 data class AiChatRecord(
     val id: Long,
     val timestamp: Long,
@@ -89,8 +109,10 @@ data class AiChatRecord(
     val content: String,
     val isReceipt: Boolean = false,
     val transactionId: Long? = null,
+    val transactionIds: List<Long> = emptyList(),
     val receiptRecordTimestamp: Long? = null,
     val receiptType: Int? = null,
+    val receiptSummary: AiChatReceiptSummary? = null,
 )
 
 val defaultManualCategories = listOf(

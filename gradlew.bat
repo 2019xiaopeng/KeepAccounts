@@ -31,6 +31,13 @@ if "%DIRNAME%"=="" set DIRNAME=.
 @rem This is normally unused
 set APP_BASE_NAME=%~n0
 set APP_HOME=%DIRNAME%
+if not defined GRADLE_USER_HOME (
+    if exist "D:\" (
+        set GRADLE_USER_HOME=D:\gradle-user-home\keepaccounts
+    ) else (
+        set GRADLE_USER_HOME=%SystemDrive%\gradle-user-home\keepaccounts
+    )
+)
 
 @rem Resolve any "." and ".." in APP_HOME to make it shorter.
 for %%i in ("%APP_HOME%") do set APP_HOME=%%~fi

@@ -22,12 +22,22 @@ interface ChatMessageDao {
     @Query("SELECT * FROM chat_messages WHERE id = :id LIMIT 1")
     suspend fun getMessageById(id: Long): ChatMessageEntity?
 
-    @Query("UPDATE chat_messages SET content = :content, isReceipt = :isReceipt, transactionId = :transactionId WHERE id = :id")
+    @Query(
+        """
+        UPDATE chat_messages
+        SET content = :content,
+            isReceipt = :isReceipt,
+            transactionId = :transactionId,
+            transactionBindings = :transactionBindings
+        WHERE id = :id
+        """,
+    )
     suspend fun updateMessage(
         id: Long,
         content: String,
         isReceipt: Boolean,
         transactionId: Long?,
+        transactionBindings: String?,
     )
 
     @Query("DELETE FROM chat_messages WHERE id IN (:ids)")
