@@ -10,9 +10,14 @@ import com.qcb.keepaccounts.domain.agent.AgentRequestContext
 import com.qcb.keepaccounts.domain.agent.AgentRunLogger
 import com.qcb.keepaccounts.domain.agent.AgentToolArgs
 import com.qcb.keepaccounts.domain.agent.AgentToolStatus
+import com.qcb.keepaccounts.domain.agent.LedgerTransactionSnapshot
 import com.qcb.keepaccounts.domain.agent.LedgerAgentOrchestrator
 import com.qcb.keepaccounts.domain.agent.NoOpAgentRunLogger
 import com.qcb.keepaccounts.domain.agent.PreviewActionItem
+import com.qcb.keepaccounts.domain.agent.QueryInsightsToolExecutor
+import com.qcb.keepaccounts.domain.agent.QuerySpendingStatsResult
+import com.qcb.keepaccounts.domain.agent.QueryToolCallResult
+import com.qcb.keepaccounts.domain.agent.QueryTransactionsResult
 import com.qcb.keepaccounts.domain.contract.AiChatGateway
 import com.qcb.keepaccounts.domain.contract.AiChatRequest
 import com.qcb.keepaccounts.domain.contract.AiMessage
@@ -47,6 +52,14 @@ class ChatRepository(
         runLogger = agentRunLogger,
     ),
 ) {
+
+    private val queryToolExecutor: QueryInsightsToolExecutor by lazy {
+        QueryInsightsToolExecutor(
+            sourceProvider = {
+                loadTransactionSnapshots(limit = 600)
+            },
+        )
+    }
 
     private data class AppliedTransaction(
         val transactionId: Long,
@@ -634,6 +647,27 @@ class ChatRepository(
 
     suspend fun replayAgentCallsByRequestId(requestId: String): AgentReplayTrace? {
         return agentReplayService?.replayFromMirrorOrDatabase(requestId)
+    }
+
+    suspend fun queryTransactionsTool(args: AgentToolArgs.QueryTransactionsArgs): QueryToolCallResult<QueryTransactionsResult> {
+        return queryToolExecutor.queryTransactions(args)
+    }
+
+    suspend fun querySpendingStatsTool(args: AgentToolArgs.QuerySpendingStatsArgs): QueryToolCallResult<QuerySpendingStatsResult> {
+        return queryToolExecutor.querySpendingStats(args)
+    }
+
+    private suspend fun loadTransactionSnapshots(limit: Int): List<LedgerTransactionSnapshot> {
+        return transactionDao.getRecentTransactions(limit = limit).map { entity ->
+            LedgerTransactionSnapshot(
+                transactionId = entity.id,
+                type = entity.type,
+                amount = entity.amount,
+                categoryName = entity.categoryName,
+                remark = entity.remark,
+                recordTimestamp = entity.recordTimestamp,
+            )
+        }
     }
 
     private fun buildIdempotencyKey(userInput: String, drafts: List<AiReceiptDraft>): String {

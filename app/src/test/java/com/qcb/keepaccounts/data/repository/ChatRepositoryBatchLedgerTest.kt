@@ -4,6 +4,9 @@ import com.qcb.keepaccounts.data.local.dao.ChatMessageDao
 import com.qcb.keepaccounts.data.local.dao.TransactionDao
 import com.qcb.keepaccounts.data.local.entity.ChatMessageEntity
 import com.qcb.keepaccounts.data.local.entity.TransactionEntity
+import com.qcb.keepaccounts.domain.agent.AgentToolArgs
+import com.qcb.keepaccounts.domain.agent.AgentToolStatus
+import com.qcb.keepaccounts.domain.agent.TransactionFilter
 import com.qcb.keepaccounts.domain.contract.AiChatGateway
 import com.qcb.keepaccounts.domain.contract.AiChatRequest
 import com.qcb.keepaccounts.domain.contract.AiStreamEvent
@@ -231,6 +234,127 @@ class ChatRepositoryBatchLedgerTest {
             assertEquals(2, deleteReceipt.receiptSummary?.successCount)
             assertEquals(0, deleteReceipt.receiptSummary?.failureCount)
             assertEquals(listOf(1L, 2L), deleteReceipt.transactionIds.sorted())
+        }
+    }
+
+    @Test
+    fun queryTransactionsTool_recentHighestExpenseInLast7Days_returnsExpectedTopRecord() {
+        runBlocking {
+            val now = System.currentTimeMillis()
+            val repository = ChatRepository(
+                chatMessageDao = FakeChatMessageDao(),
+                transactionDao = FakeTransactionDao(
+                    initialTransactions = listOf(
+                        TransactionEntity(
+                            id = 1L,
+                            type = 0,
+                            amount = 12.0,
+                            categoryName = "餐饮美食",
+                            categoryIcon = "",
+                            remark = "早餐",
+                            recordTimestamp = now - 1_000,
+                            createdTimestamp = now - 1_000,
+                        ),
+                        TransactionEntity(
+                            id = 2L,
+                            type = 0,
+                            amount = 88.0,
+                            categoryName = "交通出行",
+                            categoryIcon = "",
+                            remark = "打车",
+                            recordTimestamp = now - 2 * 24 * 60 * 60 * 1000L,
+                            createdTimestamp = now - 2 * 24 * 60 * 60 * 1000L,
+                        ),
+                        TransactionEntity(
+                            id = 3L,
+                            type = 0,
+                            amount = 199.0,
+                            categoryName = "购物消费",
+                            categoryIcon = "",
+                            remark = "外套",
+                            recordTimestamp = now - 20 * 24 * 60 * 60 * 1000L,
+                            createdTimestamp = now - 20 * 24 * 60 * 60 * 1000L,
+                        ),
+                    ),
+                ),
+                aiChatGateway = FakeAiChatGateway("收到"),
+            )
+
+            val result = repository.queryTransactionsTool(
+                AgentToolArgs.QueryTransactionsArgs(
+                    filters = TransactionFilter(),
+                    window = "last7days",
+                    sortKey = "amount_desc",
+                    limit = 1,
+                ),
+            )
+
+            assertEquals(AgentToolStatus.SUCCESS, result.status)
+            assertEquals(1, result.result?.items?.size)
+            assertEquals(2L, result.result?.items?.first()?.transactionId)
+            assertEquals("amount_desc", result.result?.explainability?.sortKey)
+            assertEquals(true, result.resultJson.contains("\"sampleSize\""))
+        }
+    }
+
+    @Test
+    fun querySpendingStatsTool_frequencyByCategory_returnsMostFrequentCategory() {
+        runBlocking {
+            val now = System.currentTimeMillis()
+            val repository = ChatRepository(
+                chatMessageDao = FakeChatMessageDao(),
+                transactionDao = FakeTransactionDao(
+                    initialTransactions = listOf(
+                        TransactionEntity(
+                            id = 1L,
+                            type = 0,
+                            amount = 20.0,
+                            categoryName = "餐饮美食",
+                            categoryIcon = "",
+                            remark = "午餐",
+                            recordTimestamp = now - 1_000,
+                            createdTimestamp = now - 1_000,
+                        ),
+                        TransactionEntity(
+                            id = 2L,
+                            type = 0,
+                            amount = 25.0,
+                            categoryName = "餐饮美食",
+                            categoryIcon = "",
+                            remark = "晚餐",
+                            recordTimestamp = now - 2_000,
+                            createdTimestamp = now - 2_000,
+                        ),
+                        TransactionEntity(
+                            id = 3L,
+                            type = 0,
+                            amount = 45.0,
+                            categoryName = "交通出行",
+                            categoryIcon = "",
+                            remark = "打车",
+                            recordTimestamp = now - 3_000,
+                            createdTimestamp = now - 3_000,
+                        ),
+                    ),
+                ),
+                aiChatGateway = FakeAiChatGateway("收到"),
+            )
+
+            val result = repository.querySpendingStatsTool(
+                AgentToolArgs.QuerySpendingStatsArgs(
+                    window = "last30days",
+                    groupBy = "category",
+                    metric = "frequency",
+                    sortKey = "frequency_desc",
+                    topN = 1,
+                ),
+            )
+
+            assertEquals(AgentToolStatus.SUCCESS, result.status)
+            assertEquals(1, result.result?.buckets?.size)
+            assertEquals("餐饮美食", result.result?.buckets?.first()?.key)
+            assertEquals(2.0, result.result?.buckets?.first()?.value ?: 0.0, 0.001)
+            assertEquals("count", result.result?.explainability?.aggregationMethod)
         }
     }
 }
