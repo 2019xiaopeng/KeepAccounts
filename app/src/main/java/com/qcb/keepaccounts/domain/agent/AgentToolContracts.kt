@@ -86,12 +86,21 @@ sealed interface AgentToolArgs {
 
     data class QueryTransactionsArgs(
         val filters: TransactionFilter,
+        val window: String = "last30days",
+        val sortKey: String = "record_time_desc",
+        val limit: Int = 20,
+        val startAtMillis: Long? = null,
+        val endAtMillis: Long? = null,
     ) : AgentToolArgs
 
     data class QuerySpendingStatsArgs(
         val window: String,
         val groupBy: String,
         val metric: String,
+        val sortKey: String = "value_desc",
+        val topN: Int = 5,
+        val startAtMillis: Long? = null,
+        val endAtMillis: Long? = null,
     ) : AgentToolArgs
 }
 

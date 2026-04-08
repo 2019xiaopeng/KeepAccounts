@@ -4,6 +4,12 @@ import kotlin.math.abs
 
 class AgentToolValidator {
 
+    private val allowedWindows = setOf("today", "yesterday", "last7days", "last30days", "last12months", "custom")
+    private val allowedQuerySortKeys = setOf("record_time_desc", "amount_desc")
+    private val allowedStatsSortKeys = setOf("value_desc", "frequency_desc")
+    private val allowedStatsGroupBy = setOf("category", "timeslot", "day", "month")
+    private val allowedStatsMetrics = setOf("total_amount", "frequency", "category_ratio")
+
     fun validateCreateArgs(args: AgentToolArgs.CreateTransactionsArgs): List<AgentValidationIssue> {
         if (args.items.isEmpty()) {
             return listOf(
@@ -60,17 +66,121 @@ class AgentToolValidator {
     }
 
     fun validateStatsArgs(args: AgentToolArgs.QuerySpendingStatsArgs): List<AgentValidationIssue> {
-        val allowedWindows = setOf("today", "yesterday", "last7days", "last30days", "last12months", "custom")
+        val issues = mutableListOf<AgentValidationIssue>()
+
         if (args.window !in allowedWindows) {
-            return listOf(
-                AgentValidationIssue(
-                    field = "window",
-                    code = AgentErrorCode.INVALID_TIME_WINDOW,
-                    message = "不支持的时间窗口: ${args.window}",
-                ),
+            issues += AgentValidationIssue(
+                field = "window",
+                code = AgentErrorCode.INVALID_TIME_WINDOW,
+                message = "不支持的时间窗口: ${args.window}",
             )
         }
-        return emptyList()
+
+        if (args.window == "custom") {
+            val start = args.startAtMillis
+            val end = args.endAtMillis
+            if (start == null || end == null || start > end) {
+                issues += AgentValidationIssue(
+                    field = "window.customRange",
+                    code = AgentErrorCode.INVALID_TIME_WINDOW,
+                    message = "custom 时间窗口需要合法的 startAtMillis/endAtMillis。",
+                )
+            }
+        }
+
+        if (args.groupBy !in allowedStatsGroupBy) {
+            issues += AgentValidationIssue(
+                field = "groupBy",
+                code = AgentErrorCode.VALIDATION_FAILED,
+                message = "不支持的 groupBy: ${args.groupBy}",
+            )
+        }
+
+        if (args.metric !in allowedStatsMetrics) {
+            issues += AgentValidationIssue(
+                field = "metric",
+                code = AgentErrorCode.VALIDATION_FAILED,
+                message = "不支持的 metric: ${args.metric}",
+            )
+        }
+
+        if (args.metric == "category_ratio" && args.groupBy != "category") {
+            issues += AgentValidationIssue(
+                field = "metric/groupBy",
+                code = AgentErrorCode.VALIDATION_FAILED,
+                message = "category_ratio 只支持按 category 分组。",
+            )
+        }
+
+        if (args.sortKey !in allowedStatsSortKeys) {
+            issues += AgentValidationIssue(
+                field = "sortKey",
+                code = AgentErrorCode.VALIDATION_FAILED,
+                message = "不支持的排序方式: ${args.sortKey}",
+            )
+        }
+
+        if (args.topN <= 0 || args.topN > 50) {
+            issues += AgentValidationIssue(
+                field = "topN",
+                code = AgentErrorCode.VALIDATION_FAILED,
+                message = "topN 必须在 1..50 之间。",
+            )
+        }
+
+        return issues
+    }
+
+    fun validateQueryArgs(args: AgentToolArgs.QueryTransactionsArgs): List<AgentValidationIssue> {
+        val issues = mutableListOf<AgentValidationIssue>()
+
+        if (args.window !in allowedWindows) {
+            issues += AgentValidationIssue(
+                field = "window",
+                code = AgentErrorCode.INVALID_TIME_WINDOW,
+                message = "不支持的时间窗口: ${args.window}",
+            )
+        }
+
+        if (args.window == "custom") {
+            val start = args.startAtMillis
+            val end = args.endAtMillis
+            if (start == null || end == null || start > end) {
+                issues += AgentValidationIssue(
+                    field = "window.customRange",
+                    code = AgentErrorCode.INVALID_TIME_WINDOW,
+                    message = "custom 时间窗口需要合法的 startAtMillis/endAtMillis。",
+                )
+            }
+        }
+
+        if (args.sortKey !in allowedQuerySortKeys) {
+            issues += AgentValidationIssue(
+                field = "sortKey",
+                code = AgentErrorCode.VALIDATION_FAILED,
+                message = "不支持的排序方式: ${args.sortKey}",
+            )
+        }
+
+        if (args.limit <= 0 || args.limit > 100) {
+            issues += AgentValidationIssue(
+                field = "limit",
+                code = AgentErrorCode.VALIDATION_FAILED,
+                message = "limit 必须在 1..100 之间。",
+            )
+        }
+
+        val min = args.filters.amountMin
+        val max = args.filters.amountMax
+        if (min != null && max != null && min > max) {
+            issues += AgentValidationIssue(
+                field = "filters.amountRange",
+                code = AgentErrorCode.VALIDATION_FAILED,
+                message = "查询过滤金额范围非法：min 不可大于 max。",
+            )
+        }
+
+        return issues
     }
 
     fun validateDeleteArgs(args: AgentToolArgs.DeleteTransactionsArgs): List<AgentValidationIssue> {
