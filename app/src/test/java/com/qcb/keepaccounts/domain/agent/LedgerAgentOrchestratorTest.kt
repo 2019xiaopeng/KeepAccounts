@@ -50,6 +50,10 @@ class LedgerAgentOrchestratorTest {
                     override suspend fun update(draft: AiReceiptDraft): LedgerAgentOrchestrator.WriteToolResult {
                         error("not expected")
                     }
+
+                    override suspend fun delete(draft: AiReceiptDraft): LedgerAgentOrchestrator.WriteToolResult {
+                        error("not expected")
+                    }
                 },
             )
         }
@@ -107,6 +111,11 @@ class LedgerAgentOrchestratorTest {
                         createCalled = true
                         return LedgerAgentOrchestrator.WriteToolResult.Failure("not expected")
                     }
+
+                    override suspend fun delete(draft: AiReceiptDraft): LedgerAgentOrchestrator.WriteToolResult {
+                        createCalled = true
+                        return LedgerAgentOrchestrator.WriteToolResult.Failure("not expected")
+                    }
                 },
             )
         }
@@ -115,6 +124,67 @@ class LedgerAgentOrchestratorTest {
         assertEquals(1, result.failures.size)
         assertTrue(!createCalled)
         assertEquals(AgentRunStatus.FAILED, result.runStatus)
+    }
+
+    @Test
+    fun execute_runsPreviewThenDeleteAndCollectsSuccess() {
+        val logger = FakeAgentRunLogger()
+        val orchestrator = LedgerAgentOrchestrator(runLogger = logger)
+        val deleteDraft = AiReceiptDraft(
+            isReceipt = true,
+            action = "delete",
+            amount = null,
+            category = "餐饮美食",
+            desc = "最近两条",
+            recordTime = null,
+            date = null,
+        )
+
+        val result = kotlinx.coroutines.runBlocking {
+            orchestrator.execute(
+                context = AgentRequestContext(
+                    requestId = "req-3",
+                    idempotencyKey = "idem-3",
+                    userInput = "确认删除最近两条",
+                    startedAt = 3000L,
+                ),
+                drafts = listOf(deleteDraft),
+                adapter = object : LedgerAgentOrchestrator.WriteToolAdapter {
+                    override suspend fun preview(args: AgentToolArgs.PreviewActionsArgs): LedgerAgentOrchestrator.AdapterResult {
+                        return LedgerAgentOrchestrator.AdapterResult(
+                            status = AgentToolStatus.SUCCESS,
+                            resultJson = "{\"targetCount\":2}",
+                        )
+                    }
+
+                    override suspend fun create(draft: AiReceiptDraft): LedgerAgentOrchestrator.WriteToolResult {
+                        error("not expected")
+                    }
+
+                    override suspend fun update(draft: AiReceiptDraft): LedgerAgentOrchestrator.WriteToolResult {
+                        error("not expected")
+                    }
+
+                    override suspend fun delete(draft: AiReceiptDraft): LedgerAgentOrchestrator.WriteToolResult {
+                        return LedgerAgentOrchestrator.WriteToolResult.Success(
+                            transactionId = 7L,
+                            type = 0,
+                            action = "delete",
+                            resultJson = "{\"deletedCount\":2}",
+                            affectedTransactions = listOf(
+                                LedgerAgentOrchestrator.WriteToolResult.ToolTransactionRef(7L, 0),
+                                LedgerAgentOrchestrator.WriteToolResult.ToolTransactionRef(8L, 0),
+                            ),
+                        )
+                    }
+                },
+            )
+        }
+
+        assertEquals(1, result.successes.size)
+        assertEquals(0, result.failures.size)
+        assertEquals(AgentRunStatus.SUCCESS, result.runStatus)
+        assertEquals(listOf(AgentToolName.PREVIEW_ACTIONS, AgentToolName.DELETE_TRANSACTIONS), logger.toolNames)
     }
 }
 

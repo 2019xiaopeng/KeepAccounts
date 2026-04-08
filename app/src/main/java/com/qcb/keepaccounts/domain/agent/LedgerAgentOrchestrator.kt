@@ -15,6 +15,8 @@ class LedgerAgentOrchestrator(
         suspend fun create(draft: AiReceiptDraft): WriteToolResult
 
         suspend fun update(draft: AiReceiptDraft): WriteToolResult
+
+        suspend fun delete(draft: AiReceiptDraft): WriteToolResult
     }
 
     data class AdapterResult(
@@ -25,11 +27,22 @@ class LedgerAgentOrchestrator(
     )
 
     sealed interface WriteToolResult {
+        data class ToolTransactionRef(
+            val transactionId: Long,
+            val type: Int,
+        )
+
         data class Success(
             val transactionId: Long,
             val type: Int,
             val action: String,
             val resultJson: String,
+            val affectedTransactions: List<ToolTransactionRef> = listOf(
+                ToolTransactionRef(
+                    transactionId = transactionId,
+                    type = type,
+                ),
+            ),
         ) : WriteToolResult
 
         data class Failure(
@@ -44,6 +57,7 @@ class LedgerAgentOrchestrator(
         val type: Int,
         val action: String,
         val draft: AiReceiptDraft,
+        val affectedTransactions: List<WriteToolResult.ToolTransactionRef>,
     )
 
     data class LedgerActionFailure(
@@ -90,6 +104,9 @@ class LedgerAgentOrchestrator(
                         amount = draft.amount,
                         category = draft.category,
                         recordTime = draft.recordTime,
+                        date = draft.date,
+                        desc = draft.desc,
+                        transactionId = draft.transactionId,
                     ),
                 ),
             )
@@ -127,11 +144,7 @@ class LedgerAgentOrchestrator(
             if (validationIssues.isNotEmpty()) {
                 val firstIssue = validationIssues.first()
                 stepIndex += 1
-                val failedToolName = if (draft.action.equals("update", ignoreCase = true)) {
-                    AgentToolName.UPDATE_TRANSACTIONS
-                } else {
-                    AgentToolName.CREATE_TRANSACTIONS
-                }
+                val failedToolName = resolveToolName(draft.action)
                 val validationTimestamp = nowProvider()
                 runLogger.appendToolCall(
                     AgentToolCallRecord(
@@ -156,10 +169,14 @@ class LedgerAgentOrchestrator(
                 return@forEachIndexed
             }
 
-            val isUpdate = draft.action.equals("update", ignoreCase = true)
-            val toolName = if (isUpdate) AgentToolName.UPDATE_TRANSACTIONS else AgentToolName.CREATE_TRANSACTIONS
+            val normalizedAction = draft.action.lowercase()
+            val toolName = resolveToolName(normalizedAction)
             val toolStartedAt = nowProvider()
-            val toolResult = if (isUpdate) adapter.update(draft) else adapter.create(draft)
+            val toolResult = when (normalizedAction) {
+                "update" -> adapter.update(draft)
+                "delete" -> adapter.delete(draft)
+                else -> adapter.create(draft)
+            }
             val toolFinishedAt = nowProvider()
             val toolLatency = (toolFinishedAt - toolStartedAt).coerceAtLeast(0L)
 
@@ -185,6 +202,7 @@ class LedgerAgentOrchestrator(
                         type = toolResult.type,
                         action = toolResult.action,
                         draft = draft,
+                        affectedTransactions = toolResult.affectedTransactions,
                     )
                 }
 
@@ -240,35 +258,70 @@ class LedgerAgentOrchestrator(
 
     private fun validateDraft(draft: AiReceiptDraft): List<AgentValidationIssue> {
         val normalizedAction = draft.action.lowercase()
-        return if (normalizedAction == "update") {
-            validator.validateUpdateArgs(
-                AgentToolArgs.UpdateTransactionsArgs(
-                    filters = TransactionFilter(keyword = draft.desc),
-                    patch = TransactionPatch(
-                        amount = draft.amount,
-                        category = draft.category,
-                        recordTime = draft.recordTime,
-                        date = draft.date,
-                        remark = draft.desc,
-                    ),
-                ),
-            )
-        } else {
-            val amount = draft.amount
-            val needsAmountIssue = amount == null || abs(amount) <= 0.0
-            val amountValue = if (needsAmountIssue) 0.0 else amount
-            validator.validateCreateArgs(
-                AgentToolArgs.CreateTransactionsArgs(
-                    items = listOf(
-                        PreviewActionItem(
-                            action = draft.action,
-                            amount = amountValue,
+        return when (normalizedAction) {
+            "update" -> {
+                validator.validateUpdateArgs(
+                    AgentToolArgs.UpdateTransactionsArgs(
+                        filters = TransactionFilter(
+                            transactionId = draft.transactionId,
+                            dateKeyword = draft.date,
+                            keyword = draft.desc,
+                            amountMin = draft.amount,
+                            amountMax = draft.amount,
+                        ),
+                        patch = TransactionPatch(
+                            amount = draft.amount,
                             category = draft.category,
                             recordTime = draft.recordTime,
+                            date = draft.date,
+                            remark = draft.desc,
                         ),
                     ),
-                ),
-            )
+                )
+            }
+
+            "delete" -> {
+                validator.validateDeleteArgs(
+                    AgentToolArgs.DeleteTransactionsArgs(
+                        filters = TransactionFilter(
+                            transactionId = draft.transactionId,
+                            dateKeyword = draft.date,
+                            keyword = draft.desc,
+                            amountMin = draft.amount,
+                            amountMax = draft.amount,
+                        ),
+                    ),
+                )
+            }
+
+            else -> {
+                val amount = draft.amount
+                val needsAmountIssue = amount == null || abs(amount) <= 0.0
+                val amountValue = if (needsAmountIssue) 0.0 else amount
+                validator.validateCreateArgs(
+                    AgentToolArgs.CreateTransactionsArgs(
+                        items = listOf(
+                            PreviewActionItem(
+                                action = draft.action,
+                                amount = amountValue,
+                                category = draft.category,
+                                recordTime = draft.recordTime,
+                                date = draft.date,
+                                desc = draft.desc,
+                                transactionId = draft.transactionId,
+                            ),
+                        ),
+                    ),
+                )
+            }
+        }
+    }
+
+    private fun resolveToolName(action: String): AgentToolName {
+        return when (action.lowercase()) {
+            "update" -> AgentToolName.UPDATE_TRANSACTIONS
+            "delete" -> AgentToolName.DELETE_TRANSACTIONS
+            else -> AgentToolName.CREATE_TRANSACTIONS
         }
     }
 }
@@ -279,11 +332,11 @@ private fun String.escapeJson(): String {
 
 private fun AgentToolArgs.PreviewActionsArgs.toLogJson(): String {
     val actionsJson = actions.joinToString(separator = ",") { action ->
-        "{\"action\":\"${action.action.escapeJson()}\",\"amount\":${action.amount ?: "null"},\"category\":${action.category?.let { "\"${it.escapeJson()}\"" } ?: "null"},\"recordTime\":${action.recordTime?.let { "\"${it.escapeJson()}\"" } ?: "null"}}"
+        "{\"action\":\"${action.action.escapeJson()}\",\"amount\":${action.amount ?: "null"},\"category\":${action.category?.let { "\"${it.escapeJson()}\"" } ?: "null"},\"recordTime\":${action.recordTime?.let { "\"${it.escapeJson()}\"" } ?: "null"},\"date\":${action.date?.let { "\"${it.escapeJson()}\"" } ?: "null"},\"desc\":${action.desc?.let { "\"${it.escapeJson()}\"" } ?: "null"},\"transactionId\":${action.transactionId ?: "null"}}"
     }
     return "{\"actions\":[${actionsJson}]}"
 }
 
 private fun AiReceiptDraft.toLogJson(): String {
-    return "{\"action\":\"${action.escapeJson()}\",\"amount\":${amount ?: "null"},\"category\":${category?.let { "\"${it.escapeJson()}\"" } ?: "null"},\"desc\":${desc?.let { "\"${it.escapeJson()}\"" } ?: "null"},\"recordTime\":${recordTime?.let { "\"${it.escapeJson()}\"" } ?: "null"},\"date\":${date?.let { "\"${it.escapeJson()}\"" } ?: "null"}}"
+    return "{\"action\":\"${action.escapeJson()}\",\"amount\":${amount ?: "null"},\"category\":${category?.let { "\"${it.escapeJson()}\"" } ?: "null"},\"desc\":${desc?.let { "\"${it.escapeJson()}\"" } ?: "null"},\"recordTime\":${recordTime?.let { "\"${it.escapeJson()}\"" } ?: "null"},\"date\":${date?.let { "\"${it.escapeJson()}\"" } ?: "null"},\"transactionId\":${transactionId ?: "null"}}"
 }

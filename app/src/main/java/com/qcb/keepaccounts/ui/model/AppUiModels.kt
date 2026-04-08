@@ -101,6 +101,7 @@ data class AiChatReceiptSummary(
     val successCount: Int = 0,
     val failureCount: Int = 0,
     val items: List<AiChatReceiptItem> = emptyList(),
+    val errors: List<String> = emptyList(),
 )
 
 data class AiChatRecord(

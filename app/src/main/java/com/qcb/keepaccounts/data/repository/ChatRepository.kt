@@ -12,6 +12,7 @@ import com.qcb.keepaccounts.domain.agent.AgentToolArgs
 import com.qcb.keepaccounts.domain.agent.AgentToolStatus
 import com.qcb.keepaccounts.domain.agent.LedgerAgentOrchestrator
 import com.qcb.keepaccounts.domain.agent.NoOpAgentRunLogger
+import com.qcb.keepaccounts.domain.agent.PreviewActionItem
 import com.qcb.keepaccounts.domain.contract.AiChatGateway
 import com.qcb.keepaccounts.domain.contract.AiChatRequest
 import com.qcb.keepaccounts.domain.contract.AiMessage
@@ -55,25 +56,29 @@ class ChatRepository(
         val index: Int = 0,
     )
 
-    private data class ApplyTransactionResult(
-        val appliedTransaction: AppliedTransaction?,
-        val fallbackMessage: String? = null,
-    )
-
     private data class FailedTransaction(
         val index: Int,
         val draft: AiReceiptDraft,
         val reason: String,
     )
 
+    private data class DeletePlan(
+        val targets: List<TransactionEntity>,
+        val requiresConfirmation: Boolean,
+        val isConfirmed: Boolean,
+        val previewMessage: String,
+    )
+
     private data class ApplyTransactionsResult(
         val appliedTransactions: List<AppliedTransaction> = emptyList(),
         val failedTransactions: List<FailedTransaction> = emptyList(),
+        val errors: List<String> = emptyList(),
     ) {
         val hasSuccess: Boolean get() = appliedTransactions.isNotEmpty()
         val primaryAppliedTransaction: AppliedTransaction? get() = appliedTransactions.firstOrNull()
         val createCount: Int get() = appliedTransactions.count { it.action == ACTION_CREATE }
         val updateCount: Int get() = appliedTransactions.count { it.action == ACTION_UPDATE }
+        val deleteCount: Int get() = appliedTransactions.count { it.action == ACTION_DELETE }
     }
 
     private data class TransactionBinding(
@@ -421,14 +426,64 @@ class ChatRepository(
             userInput = userInput,
             startedAt = System.currentTimeMillis(),
         )
+        val deletePlanCache = mutableMapOf<String, DeletePlan>()
 
         val orchestrationResult = agentOrchestrator.execute(
             context = context,
             drafts = drafts,
             adapter = object : LedgerAgentOrchestrator.WriteToolAdapter {
                 override suspend fun preview(args: AgentToolArgs.PreviewActionsArgs): LedgerAgentOrchestrator.AdapterResult {
+                    val firstAction = args.actions.firstOrNull()
+                    val actionName = firstAction?.action?.trim().orEmpty().lowercase(Locale.ROOT)
+
+                    if (actionName == ACTION_DELETE) {
+                        val deleteDraft = firstAction?.toDeleteDraft() ?: AiReceiptDraft(
+                            isReceipt = true,
+                            action = ACTION_DELETE,
+                            amount = null,
+                            category = null,
+                            desc = null,
+                            recordTime = null,
+                            date = null,
+                            transactionId = null,
+                        )
+                        val cacheKey = buildDeletePlanCacheKey(deleteDraft, userInput)
+                        val deletePlan = deletePlanCache.getOrPut(cacheKey) {
+                            buildDeletePlan(
+                                draft = deleteDraft,
+                                userInput = userInput,
+                            )
+                        }
+
+                        val previewJson = buildDeletePreviewJson(deletePlan)
+                        val needsStopForConfirm = deletePlan.requiresConfirmation && !deletePlan.isConfirmed
+                        val status = if (deletePlan.targets.isEmpty() || needsStopForConfirm) {
+                            AgentToolStatus.FAILURE
+                        } else {
+                            AgentToolStatus.SUCCESS
+                        }
+                        val errorMessage = when {
+                            deletePlan.targets.isEmpty() -> "我暂时没找到可删除的记录，你可以补充关键词或日期。"
+                            needsStopForConfirm -> deletePlan.previewMessage
+                            else -> null
+                        }
+
+                        return LedgerAgentOrchestrator.AdapterResult(
+                            status = status,
+                            resultJson = previewJson,
+                            errorMessage = errorMessage,
+                        )
+                    }
+
                     val hasMeaningfulAction = args.actions.any { action ->
-                        !action.action.isBlank() && (action.amount != null || !action.category.isNullOrBlank())
+                        !action.action.isBlank() && (
+                            action.amount != null ||
+                                !action.category.isNullOrBlank() ||
+                                !action.desc.isNullOrBlank() ||
+                                !action.recordTime.isNullOrBlank() ||
+                                !action.date.isNullOrBlank() ||
+                                action.transactionId != null
+                            )
                     }
                     val status = if (hasMeaningfulAction) AgentToolStatus.SUCCESS else AgentToolStatus.FAILURE
                     return LedgerAgentOrchestrator.AdapterResult(
@@ -486,19 +541,73 @@ class ChatRepository(
                         resultJson = buildToolSuccessJson(updated),
                     )
                 }
+
+                override suspend fun delete(draft: AiReceiptDraft): LedgerAgentOrchestrator.WriteToolResult {
+                    val cacheKey = buildDeletePlanCacheKey(draft, userInput)
+                    val deletePlan = deletePlanCache[cacheKey] ?: buildDeletePlan(
+                        draft = draft,
+                        userInput = userInput,
+                    )
+
+                    if (deletePlan.targets.isEmpty()) {
+                        return LedgerAgentOrchestrator.WriteToolResult.Failure(
+                            reason = "我暂时没找到可删除的记录，你可以补充关键词或日期。",
+                        )
+                    }
+
+                    if (deletePlan.requiresConfirmation && !deletePlan.isConfirmed) {
+                        return LedgerAgentOrchestrator.WriteToolResult.Failure(
+                            reason = deletePlan.previewMessage,
+                        )
+                    }
+
+                    deletePlan.targets.forEach { target ->
+                        transactionDao.deleteTransactionById(target.id)
+                    }
+
+                    val firstTarget = deletePlan.targets.first()
+                    return LedgerAgentOrchestrator.WriteToolResult.Success(
+                        transactionId = firstTarget.id,
+                        type = firstTarget.type,
+                        action = ACTION_DELETE,
+                        resultJson = buildDeleteToolSuccessJson(deletePlan),
+                        affectedTransactions = deletePlan.targets.map { target ->
+                            LedgerAgentOrchestrator.WriteToolResult.ToolTransactionRef(
+                                transactionId = target.id,
+                                type = target.type,
+                            )
+                        },
+                    )
+                }
             },
         )
 
-        val applied = orchestrationResult.successes
-            .sortedBy { it.index }
-            .map { success ->
-                AppliedTransaction(
-                    transactionId = success.transactionId,
-                    type = success.type,
-                    action = success.action,
-                    draft = success.draft,
-                    index = success.index,
-                )
+        val applied = buildList {
+            var appliedIndex = 1
+            orchestrationResult.successes
+                .sortedBy { it.index }
+                .forEach { success ->
+                    val affected = success.affectedTransactions.ifEmpty {
+                        listOf(
+                            LedgerAgentOrchestrator.WriteToolResult.ToolTransactionRef(
+                                transactionId = success.transactionId,
+                                type = success.type,
+                            ),
+                        )
+                    }
+                    affected.forEach { target ->
+                        add(
+                            AppliedTransaction(
+                                transactionId = target.transactionId,
+                                type = target.type,
+                                action = success.action,
+                                draft = success.draft,
+                                index = appliedIndex,
+                            ),
+                        )
+                        appliedIndex += 1
+                    }
+                }
             }
 
         val failed = orchestrationResult.failures
@@ -511,9 +620,15 @@ class ChatRepository(
                 )
             }
 
+        val errors = failed
+            .map { it.reason.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+
         return ApplyTransactionsResult(
             appliedTransactions = applied,
             failedTransactions = failed,
+            errors = errors,
         )
     }
 
@@ -530,6 +645,7 @@ class ChatRepository(
                 draft.desc.orEmpty(),
                 draft.recordTime.orEmpty(),
                 draft.date.orEmpty(),
+                draft.transactionId?.toString().orEmpty(),
             ).joinToString(separator = "#")
         }
         return (userInput.trim() + "::" + draftSignature).hashCode().toUInt().toString(16)
@@ -539,43 +655,208 @@ class ChatRepository(
         return "{\"transactionId\":${applied.transactionId},\"action\":\"${applied.action}\",\"type\":${applied.type}}"
     }
 
-    private suspend fun applyReceiptTransaction(
+    private fun buildDeletePlanCacheKey(draft: AiReceiptDraft, userInput: String): String {
+        return listOf(
+            draft.transactionId?.toString().orEmpty(),
+            draft.category.orEmpty(),
+            draft.desc.orEmpty(),
+            draft.amount?.toString().orEmpty(),
+            draft.date.orEmpty(),
+            draft.recordTime.orEmpty(),
+            userInput,
+        ).joinToString(separator = "|")
+    }
+
+    private suspend fun buildDeletePlan(
         draft: AiReceiptDraft,
-        assistantText: String,
         userInput: String,
-    ): ApplyTransactionResult {
-        if (!draft.isReceipt) return ApplyTransactionResult(appliedTransaction = null)
+    ): DeletePlan {
+        val targets = resolveDeleteTargets(draft, userInput)
+        val totalAmount = targets.sumOf { it.amount }
+        val highRisk = targets.size >= highRiskDeleteCountThreshold || totalAmount >= highRiskDeleteAmountThreshold
+        val requiresConfirmation = targets.size > 1 || highRisk
+        val isConfirmed = isDeleteConfirmationInput(userInput)
+        val previewMessage = buildDeletePreviewMessage(
+            targets = targets,
+            requiresConfirmation = requiresConfirmation,
+            isConfirmed = isConfirmed,
+        )
 
-        val rawAmount = draft.amount
-        if (rawAmount == null || abs(rawAmount) <= 0.0) {
-            val fallback = if (draft.action.equals(ACTION_UPDATE, ignoreCase = true)) {
-                "我知道你想改账单啦，告诉我改成多少金额就好。"
-            } else {
-                null
-            }
-            return ApplyTransactionResult(appliedTransaction = null, fallbackMessage = fallback)
+        return DeletePlan(
+            targets = targets,
+            requiresConfirmation = requiresConfirmation,
+            isConfirmed = isConfirmed,
+            previewMessage = previewMessage,
+        )
+    }
+
+    private suspend fun resolveDeleteTargets(
+        draft: AiReceiptDraft,
+        userInput: String,
+    ): List<TransactionEntity> {
+        draft.transactionId?.takeIf { it > 0L }?.let { id ->
+            return listOfNotNull(transactionDao.getTransactionById(id))
         }
 
-        return if (draft.action.equals(ACTION_UPDATE, ignoreCase = true)) {
-            val updated = tryUpdateTransaction(draft, assistantText, userInput, rawAmount)
-            if (updated != null) {
-                ApplyTransactionResult(appliedTransaction = updated)
-            } else {
-                ApplyTransactionResult(
-                    appliedTransaction = null,
-                    fallbackMessage = "我暂时没定位到要修改的那笔记录，你可以补一句“哪一天/哪一笔”。",
-                )
+        val recent = transactionDao.getRecentTransactions(limit = 200)
+        if (recent.isEmpty()) return emptyList()
+
+        val now = Calendar.getInstance()
+        val parsedDate = parseDateFromText(userInput, now)
+            ?: parseDateFromText(draft.date.orEmpty(), now)
+        val categoryHint = draft.category?.takeIf { it.isNotBlank() }
+            ?: inferCategoryFromText(userInput, type = 0)
+        val amountHint = draft.amount?.let(::abs)
+        val keywordHint = draft.desc
+            ?.trim()
+            ?.takeIf { it.length >= 2 }
+            ?.takeUnless { hint ->
+                deleteGenericKeywordHints.any { generic -> hint.contains(generic) }
             }
+        val countHint = parseDeleteCountHint(userInput)
+
+        val hasAnyFilter = parsedDate != null || !categoryHint.isNullOrBlank() || amountHint != null || !keywordHint.isNullOrBlank()
+
+        var candidates = recent
+        parsedDate?.let { date ->
+            candidates = candidates.filter { tx -> isSameDate(tx.recordTimestamp, date) }
+        }
+        if (!categoryHint.isNullOrBlank()) {
+            candidates = candidates.filter { tx ->
+                tx.categoryName.contains(categoryHint, ignoreCase = true)
+            }
+        }
+        amountHint?.let { expectedAmount ->
+            candidates = candidates.filter { tx -> abs(tx.amount - expectedAmount) < 0.01 }
+        }
+        if (!keywordHint.isNullOrBlank()) {
+            candidates = candidates.filter { tx ->
+                tx.remark.contains(keywordHint, ignoreCase = true) ||
+                    tx.categoryName.contains(keywordHint, ignoreCase = true)
+            }
+        }
+
+        if (!hasAnyFilter) {
+            val defaultCount = countHint?.coerceAtLeast(1) ?: 1
+            return recent.take(defaultCount)
+        }
+
+        if (countHint != null && countHint > 0) {
+            candidates = candidates.take(countHint)
+        }
+
+        return candidates
+    }
+
+    private fun buildDeletePreviewMessage(
+        targets: List<TransactionEntity>,
+        requiresConfirmation: Boolean,
+        isConfirmed: Boolean,
+    ): String {
+        if (targets.isEmpty()) return "预览未命中可删除记录。"
+
+        val head = targets.take(3).joinToString(separator = "、") { tx ->
+            "${tx.categoryName}${formatReceiptAmount(tx.amount)}"
+        }
+        val suffix = if (targets.size > 3) "等${targets.size}笔" else "共${targets.size}笔"
+        val base = "预览：将删除${targets.size}笔记录（${head}，${suffix}）。"
+
+        return if (requiresConfirmation && !isConfirmed) {
+            "$base 请回复“确认删除”继续。"
         } else {
-            if (draft.category.isNullOrBlank()) {
-                return ApplyTransactionResult(
-                    appliedTransaction = null,
-                    fallbackMessage = "这笔账单缺少分类，补一句分类后我再试一次。",
+            base
+        }
+    }
+
+    private fun buildDeletePreviewJson(plan: DeletePlan): String {
+        val targetsJson = JSONArray().apply {
+            plan.targets.forEach { tx ->
+                put(
+                    JSONObject().apply {
+                        put("transactionId", tx.id)
+                        put("type", tx.type)
+                        put("category", tx.categoryName)
+                        put("amount", tx.amount)
+                        put("recordTimestamp", tx.recordTimestamp)
+                    },
                 )
             }
-            val created = tryCreateTransaction(draft, assistantText, userInput, rawAmount)
-            ApplyTransactionResult(appliedTransaction = created)
         }
+
+        return JSONObject().apply {
+            put("targetCount", plan.targets.size)
+            put("requiresConfirmation", plan.requiresConfirmation)
+            put("isConfirmed", plan.isConfirmed)
+            put("previewMessage", plan.previewMessage)
+            put("targets", targetsJson)
+        }.toString()
+    }
+
+    private fun buildDeleteToolSuccessJson(plan: DeletePlan): String {
+        val deletedItems = JSONArray().apply {
+            plan.targets.forEach { tx ->
+                put(
+                    JSONObject().apply {
+                        put("transactionId", tx.id)
+                        put("type", tx.type)
+                        put("category", tx.categoryName)
+                        put("amount", tx.amount)
+                    },
+                )
+            }
+        }
+
+        return JSONObject().apply {
+            put("status", "success")
+            put("deletedCount", plan.targets.size)
+            put("deletedItems", deletedItems)
+            put("previewMessage", plan.previewMessage)
+        }.toString()
+    }
+
+    private fun isDeleteConfirmationInput(userInput: String): Boolean {
+        val normalized = userInput.lowercase(Locale.ROOT)
+        return deleteConfirmHints.any { hint -> normalized.contains(hint) }
+    }
+
+    private fun parseDeleteCountHint(text: String): Int? {
+        val digitMatch = Regex("(\\d{1,2})\\s*(?:笔|条)").find(text)
+        if (digitMatch != null) {
+            return digitMatch.groupValues[1].toIntOrNull()?.coerceIn(1, 50)
+        }
+
+        val chineseNumberMap = mapOf(
+            "一" to 1,
+            "两" to 2,
+            "二" to 2,
+            "三" to 3,
+            "四" to 4,
+            "五" to 5,
+            "六" to 6,
+            "七" to 7,
+            "八" to 8,
+            "九" to 9,
+            "十" to 10,
+        )
+        val cnMatch = Regex("([一二两三四五六七八九十])\\s*(?:笔|条)").find(text)
+        if (cnMatch != null) {
+            return chineseNumberMap[cnMatch.groupValues[1]]?.coerceIn(1, 50)
+        }
+
+        return null
+    }
+
+    private fun PreviewActionItem.toDeleteDraft(): AiReceiptDraft {
+        return AiReceiptDraft(
+            isReceipt = true,
+            action = action.ifBlank { ACTION_DELETE },
+            amount = amount,
+            category = category,
+            desc = desc,
+            recordTime = recordTime,
+            date = date,
+            transactionId = transactionId,
+        )
     }
 
     private suspend fun tryCreateTransaction(
@@ -670,6 +951,10 @@ class ChatRepository(
         draft: AiReceiptDraft,
         userInput: String,
     ): TransactionEntity? {
+        draft.transactionId?.takeIf { it > 0L }?.let { id ->
+            transactionDao.getTransactionById(id)?.let { return it }
+        }
+
         val recent = transactionDao.getRecentTransactions(limit = 120)
         if (recent.isEmpty()) return null
 
@@ -796,8 +1081,13 @@ class ChatRepository(
         userInput: String,
     ): String {
         val rawAction = draft.action.trim().lowercase(Locale.ROOT)
+        if (rawAction in setOf("delete", "remove", "erase", "drop")) return ACTION_DELETE
         if (rawAction in setOf("update", "modify", "edit", "correct", "fix")) return ACTION_UPDATE
         if (rawAction in setOf("create", "add", "record")) return ACTION_CREATE
+
+        if (deleteIntentHints.any { userInput.contains(it) }) {
+            return ACTION_DELETE
+        }
 
         return if (updateIntentHints.any { userInput.contains(it) }) {
             ACTION_UPDATE
@@ -1343,6 +1633,7 @@ class ChatRepository(
             put("failureCount", result.failedTransactions.size)
             put("createCount", result.createCount)
             put("updateCount", result.updateCount)
+            put("deleteCount", result.deleteCount)
             primary?.let { applied ->
                 val typeValue = if (applied.type == 1) "income" else "expense"
                 put("action", applied.action.ifBlank { ACTION_CREATE })
@@ -1389,6 +1680,14 @@ class ChatRepository(
                     }
                 },
             )
+            put(
+                "errors",
+                JSONArray().apply {
+                    result.errors.forEach { error ->
+                        put(error)
+                    }
+                },
+            )
         }
         return "<RECEIPT>${payload}</RECEIPT>"
     }
@@ -1431,6 +1730,11 @@ class ChatRepository(
             desc = optString("desc").takeIf { it.isNotBlank() } ?: parent?.desc,
             recordTime = optString("recordTime").takeIf { it.isNotBlank() } ?: parent?.recordTime,
             date = optString("date").takeIf { it.isNotBlank() } ?: parent?.date,
+            transactionId = if (has("transactionId") && !isNull("transactionId")) {
+                optLong("transactionId").takeIf { it > 0L } ?: parent?.transactionId
+            } else {
+                parent?.transactionId
+            },
         )
     }
 
@@ -1441,7 +1745,8 @@ class ChatRepository(
         if (!result.hasSuccess) return result.failedTransactions.isNotEmpty()
         if (result.failedTransactions.isNotEmpty()) return true
         if (totalDraftCount > 1) return true
-        return result.createCount > 0 && result.updateCount > 0
+        if (result.appliedTransactions.size > 1) return true
+        return (result.createCount > 0 && result.updateCount > 0) || result.deleteCount > 0
     }
 
     private fun buildApplySummaryText(result: ApplyTransactionsResult): String {
@@ -1461,6 +1766,9 @@ class ChatRepository(
         }
         if (result.updateCount > 0) {
             actionParts += "修改${result.updateCount}笔"
+        }
+        if (result.deleteCount > 0) {
+            actionParts += "删除${result.deleteCount}笔"
         }
 
         val failureText = result.failedTransactions
@@ -1482,10 +1790,10 @@ class ChatRepository(
     private fun defaultReceiptMessage(result: ApplyTransactionsResult): String {
         if (!result.hasSuccess) return "我暂时没成功处理这些账单。"
         if (result.appliedTransactions.size == 1 && result.failedTransactions.isEmpty()) {
-            return if (result.primaryAppliedTransaction?.action == ACTION_UPDATE) {
-                "已帮你修改这笔记录。"
-            } else {
-                "已为你记录这笔账单。"
+            return when (result.primaryAppliedTransaction?.action) {
+                ACTION_UPDATE -> "已帮你修改这笔记录。"
+                ACTION_DELETE -> "已为你删除这笔记录。"
+                else -> "已为你记录这笔账单。"
             }
         }
         return "批量记账已处理完成。"
@@ -1566,6 +1874,7 @@ class ChatRepository(
                         transactionId = linkedTransaction.id,
                     ),
                 ),
+                errors = emptyList(),
             )
         }
 
@@ -1633,13 +1942,26 @@ class ChatRepository(
             items.size > 1 ||
             successCount > 1 ||
             failureCount > 0
+        val errors = parseReceiptErrors(json)
+            .ifEmpty { items.mapNotNull { it.failureReason }.distinct() }
 
         return AiChatReceiptSummary(
             isBatch = isBatchMode,
             successCount = successCount,
             failureCount = failureCount,
             items = items,
+            errors = errors,
         )
+    }
+
+    private fun parseReceiptErrors(json: JSONObject): List<String> {
+        val errors = json.optJSONArray("errors") ?: return emptyList()
+        return buildList {
+            for (index in 0 until errors.length()) {
+                val value = errors.optString(index).trim()
+                if (value.isNotBlank()) add(value)
+            }
+        }
     }
 
     private fun buildReceiptItem(
@@ -1680,7 +2002,8 @@ class ChatRepository(
                 ?: fallbackJson?.let(::parseReceiptType)
                 ?: linkedTransaction?.type?.let { it == 1 },
             transactionId = transactionId,
-            failureReason = sourceJson.optString("reason").takeIf { it.isNotBlank() },
+            failureReason = sourceJson.optString("reason").takeIf { it.isNotBlank() }
+                ?: fallbackJson?.let(::parseReceiptErrors)?.firstOrNull(),
         )
     }
 
@@ -1725,10 +2048,14 @@ class ChatRepository(
     private companion object {
         const val ACTION_CREATE = "create"
         const val ACTION_UPDATE = "update"
+        const val ACTION_DELETE = "delete"
         const val RECEIPT_STATUS_SUCCESS = "success"
         const val RECEIPT_STATUS_FAILED = "failed"
 
         val updateIntentHints = listOf("记错", "改成", "改为", "不对", "修改", "更正")
+        val deleteIntentHints = listOf("删除", "删掉", "删了", "移除", "清除", "去掉")
+        val deleteConfirmHints = listOf("确认删除", "确认", "确定", "继续删除", "删吧", "是的删除")
+        val deleteGenericKeywordHints = listOf("最近", "全部", "所有", "账单", "记录", "删除", "删掉", "清空")
         val incomeKeywordHints = listOf("工资", "收入", "奖金", "报销", "收款", "进账")
         val expenseKeywordHints = listOf("花了", "花费", "支出", "消费", "买了", "付款", "付了")
         val categoryKeywordHints = listOf(
@@ -1767,6 +2094,8 @@ class ChatRepository(
         val repeatedNullRegex = Regex("(?i)(?:null\\s*){4,}")
         val conversationDelimiterRegex = Regex("\\n\\s*\\n+|<MSG>|\\|\\|\\|", setOf(RegexOption.IGNORE_CASE))
         val majorSentenceRegex = Regex("(?<=[。！？!?])")
+        const val highRiskDeleteCountThreshold = 3
+        const val highRiskDeleteAmountThreshold = 300.0
         val draftDateTimePatterns = listOf(
             "yyyy-MM-dd HH:mm",
             "yyyy/MM/dd HH:mm",

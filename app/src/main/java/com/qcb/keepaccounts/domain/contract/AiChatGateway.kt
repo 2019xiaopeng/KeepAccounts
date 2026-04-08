@@ -33,6 +33,7 @@ data class AiReceiptDraft(
     val desc: String?,
     val recordTime: String?,
     val date: String?,
+    val transactionId: Long? = null,
 )
 
 sealed interface AiStreamEvent {

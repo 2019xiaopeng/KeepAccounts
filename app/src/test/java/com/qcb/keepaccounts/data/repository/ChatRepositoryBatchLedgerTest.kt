@@ -157,6 +157,82 @@ class ChatRepositoryBatchLedgerTest {
             }
         }
     }
+
+    @Test
+    fun sendMessage_batchDeleteRequiresPreviewConfirmationThenDeletesOnConfirm() {
+        runBlocking {
+            val now = System.currentTimeMillis()
+            val chatMessageDao = FakeChatMessageDao()
+            val transactionDao = FakeTransactionDao(
+                initialTransactions = listOf(
+                    TransactionEntity(
+                        id = 1L,
+                        type = 0,
+                        amount = 22.0,
+                        categoryName = "餐饮美食",
+                        categoryIcon = "",
+                        remark = "午餐",
+                        recordTimestamp = now - 1_000,
+                        createdTimestamp = now - 1_000,
+                    ),
+                    TransactionEntity(
+                        id = 2L,
+                        type = 0,
+                        amount = 18.0,
+                        categoryName = "餐饮美食",
+                        categoryIcon = "",
+                        remark = "咖啡",
+                        recordTimestamp = now - 2_000,
+                        createdTimestamp = now - 2_000,
+                    ),
+                    TransactionEntity(
+                        id = 3L,
+                        type = 0,
+                        amount = 30.0,
+                        categoryName = "交通出行",
+                        categoryIcon = "",
+                        remark = "打车",
+                        recordTimestamp = now - 3_000,
+                        createdTimestamp = now - 3_000,
+                    ),
+                ),
+            )
+            val repository = ChatRepository(
+                chatMessageDao = chatMessageDao,
+                transactionDao = transactionDao,
+                aiChatGateway = FakeAiChatGateway(
+                    """
+                    先预览一下。
+                    <DATA>{"isReceipt":true,"action":"delete","category":"餐饮美食","desc":"最近两条"}</DATA>
+                    """.trimIndent(),
+                ),
+            )
+
+            repository.sendMessage(
+                userInput = "删除最近两条餐饮记录",
+                aiConfig = AiAssistantConfig(),
+                userName = "测试用户",
+            )
+
+            assertEquals(3, transactionDao.countTransactions())
+            val previewReceipt = repository.observeChatRecords().first().last { it.role == "assistant" && it.isReceipt }
+            assertEquals(0, previewReceipt.receiptSummary?.successCount)
+            assertEquals(1, previewReceipt.receiptSummary?.failureCount)
+            assertEquals(true, previewReceipt.receiptSummary?.errors?.firstOrNull()?.contains("确认删除"))
+
+            repository.sendMessage(
+                userInput = "确认删除最近两条餐饮记录",
+                aiConfig = AiAssistantConfig(),
+                userName = "测试用户",
+            )
+
+            assertEquals(1, transactionDao.countTransactions())
+            val deleteReceipt = repository.observeChatRecords().first().last { it.role == "assistant" && it.isReceipt }
+            assertEquals(2, deleteReceipt.receiptSummary?.successCount)
+            assertEquals(0, deleteReceipt.receiptSummary?.failureCount)
+            assertEquals(listOf(1L, 2L), deleteReceipt.transactionIds.sorted())
+        }
+    }
 }
 
 private class FakeAiChatGateway(
@@ -229,10 +305,14 @@ private class FakeChatMessageDao : ChatMessageDao {
     }
 }
 
-private class FakeTransactionDao : TransactionDao {
-    private val transactions = mutableListOf<TransactionEntity>()
+private class FakeTransactionDao(initialTransactions: List<TransactionEntity> = emptyList()) : TransactionDao {
+    private val transactions = initialTransactions.toMutableList()
     private val transactionsFlow = MutableStateFlow<List<TransactionEntity>>(emptyList())
-    private var nextId = 1L
+    private var nextId = (transactions.maxOfOrNull { it.id } ?: 0L) + 1L
+
+    init {
+        publish()
+    }
 
     override suspend fun insertTransaction(transaction: TransactionEntity): Long {
         val stored = transaction.copy(id = if (transaction.id == 0L) nextId++ else transaction.id)
@@ -256,6 +336,10 @@ private class FakeTransactionDao : TransactionDao {
     override fun observeTransactionById(id: Long): Flow<TransactionEntity?> = MutableStateFlow(
         transactions.firstOrNull { it.id == id },
     )
+
+    override suspend fun getTransactionById(id: Long): TransactionEntity? {
+        return transactions.firstOrNull { it.id == id }
+    }
 
     override suspend fun updateTransactionById(
         id: Long,

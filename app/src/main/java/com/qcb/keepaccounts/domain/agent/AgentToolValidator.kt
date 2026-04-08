@@ -72,4 +72,19 @@ class AgentToolValidator {
         }
         return emptyList()
     }
+
+    fun validateDeleteArgs(args: AgentToolArgs.DeleteTransactionsArgs): List<AgentValidationIssue> {
+        val min = args.filters.amountMin
+        val max = args.filters.amountMax
+        if (min != null && max != null && min > max) {
+            return listOf(
+                AgentValidationIssue(
+                    field = "filters.amountRange",
+                    code = AgentErrorCode.VALIDATION_FAILED,
+                    message = "删除过滤金额范围非法：min 不可大于 max。",
+                ),
+            )
+        }
+        return emptyList()
+    }
 }

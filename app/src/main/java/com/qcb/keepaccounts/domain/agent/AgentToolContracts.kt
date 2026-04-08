@@ -45,6 +45,9 @@ data class PreviewActionItem(
     val amount: Double?,
     val category: String?,
     val recordTime: String?,
+    val date: String? = null,
+    val desc: String? = null,
+    val transactionId: Long? = null,
 )
 
 data class TransactionFilter(

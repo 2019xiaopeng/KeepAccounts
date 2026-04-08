@@ -97,11 +97,13 @@ private data class DemoMessage(
 )
 
 private data class ParsedReceiptPayload(
+    val action: String,
     val amount: String,
     val category: String,
     val desc: String,
     val recordTimestamp: Long?,
     val isIncome: Boolean?,
+    val errors: List<String>,
 )
 
 @Composable
@@ -405,11 +407,13 @@ private fun parseReceiptPayload(text: String): ParsedReceiptPayload? {
             else -> null
         }
         ParsedReceiptPayload(
+            action = json.optString("action").ifBlank { "create" },
             amount = amount,
             category = json.optString("category").ifBlank { "已识别" },
             desc = json.optString("desc").ifBlank { "" },
             recordTimestamp = parsePayloadRecordTimestamp(json),
             isIncome = isIncome,
+            errors = parsePayloadErrors(json),
         )
     }.getOrNull()
 }
@@ -423,7 +427,7 @@ private fun ParsedReceiptPayload.toReceiptSummary(): AiChatReceiptSummary {
             AiChatReceiptItem(
                 index = 1,
                 status = "success",
-                action = "create",
+                action = action,
                 category = category,
                 amount = amount,
                 desc = desc,
@@ -431,7 +435,18 @@ private fun ParsedReceiptPayload.toReceiptSummary(): AiChatReceiptSummary {
                 isIncome = isIncome,
             ),
         ),
+        errors = errors,
     )
+}
+
+private fun parsePayloadErrors(json: JSONObject): List<String> {
+    val errors = json.optJSONArray("errors") ?: return emptyList()
+    return buildList {
+        for (index in 0 until errors.length()) {
+            val value = errors.optString(index).trim()
+            if (value.isNotBlank()) add(value)
+        }
+    }
 }
 
 private fun parsePayloadRecordTimestamp(json: JSONObject): Long? {
@@ -753,6 +768,7 @@ private fun ReceiptCard(
     var confirmDelete by rememberSaveable(message.id) { mutableStateOf(false) }
     val receiptSummary = message.receiptSummary
     val receiptItems = receiptSummary?.items.orEmpty()
+    val receiptErrors = receiptSummary?.errors.orEmpty()
     val successItems = receiptItems.filter { it.status == "success" }
     val failureItems = receiptItems.filter { it.status == "failed" }
     val isBatchReceipt = receiptSummary?.isBatch == true || receiptItems.size > 1 || failureItems.isNotEmpty()
@@ -799,6 +815,19 @@ private fun ReceiptCard(
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 receiptItems.forEach { item ->
                     BatchReceiptItemCard(item = item)
+                }
+            }
+
+            if (receiptErrors.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    receiptErrors.forEach { error ->
+                        Text(
+                            text = "提示：$error",
+                            color = WatermelonRed,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 11.sp,
+                        )
+                    }
                 }
             }
         } else {
@@ -979,7 +1008,11 @@ private fun BatchReceiptItemCard(item: AiChatReceiptItem) {
 }
 
 private fun buildBatchReceiptSummary(item: AiChatReceiptItem): String {
-    val actionText = if (item.action.equals("update", ignoreCase = true)) "修改" else "新增"
+    val actionText = when {
+        item.action.equals("update", ignoreCase = true) -> "修改"
+        item.action.equals("delete", ignoreCase = true) -> "删除"
+        else -> "新增"
+    }
     val categoryText = item.category.ifBlank { "已识别" }
     return "$actionText · $categoryText"
 }

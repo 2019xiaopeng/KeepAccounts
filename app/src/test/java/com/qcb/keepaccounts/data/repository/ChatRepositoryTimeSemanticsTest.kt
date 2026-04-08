@@ -268,6 +268,10 @@ private class TimeSemanticsFakeTransactionDao(initialTransactions: List<Transact
         transactions.firstOrNull { it.id == id },
     )
 
+    override suspend fun getTransactionById(id: Long): TransactionEntity? {
+        return transactions.firstOrNull { it.id == id }
+    }
+
     override suspend fun updateTransactionById(
         id: Long,
         type: Int,

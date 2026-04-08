@@ -199,6 +199,11 @@ private fun JSONObject.toReceiptDraft(parent: AiReceiptDraft? = null): AiReceipt
         desc = optStringOrNull("desc") ?: parent?.desc,
         recordTime = optStringOrNull("recordTime") ?: parent?.recordTime,
         date = optStringOrNull("date") ?: parent?.date,
+        transactionId = if (has("transactionId") && !isNull("transactionId")) {
+            optLong("transactionId").takeIf { it > 0L } ?: parent?.transactionId
+        } else {
+            parent?.transactionId
+        },
     )
 }
 
