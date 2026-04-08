@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.qcb.keepaccounts.data.local.entity.TransactionEntity
 import com.qcb.keepaccounts.ui.components.glassCard
+import com.qcb.keepaccounts.ui.format.formatRelativeDateTime
 import com.qcb.keepaccounts.ui.format.formatSignedCurrency
 import com.qcb.keepaccounts.ui.icons.resolveCategoryIcon
 import com.qcb.keepaccounts.ui.model.ManualEntryPrefill
@@ -161,6 +162,7 @@ fun SearchScreen(
                         .appPressable {
                             onOpenManualEntry(
                                 ManualEntryPrefill(
+                                    transactionId = tx.id,
                                     type = if (tx.type == 0) "expense" else "income",
                                     category = tx.categoryName,
                                     desc = tx.remark,
@@ -238,7 +240,7 @@ private fun EmptySearchHint(text: String) {
 }
 
 private fun formatDateTime(timestamp: Long): String {
-    return SimpleDateFormat("MM-dd HH:mm", Locale.CHINA).format(Date(timestamp))
+    return formatRelativeDateTime(timestamp)
 }
 
 private fun tokenizeSearchQuery(raw: String): List<String> {

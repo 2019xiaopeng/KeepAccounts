@@ -15,6 +15,26 @@ class TransactionRepository(
         return transactionDao.insertTransaction(transaction)
     }
 
+    suspend fun updateTransactionById(
+        id: Long,
+        type: Int,
+        amount: Double,
+        categoryName: String,
+        categoryIcon: String,
+        remark: String,
+        recordTimestamp: Long,
+    ) {
+        transactionDao.updateTransactionById(
+            id = id,
+            type = type,
+            amount = amount,
+            categoryName = categoryName,
+            categoryIcon = categoryIcon,
+            remark = remark,
+            recordTimestamp = recordTimestamp,
+        )
+    }
+
     suspend fun deleteTransactionById(id: Long) {
         transactionDao.deleteTransactionById(id)
     }

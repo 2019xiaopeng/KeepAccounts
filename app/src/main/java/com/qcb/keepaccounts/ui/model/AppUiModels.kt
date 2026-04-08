@@ -75,6 +75,7 @@ data class AiAssistantConfig(
 )
 
 data class ManualEntryPrefill(
+    val transactionId: Long? = null,
     val type: String = "expense",
     val category: String = "",
     val desc: String = "",

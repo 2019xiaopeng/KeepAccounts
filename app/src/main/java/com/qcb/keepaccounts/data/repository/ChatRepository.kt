@@ -570,14 +570,11 @@ class ChatRepository(
         userInput: String,
         originalRecordTimestamp: Long,
     ): Long {
-        if (!containsDateOrTimeCue(userInput)) return originalRecordTimestamp
-
         val now = Calendar.getInstance()
         parseDateTimeFromUserInput(userInput, now)?.let { return it }
         parseRecordTimeFromDraft(draft.recordTime, now)?.let { return it }
         parseDateFromDraft(draft.date, now)?.let { return it }
-
-        return originalRecordTimestamp
+        return currentTimestamp(now)
     }
 
     private fun containsDateOrTimeCue(text: String): Boolean {
@@ -630,7 +627,26 @@ class ChatRepository(
         parseRecordTimeFromDraft(rawRecordTime, now)?.let { return it }
         parseDateFromDraft(rawDate, now)?.let { return it }
 
-        return now.timeInMillis
+        return currentTimestamp(now)
+    }
+
+    private fun currentTimestamp(now: Calendar): Long {
+        return buildTimestamp(currentDate(now), currentTime(now)) ?: now.timeInMillis
+    }
+
+    private fun currentDate(now: Calendar): ParsedDate {
+        return ParsedDate(
+            year = now.get(Calendar.YEAR),
+            month = now.get(Calendar.MONTH) + 1,
+            day = now.get(Calendar.DAY_OF_MONTH),
+        )
+    }
+
+    private fun currentTime(now: Calendar): ParsedTime {
+        return ParsedTime(
+            hour = now.get(Calendar.HOUR_OF_DAY),
+            minute = now.get(Calendar.MINUTE),
+        )
     }
 
     private fun parseDateTimeFromUserInput(text: String, now: Calendar): Long? {
