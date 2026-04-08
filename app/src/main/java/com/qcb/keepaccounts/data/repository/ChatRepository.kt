@@ -1,9 +1,17 @@
 package com.qcb.keepaccounts.data.repository
 
+import com.qcb.keepaccounts.data.agent.AgentReplayService
 import com.qcb.keepaccounts.data.local.dao.ChatMessageDao
 import com.qcb.keepaccounts.data.local.dao.TransactionDao
 import com.qcb.keepaccounts.data.local.entity.ChatMessageEntity
 import com.qcb.keepaccounts.data.local.entity.TransactionEntity
+import com.qcb.keepaccounts.domain.agent.AgentReplayTrace
+import com.qcb.keepaccounts.domain.agent.AgentRequestContext
+import com.qcb.keepaccounts.domain.agent.AgentRunLogger
+import com.qcb.keepaccounts.domain.agent.AgentToolArgs
+import com.qcb.keepaccounts.domain.agent.AgentToolStatus
+import com.qcb.keepaccounts.domain.agent.LedgerAgentOrchestrator
+import com.qcb.keepaccounts.domain.agent.NoOpAgentRunLogger
 import com.qcb.keepaccounts.domain.contract.AiChatGateway
 import com.qcb.keepaccounts.domain.contract.AiChatRequest
 import com.qcb.keepaccounts.domain.contract.AiMessage
@@ -24,12 +32,19 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import java.util.UUID
 import kotlin.math.abs
 
 class ChatRepository(
     private val chatMessageDao: ChatMessageDao,
     private val transactionDao: TransactionDao,
     private val aiChatGateway: AiChatGateway,
+    private val agentRunLogger: AgentRunLogger = NoOpAgentRunLogger,
+    private val agentReplayService: AgentReplayService? = null,
+    private val requestIdProvider: () -> String = { UUID.randomUUID().toString() },
+    private val agentOrchestrator: LedgerAgentOrchestrator = LedgerAgentOrchestrator(
+        runLogger = agentRunLogger,
+    ),
 ) {
 
     private data class AppliedTransaction(
@@ -120,6 +135,7 @@ class ChatRepository(
         aiConfig: AiAssistantConfig,
         userName: String,
     ) {
+        val requestId = requestIdProvider()
         val now = System.currentTimeMillis()
         chatMessageDao.insertMessage(
             ChatMessageEntity(
@@ -207,6 +223,7 @@ class ChatRepository(
                 }
             }
         val transactionApplyResult = applyReceiptTransactions(
+            requestId = requestId,
             drafts = normalizedReceipts,
             assistantText = cleanedAssistantText,
             userInput = userInput,
@@ -391,34 +408,135 @@ class ChatRepository(
     }
 
     private suspend fun applyReceiptTransactions(
+        requestId: String,
         drafts: List<AiReceiptDraft>,
         assistantText: String,
         userInput: String,
     ): ApplyTransactionsResult {
         if (drafts.isEmpty()) return ApplyTransactionsResult()
 
-        val applied = mutableListOf<AppliedTransaction>()
-        val failed = mutableListOf<FailedTransaction>()
+        val context = AgentRequestContext(
+            requestId = requestId,
+            idempotencyKey = buildIdempotencyKey(userInput, drafts),
+            userInput = userInput,
+            startedAt = System.currentTimeMillis(),
+        )
 
-        drafts.forEachIndexed { index, draft ->
-            val result = applyReceiptTransaction(draft, assistantText, userInput)
-            val order = index + 1
-            val appliedTransaction = result.appliedTransaction
-            if (appliedTransaction != null) {
-                applied += appliedTransaction.copy(index = order)
-            } else {
-                failed += FailedTransaction(
-                    index = order,
-                    draft = draft,
-                    reason = result.fallbackMessage ?: "这笔账单缺少必要信息，暂时没法处理。",
+        val orchestrationResult = agentOrchestrator.execute(
+            context = context,
+            drafts = drafts,
+            adapter = object : LedgerAgentOrchestrator.WriteToolAdapter {
+                override suspend fun preview(args: AgentToolArgs.PreviewActionsArgs): LedgerAgentOrchestrator.AdapterResult {
+                    val hasMeaningfulAction = args.actions.any { action ->
+                        !action.action.isBlank() && (action.amount != null || !action.category.isNullOrBlank())
+                    }
+                    val status = if (hasMeaningfulAction) AgentToolStatus.SUCCESS else AgentToolStatus.FAILURE
+                    return LedgerAgentOrchestrator.AdapterResult(
+                        status = status,
+                        resultJson = "{\"previewCount\":${args.actions.size},\"status\":\"${status.name.lowercase(Locale.ROOT)}\"}",
+                        errorMessage = if (hasMeaningfulAction) null else "预演未命中可执行动作。",
+                    )
+                }
+
+                override suspend fun create(draft: AiReceiptDraft): LedgerAgentOrchestrator.WriteToolResult {
+                    val amount = draft.amount ?: return LedgerAgentOrchestrator.WriteToolResult.Failure(
+                        reason = "这笔账单缺少金额，暂时没法处理。",
+                    )
+                    if (draft.category.isNullOrBlank()) {
+                        return LedgerAgentOrchestrator.WriteToolResult.Failure(
+                            reason = "这笔账单缺少分类，补一句分类后我再试一次。",
+                        )
+                    }
+
+                    val created = tryCreateTransaction(
+                        draft = draft,
+                        assistantText = assistantText,
+                        userInput = userInput,
+                        rawAmount = amount,
+                    ) ?: return LedgerAgentOrchestrator.WriteToolResult.Failure(
+                        reason = "新增账单失败，请稍后重试。",
+                    )
+
+                    return LedgerAgentOrchestrator.WriteToolResult.Success(
+                        transactionId = created.transactionId,
+                        type = created.type,
+                        action = created.action,
+                        resultJson = buildToolSuccessJson(created),
+                    )
+                }
+
+                override suspend fun update(draft: AiReceiptDraft): LedgerAgentOrchestrator.WriteToolResult {
+                    val amount = draft.amount ?: return LedgerAgentOrchestrator.WriteToolResult.Failure(
+                        reason = "我知道你想改账单啦，告诉我改成多少金额就好。",
+                    )
+
+                    val updated = tryUpdateTransaction(
+                        draft = draft,
+                        assistantText = assistantText,
+                        userInput = userInput,
+                        rawAmount = amount,
+                    ) ?: return LedgerAgentOrchestrator.WriteToolResult.Failure(
+                        reason = "我暂时没定位到要修改的那笔记录，你可以补一句“哪一天/哪一笔”。",
+                    )
+
+                    return LedgerAgentOrchestrator.WriteToolResult.Success(
+                        transactionId = updated.transactionId,
+                        type = updated.type,
+                        action = updated.action,
+                        resultJson = buildToolSuccessJson(updated),
+                    )
+                }
+            },
+        )
+
+        val applied = orchestrationResult.successes
+            .sortedBy { it.index }
+            .map { success ->
+                AppliedTransaction(
+                    transactionId = success.transactionId,
+                    type = success.type,
+                    action = success.action,
+                    draft = success.draft,
+                    index = success.index,
                 )
             }
-        }
+
+        val failed = orchestrationResult.failures
+            .sortedBy { it.index }
+            .map { failure ->
+                FailedTransaction(
+                    index = failure.index,
+                    draft = failure.draft,
+                    reason = failure.reason,
+                )
+            }
 
         return ApplyTransactionsResult(
             appliedTransactions = applied,
             failedTransactions = failed,
         )
+    }
+
+    suspend fun replayAgentCallsByRequestId(requestId: String): AgentReplayTrace? {
+        return agentReplayService?.replayFromMirrorOrDatabase(requestId)
+    }
+
+    private fun buildIdempotencyKey(userInput: String, drafts: List<AiReceiptDraft>): String {
+        val draftSignature = drafts.joinToString(separator = "|") { draft ->
+            listOf(
+                draft.action,
+                draft.amount?.toString().orEmpty(),
+                draft.category.orEmpty(),
+                draft.desc.orEmpty(),
+                draft.recordTime.orEmpty(),
+                draft.date.orEmpty(),
+            ).joinToString(separator = "#")
+        }
+        return (userInput.trim() + "::" + draftSignature).hashCode().toUInt().toString(16)
+    }
+
+    private fun buildToolSuccessJson(applied: AppliedTransaction): String {
+        return "{\"transactionId\":${applied.transactionId},\"action\":\"${applied.action}\",\"type\":${applied.type}}"
     }
 
     private suspend fun applyReceiptTransaction(
