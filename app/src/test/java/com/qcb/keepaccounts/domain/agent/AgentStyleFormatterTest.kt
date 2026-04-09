@@ -22,7 +22,7 @@ class AgentStyleFormatterTest {
     }
 
     @Test
-    fun formatWrite_containsSummaryAndTraceId() {
+    fun formatWrite_outputsHumanizedTextWithoutTraceOrStructuredLogs() {
         val formatter = AgentStyleFormatter()
 
         val result = formatter.formatWrite(
@@ -33,13 +33,17 @@ class AgentStyleFormatterTest {
                 updateCount = 1,
                 deleteCount = 0,
                 errors = listOf("missing category"),
+                primaryAction = "create",
+                primaryCategory = "交通出行",
+                primaryDesc = "打车",
             ),
             requestId = "req-001",
         )
 
-        assertTrue(result.contains("结构化结果：success=2"))
-        assertTrue(result.contains("errors=missing category"))
-        assertTrue(result.contains("追踪ID：req-001"))
+        assertTrue(result.contains("处理好了"))
+        assertTrue(result.contains("补全") || result.contains("修正") || result.contains("重试"))
+        assertTrue(result.contains("结构化结果") == false)
+        assertTrue(result.contains("追踪ID") == false)
         assertEquals(true, result.contains("\n\n"))
     }
 }

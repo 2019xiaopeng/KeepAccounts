@@ -40,6 +40,7 @@ import com.qcb.keepaccounts.ui.model.AiChatRecord
 import com.qcb.keepaccounts.ui.model.AiChatReceiptItem
 import com.qcb.keepaccounts.ui.model.AiChatReceiptSummary
 import com.qcb.keepaccounts.ui.model.AiTone
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
@@ -916,10 +917,22 @@ class ChatRepository(
             errorMessage = execution.errorMessage,
         )
 
+        applyHumanizedLocalDelay(userInput)
+
+        val insightMeta = buildInsightNoteTag(
+            toolName = execution.toolName,
+            resultJson = execution.resultJson,
+        )
+        val visibleReply = mergeAssistantText(
+            baseText = execution.assistantReply,
+            extraText = insightMeta,
+            fallbackText = execution.assistantReply.ifBlank { "我已经帮你查好了。" },
+        )
+
         val assistantMessageIds = mutableListOf<Long>()
         syncAssistantReplyChunks(
             messageIds = assistantMessageIds,
-            chunks = splitAssistantReply(execution.assistantReply),
+            chunks = splitAssistantReply(visibleReply),
             baseTimestamp = System.currentTimeMillis() + 1,
             isReceiptLast = false,
             receiptTransactionId = null,
@@ -989,6 +1002,10 @@ class ChatRepository(
             trendHints.any { hint -> input.contains(hint) } ||
             frequencyHints.any { hint -> input.contains(hint) } ||
             ratioHints.any { hint -> input.contains(hint) }
+        val hasExplicitWriteAction = updateIntentHints.any { hint -> input.contains(hint) } ||
+            deleteIntentHints.any { hint -> input.contains(hint) }
+
+        if (hasExplicitWriteAction) return null
 
         val relaxedQuerySignal = hasSoftQueryHint ||
             (hasWindowHint && (hasQuestionSignal || hasQuerySubjectHint))
@@ -1181,11 +1198,15 @@ class ChatRepository(
                 updateCount = applyResult.updateCount,
                 deleteCount = applyResult.deleteCount,
                 errors = applyResult.errors,
+                primaryAction = applyResult.primaryAppliedTransaction?.action,
+                primaryCategory = applyResult.primaryAppliedTransaction?.draft?.category,
+                primaryDesc = applyResult.primaryAppliedTransaction?.draft?.desc,
             ),
             requestId = requestId,
         )
 
         val receiptContent = "${styleReply}\n${buildReceiptMetaTag(applyResult)}"
+        applyHumanizedLocalDelay(userInput)
         val assistantMessageIds = mutableListOf<Long>()
         syncAssistantReplyChunks(
             messageIds = assistantMessageIds,
@@ -1405,14 +1426,14 @@ class ChatRepository(
     }
 
     private fun extractQueryKeyword(userInput: String): String? {
-        val explicit = Regex("关键词(?:是|为)?[:：]?\\s*([\\p{IsHan}A-Za-z0-9]{2,16})")
+        val explicit = Regex("关键词(?:是|为)?[:：]?\\s*([\\u4E00-\\u9FFFA-Za-z0-9]{2,16})")
             .find(userInput)
             ?.groupValues
             ?.getOrNull(1)
             ?.trim()
         if (!explicit.isNullOrBlank()) return explicit
 
-        val aboutMatch = Regex("关于([\\p{IsHan}A-Za-z0-9]{2,16})").find(userInput)
+        val aboutMatch = Regex("关于([\\u4E00-\\u9FFFA-Za-z0-9]{2,16})").find(userInput)
             ?.groupValues
             ?.getOrNull(1)
             ?.trim()
@@ -1427,47 +1448,50 @@ class ChatRepository(
         result: QueryToolCallResult<QueryTransactionsResult>,
     ): String {
         if (result.status == AgentToolStatus.FAILURE) {
-            val reason = result.validationIssues.firstOrNull()?.message ?: "查询条件暂时不合法，请补充后我再查一次。"
+            val reason = result.validationIssues.firstOrNull()?.message ?: "这次查询条件不完整。"
             return styleFormatter.formatQuery(
-                structuredFacts = "结构化结果：queryValidation=failed，reason=$reason。",
-                explainabilityLine = "依据：tool=queryTransactions。",
-                caringLine = "你补充一下条件，我会马上重试并给出可追踪结果。",
+                structuredFacts = "我这次没完全查出来。",
+                explainabilityLine = reason,
+                caringLine = "你可以换个说法，比如“查最近一笔”或“查本周餐饮”。",
             )
         }
 
         val payload = result.result ?: return "我查了一下，暂时没有可展示的账单数据。"
         if (payload.items.isEmpty()) {
             return styleFormatter.formatQuery(
-                structuredFacts = "结构化结果：matchedItems=0，timeWindow=${payload.explainability.timeWindow}。",
-                explainabilityLine = "依据：aggregationMethod=${payload.explainability.aggregationMethod}，sampleSize=${payload.explainability.sampleSize}，sortKey=${payload.explainability.sortKey}。",
-                caringLine = "这个时间段暂时没有匹配账单，你可以换个关键词或时间范围试试。",
+                structuredFacts = "这个时间段我还没找到匹配的账单。",
+                explainabilityLine = "你可以换个关键词或时间范围再试试。",
+                caringLine = "比如“查最近一周打车”会更容易命中。",
             )
         }
 
         val first = payload.items.first()
-        val structuredFacts = when {
+        val summary = when {
             args.limit == 1 && args.sortKey == "record_time_desc" -> {
-                "结构化结果：latestRecord=${first.categoryName}${formatReceiptAmount(first.amount)}（${first.remark}），matchedItems=${payload.items.size}。"
+                "我帮你找到最近一笔：${first.categoryName}${formatReceiptAmount(first.amount)}（${first.remark}）。"
             }
 
             args.sortKey == "amount_desc" -> {
-                "结构化结果：maxAmountRecord=${first.categoryName}${formatReceiptAmount(first.amount)}（${first.remark}），matchedItems=${payload.items.size}。"
+                "这段时间花得最多的一笔是：${first.categoryName}${formatReceiptAmount(first.amount)}（${first.remark}）。"
             }
 
             !args.filters.keyword.isNullOrBlank() -> {
-                "结构化结果：keyword=${args.filters.keyword}，topRecord=${first.categoryName}${formatReceiptAmount(first.amount)}（${first.remark}），matchedItems=${payload.items.size}。"
+                "关于“${args.filters.keyword}”，我找到 ${payload.items.size} 笔，最靠前的是 ${first.categoryName}${formatReceiptAmount(first.amount)}（${first.remark}）。"
             }
 
             else -> {
-                "结构化结果：matchedItems=${payload.items.size}，topRecord=${first.categoryName}${formatReceiptAmount(first.amount)}（${first.remark}）。"
+                "我找到 ${payload.items.size} 笔相关账单，最靠前的是 ${first.categoryName}${formatReceiptAmount(first.amount)}（${first.remark}）。"
             }
         }
 
-        val explainabilityLine = "依据：aggregationMethod=${payload.explainability.aggregationMethod}，sampleSize=${payload.explainability.sampleSize}，timeWindow=${payload.explainability.timeWindow}，sortKey=${payload.explainability.sortKey}。"
-        val caringLine = "如果你愿意，我可以继续把同窗口内的关键波动点也一起列出来。"
+        val caringLine = if (userInput.contains("多少钱") || userInput.contains("多少")) {
+            "要不要我再帮你按类别算一版总额，看看钱主要花在哪？"
+        } else {
+            "如果你愿意，我还能继续帮你把这段时间的重点变化拎出来。"
+        }
         return styleFormatter.formatQuery(
-            structuredFacts = structuredFacts,
-            explainabilityLine = explainabilityLine,
+            structuredFacts = summary,
+            explainabilityLine = "",
             caringLine = caringLine,
         )
     }
@@ -1478,54 +1502,116 @@ class ChatRepository(
         result: QueryToolCallResult<QuerySpendingStatsResult>,
     ): String {
         if (result.status == AgentToolStatus.FAILURE) {
-            val reason = result.validationIssues.firstOrNull()?.message ?: "统计条件暂时不合法，请补充后我再算一次。"
+            val reason = result.validationIssues.firstOrNull()?.message ?: "这次统计条件还不够完整。"
             return styleFormatter.formatStats(
-                structuredFacts = "结构化结果：statsValidation=failed，reason=$reason。",
-                explainabilityLine = "依据：tool=querySpendingStats。",
-                caringLine = "你补充一下统计范围或维度，我会马上重新计算。",
+                structuredFacts = "我这次没能顺利算出来。",
+                explainabilityLine = reason,
+                caringLine = "你可以直接说“统计过去一周花了多少钱”，我会按这个口径给你算。",
             )
         }
 
         val payload = result.result ?: return "我先试着统计了一下，但当前还没有可展示的数据。"
         if (payload.buckets.isEmpty()) {
             return styleFormatter.formatStats(
-                structuredFacts = "结构化结果：bucketCount=0，timeWindow=${payload.explainability.timeWindow}。",
-                explainabilityLine = "依据：aggregationMethod=${payload.explainability.aggregationMethod}，sampleSize=${payload.explainability.sampleSize}，sortKey=${payload.explainability.sortKey}。",
-                caringLine = "这个范围里暂时没有统计结果，我们可以换个时间窗再看。",
+                structuredFacts = "这个范围内我还没有统计到可用数据。",
+                explainabilityLine = "你可以换个时间窗口再试试。",
+                caringLine = "比如“最近一个月花了多少钱”。",
             )
         }
 
         val top = payload.buckets.first()
-        val structuredFacts = when {
+        val totalAmount = payload.buckets.sumOf { it.value }
+        val windowLabel = resolveFriendlyWindowLabel(args.window)
+
+        if (isTotalSpendQuestion(userInput)) {
+            val summary = "${windowLabel}你总共花了 ${formatReceiptAmount(totalAmount)}。"
+            val detail = "其中 ${top.key} 最多，大约 ${formatReceiptAmount(top.value)}。"
+            return styleFormatter.formatStats(
+                structuredFacts = summary,
+                explainabilityLine = detail,
+                caringLine = "要不要我再按天拆开，看看哪几天花得更集中？",
+            )
+        }
+
+        val summary = when {
             args.groupBy == "merchant" && args.metric == "frequency" -> {
-                "结构化结果：topMerchant=${top.key}，frequency=${top.value.toInt()}，bucketCount=${payload.buckets.size}。"
+                "${windowLabel}出现最频繁的是 ${top.key}，一共 ${top.value.toInt()} 次。"
             }
 
             args.groupBy == "timeslot" && args.metric == "frequency" -> {
-                "结构化结果：topTimeslot=${top.key}，frequency=${top.value.toInt()}，bucketCount=${payload.buckets.size}。"
+                "${windowLabel}消费最集中的时段是 ${top.key}，出现 ${top.value.toInt()} 次。"
             }
 
             args.metric == "category_ratio" -> {
                 val percent = String.format(Locale.CHINA, "%.1f%%", top.value * 100.0)
-                "结构化结果：topRatio=${top.key}，value=$percent，bucketCount=${payload.buckets.size}。"
+                "${windowLabel}占比最高的是 ${top.key}，约 $percent。"
             }
 
             args.metric == "frequency" -> {
-                "结构化结果：topFrequency=${top.key}，value=${top.value.toInt()}，bucketCount=${payload.buckets.size}。"
+                "${windowLabel}出现最频繁的是 ${top.key}，共 ${top.value.toInt()} 次。"
             }
 
             else -> {
-                "结构化结果：topAmount=${top.key}，value=${formatReceiptAmount(top.value)}，bucketCount=${payload.buckets.size}。"
+                "${windowLabel}花得最多的是 ${top.key}，金额约 ${formatReceiptAmount(top.value)}。"
             }
         }
 
-        val explainabilityLine = "依据：aggregationMethod=${payload.explainability.aggregationMethod}，sampleSize=${payload.explainability.sampleSize}，timeWindow=${payload.explainability.timeWindow}，sortKey=${payload.explainability.sortKey}。"
-        val caringLine = "如果你需要，我还可以把第二、第三名也按同口径列给你。"
         return styleFormatter.formatStats(
-            structuredFacts = structuredFacts,
-            explainabilityLine = explainabilityLine,
-            caringLine = caringLine,
+            structuredFacts = summary,
+            explainabilityLine = "",
+            caringLine = "我也可以继续把前几名一起列给你，方便你对比。",
         )
+    }
+
+    private fun buildInsightNoteTag(
+        toolName: AgentToolName,
+        resultJson: String,
+    ): String? {
+        val resultObject = runCatching { JSONObject(resultJson) }.getOrNull() ?: return null
+        val payload = JSONObject().apply {
+            put("toolName", toolName.name.lowercase(Locale.ROOT))
+            put("result", resultObject)
+        }
+        return "<NOTE>$payload</NOTE>"
+    }
+
+    private suspend fun applyHumanizedLocalDelay(userInput: String) {
+        if (!isLikelyAndroidRuntime()) return
+
+        val minDelay = localReplyMinDelayMs
+        val maxDelay = localReplyMaxDelayMs
+        if (minDelay <= 0L || maxDelay <= 0L) return
+
+        val safeMin = minOf(minDelay, maxDelay)
+        val safeMax = maxOf(minDelay, maxDelay)
+        val span = safeMax - safeMin
+        val seed = abs(userInput.hashCode().toLong())
+        val delayMs = safeMin + if (span == 0L) 0L else seed % (span + 1L)
+        delay(delayMs)
+    }
+
+    private fun isLikelyAndroidRuntime(): Boolean {
+        val vmName = System.getProperty("java.vm.name").orEmpty()
+        return vmName.contains("Dalvik", ignoreCase = true) || vmName.contains("ART", ignoreCase = true)
+    }
+
+    private fun isTotalSpendQuestion(input: String): Boolean {
+        val normalized = input.trim()
+        return normalized.contains("花了多少钱") ||
+            normalized.contains("总共花了多少") ||
+            normalized.contains("总花费") ||
+            normalized.contains("总支出")
+    }
+
+    private fun resolveFriendlyWindowLabel(window: String): String {
+        return when (window) {
+            "today" -> "今天"
+            "yesterday" -> "昨天"
+            "last7days" -> "过去一周"
+            "last30days" -> "最近一个月"
+            "last12months" -> "过去一年"
+            else -> "这个时间段"
+        }
     }
 
     private fun AgentToolArgs.QueryTransactionsArgs.toQueryArgsJson(): String {
@@ -1896,6 +1982,10 @@ class ChatRepository(
         val recent = transactionDao.getRecentTransactions(limit = 120)
         if (recent.isEmpty()) return null
 
+        if (recentTargetHints.any { hint -> userInput.contains(hint) }) {
+            return recent.firstOrNull()
+        }
+
         val now = Calendar.getInstance()
         val parsedDate = parseDateFromText(userInput, now)
         val parsedTime = parseTimeFromText(userInput)
@@ -2006,7 +2096,11 @@ class ChatRepository(
         parseDateTimeFromUserInput(userInput, now)?.let { return it }
         parseRecordTimeFromDraft(draft.recordTime, now)?.let { return it }
         parseDateFromDraft(draft.date, now)?.let { return it }
-        return currentTimestamp(now)
+        return if (originalRecordTimestamp > 0L) {
+            originalRecordTimestamp
+        } else {
+            currentTimestamp(now)
+        }
     }
 
     private fun containsDateOrTimeCue(text: String): Boolean {
@@ -3262,9 +3356,13 @@ class ChatRepository(
         val statsIntentHints = listOf("统计", "分析", "占比", "趋势", "最频繁", "同一家", "哪一类消费最多", "排行")
         val highestSpendingHints = listOf("最高", "花得最多", "最贵", "最大一笔")
         val recentOneHints = listOf("最近一笔", "最新一笔", "最后一笔")
-        val weekWindowHints = listOf("最近一周", "过去一周", "本周", "7天", "近7天", "最近7天")
+        val weekWindowHints = listOf(
+            "最近一周", "过去一周", "近一周", "这一周", "本周", "上周",
+            "7天", "七天", "近7天", "最近7天", "过去7天", "近七天", "一周内",
+        )
         val monthWindowHints = listOf("最近一个月", "过去一个月", "本月", "这个月", "上个月", "月度", "30天", "近30天", "最近30天")
         val yearWindowHints = listOf("最近一年", "过去一年", "年度", "12个月")
+        val recentTargetHints = listOf("最近一笔", "最新一笔", "上一笔", "刚刚那笔", "刚才那笔")
         val merchantHints = listOf("同一家", "商家", "店", "门店")
         val timeSlotHints = listOf("时段", "几点", "什么时候", "早上", "晚上", "中午")
         val trendHints = listOf("趋势", "变化", "走势")
@@ -3355,6 +3453,8 @@ class ChatRepository(
         val conversationDelimiterRegex = Regex("\\n\\s*\\n+|<MSG>|\\|\\|\\|", setOf(RegexOption.IGNORE_CASE))
         val majorSentenceRegex = Regex("(?<=[。！？!?])")
         const val oneDayMillis = 24L * 60L * 60L * 1000L
+        const val localReplyMinDelayMs = 520L
+        const val localReplyMaxDelayMs = 980L
         const val highRiskDeleteCountThreshold = 3
         const val highRiskDeleteAmountThreshold = 300.0
         val draftDateTimePatterns = listOf(

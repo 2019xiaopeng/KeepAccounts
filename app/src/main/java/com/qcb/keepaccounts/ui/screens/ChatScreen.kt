@@ -96,6 +96,7 @@ private data class DemoMessage(
     val receiptTransactionId: Long? = null,
     val receiptIsIncome: Boolean = false,
     val receiptPrimaryAction: String = "create",
+    val insightCard: ParsedInsightCard? = null,
 )
 
 private data class ParsedReceiptPayload(
@@ -354,6 +355,7 @@ private fun AiChatRecord.toDemoMessage(): DemoMessage {
         ?: parseAmount(visibleText)
         ?: "0.00"
     val showReceipt = isReceipt || resolvedReceiptSummary != null || payload != null
+    val insightCard = if (!showReceipt && normalizedRole == "ai") parseInsightCard(content) else null
     val resolvedIsIncome = when {
         receiptType != null -> receiptType == 1
         primaryReceiptItem?.isIncome != null -> primaryReceiptItem.isIncome
@@ -393,6 +395,7 @@ private fun AiChatRecord.toDemoMessage(): DemoMessage {
         receiptTransactionId = transactionId,
         receiptIsIncome = showReceipt && resolvedIsIncome,
         receiptPrimaryAction = primaryAction,
+        insightCard = insightCard,
     )
 }
 
@@ -520,6 +523,8 @@ private fun parsePayloadDateTimeToTimestamp(rawValue: String?): Long? {
 }
 
 private fun parseInsightCard(text: String): ParsedInsightCard? {
+    parseInsightCardFromNotePayload(text)?.let { return it }
+
     val normalized = stripReceiptPayload(text)
     if (normalized.isBlank()) return null
 
@@ -543,9 +548,135 @@ private fun parseInsightCard(text: String): ParsedInsightCard? {
     )
 }
 
+private fun parseInsightCardFromNotePayload(text: String): ParsedInsightCard? {
+    val notePayload = findPayload(text, "NOTE") ?: return null
+    val noteJson = runCatching { JSONObject(notePayload) }.getOrNull() ?: return null
+    val toolName = noteJson.optString("toolName").trim().lowercase(Locale.ROOT)
+    val result = noteJson.optJSONObject("result") ?: return null
+    val status = result.optString("status").trim().lowercase(Locale.ROOT)
+
+    if (status == "failure") {
+        val message = extractFirstValidationError(result)
+            ?: "这次条件还不够完整，你可以换个说法再试试。"
+        return ParsedInsightCard(
+            title = "需要补充条件",
+            primaryEntries = listOf(InsightEntry(key = "hint", value = message)),
+            explainEntries = emptyList(),
+        )
+    }
+
+    return when {
+        toolName.contains("query_transactions") -> parseQueryInsightFromResult(result)
+        toolName.contains("query_spending_stats") -> parseStatsInsightFromResult(result)
+        else -> null
+    }
+}
+
+private fun extractFirstValidationError(result: JSONObject): String? {
+    val errors = result.optJSONArray("errors") ?: return null
+    for (index in 0 until errors.length()) {
+        val issue = errors.optJSONObject(index) ?: continue
+        val message = issue.optString("message").trim()
+        if (message.isNotBlank()) return message
+    }
+    return null
+}
+
+private fun parseQueryInsightFromResult(result: JSONObject): ParsedInsightCard? {
+    val items = result.optJSONArray("items") ?: JSONArray()
+    val timeWindow = result.optString("timeWindow")
+
+    if (items.length() == 0) {
+        return ParsedInsightCard(
+            title = "查询结果",
+            primaryEntries = listOf(
+                InsightEntry("matchedItems", "0"),
+                InsightEntry("timeWindow", friendlyWindowLabel(timeWindow)),
+            ),
+            explainEntries = emptyList(),
+        )
+    }
+
+    val first = items.optJSONObject(0) ?: return null
+    val recordSummary = buildString {
+        append(first.optString("category").ifBlank { "已识别" })
+        val amount = first.optDouble("amount", Double.NaN)
+        if (!amount.isNaN()) {
+            append(" ")
+            append(String.format(Locale.CHINA, "%.2f", kotlin.math.abs(amount)))
+        }
+        val remark = first.optString("remark").trim()
+        if (remark.isNotBlank()) {
+            append("（")
+            append(remark)
+            append("）")
+        }
+    }
+
+    return ParsedInsightCard(
+        title = "账单查询结果",
+        primaryEntries = listOf(
+            InsightEntry("topRecord", recordSummary),
+            InsightEntry("matchedItems", items.length().toString()),
+            InsightEntry("timeWindow", friendlyWindowLabel(timeWindow)),
+        ),
+        explainEntries = emptyList(),
+    )
+}
+
+private fun parseStatsInsightFromResult(result: JSONObject): ParsedInsightCard? {
+    val buckets = result.optJSONArray("buckets") ?: JSONArray()
+    val timeWindow = result.optString("timeWindow")
+
+    if (buckets.length() == 0) {
+        return ParsedInsightCard(
+            title = "统计结果",
+            primaryEntries = listOf(
+                InsightEntry("bucketCount", "0"),
+                InsightEntry("timeWindow", friendlyWindowLabel(timeWindow)),
+            ),
+            explainEntries = emptyList(),
+        )
+    }
+
+    var total = 0.0
+    for (index in 0 until buckets.length()) {
+        val bucket = buckets.optJSONObject(index) ?: continue
+        total += bucket.optDouble("value", 0.0)
+    }
+
+    val top = buckets.optJSONObject(0)
+    val topKey = top?.optString("key").orEmpty().ifBlank { "未命名" }
+    val topValue = top?.optDouble("value", 0.0) ?: 0.0
+
+    return ParsedInsightCard(
+        title = "消费统计结果",
+        primaryEntries = listOf(
+            InsightEntry("totalAmount", String.format(Locale.CHINA, "%.2f", kotlin.math.abs(total))),
+            InsightEntry("topBucket", "$topKey（${String.format(Locale.CHINA, "%.2f", kotlin.math.abs(topValue))}）"),
+            InsightEntry("bucketCount", buckets.length().toString()),
+            InsightEntry("timeWindow", friendlyWindowLabel(timeWindow)),
+        ),
+        explainEntries = emptyList(),
+    )
+}
+
+private fun friendlyWindowLabel(rawWindow: String): String {
+    val normalized = rawWindow.trim().lowercase(Locale.ROOT)
+    return when {
+        normalized.contains("last7days") || normalized.contains("7") -> "过去一周"
+        normalized.contains("last30days") || normalized.contains("30") -> "最近一个月"
+        normalized.contains("today") || normalized.contains("今天") -> "今天"
+        normalized.contains("yesterday") || normalized.contains("昨天") -> "昨天"
+        normalized.contains("last12months") || normalized.contains("12") -> "过去一年"
+        rawWindow.isBlank() -> "当前范围"
+        else -> rawWindow
+    }
+}
+
 private fun parseInsightEntries(raw: String): List<InsightEntry> {
     if (raw.isBlank()) return emptyList()
-    val regex = Regex("([A-Za-z_\\p{IsHan}]+)\\s*=\\s*([^，。；;\\n]+)")
+    val regex = Regex("([A-Za-z_\\u4E00-\\u9FFF]+)\\s*=\\s*([^，。；;\\n]+)")
     return regex.findAll(raw)
         .mapNotNull { match ->
             val key = match.groupValues.getOrNull(1)?.trim().orEmpty()
@@ -577,7 +708,10 @@ private fun toInsightLabel(key: String): String {
     return when (key) {
         "latestRecord" -> "最近一笔"
         "maxAmountRecord" -> "最高消费"
-        "topRecord" -> "优先结果"
+        "topRecord" -> "核心结果"
+        "totalAmount" -> "总金额"
+        "topBucket" -> "最高分类"
+        "hint" -> "提示"
         "matchedItems" -> "匹配条数"
         "keyword" -> "关键词"
         "topMerchant" -> "高频商家"
@@ -977,7 +1111,7 @@ private fun MessageRow(
                     onEdit = onEdit,
                 )
             } else if (!isUser) {
-                parseInsightCard(message.text)?.let { insight ->
+                message.insightCard?.let { insight ->
                     InsightCard(insight = insight)
                 }
             }
@@ -1067,12 +1201,12 @@ private fun ReceiptCard(
     val canEditSingleReceipt = !isBatchReceipt && successItems.size == 1 && failureItems.isEmpty() && primaryAction != "delete"
     val showRepairAction = failureItems.isNotEmpty()
     val receiptTitle = if (isBatchReceipt) {
-        "🤍 批量处理结果 🤍"
+        "批量处理结果"
     } else {
         when (primaryAction) {
-            "update" -> "🤍 已修改成功 🤍"
-            "delete" -> "🤍 已删除成功 🤍"
-            else -> "🤍 已记账成功 🤍"
+            "update" -> "已更新记录"
+            "delete" -> "已删除记录"
+            else -> "已记账"
         }
     }
     val receiptDateTimestamp = message.receiptRecordTimestamp ?: message.timestamp
@@ -1135,18 +1269,18 @@ private fun ReceiptCard(
 
             if (showRepairAction) {
                 Text(
-                    text = "可点击下方“去手动补全”快速修正失败项。",
+                    text = "点击下方“去手动补全”可快速修正未完成项。",
                     color = WarmBrownMuted,
                     fontWeight = FontWeight.Medium,
                     fontSize = 11.sp,
                 )
             }
         } else {
-            ReceiptRow(icon = Icons.Rounded.Category, label = "📁 分类", value = message.receiptCategory)
-            ReceiptRow(icon = Icons.Rounded.AttachMoney, label = "💰 金额", value = "$amountPrefix${message.receiptAmount}", valueColor = amountColor)
-            ReceiptRow(icon = Icons.Rounded.MoreHoriz, label = "📝 备注", value = message.receiptRemark)
-            ReceiptRow(icon = Icons.Rounded.Today, label = "📅 日期", value = semanticReceiptDateTime.dateText)
-            ReceiptRow(icon = Icons.Rounded.Schedule, label = "🕒 记录时间", value = semanticReceiptDateTime.timeText)
+            ReceiptRow(icon = Icons.Rounded.Category, label = "分类", value = message.receiptCategory)
+            ReceiptRow(icon = Icons.Rounded.AttachMoney, label = "金额", value = "$amountPrefix${message.receiptAmount}", valueColor = amountColor)
+            ReceiptRow(icon = Icons.Rounded.MoreHoriz, label = "备注", value = message.receiptRemark)
+            ReceiptRow(icon = Icons.Rounded.Today, label = "日期", value = semanticReceiptDateTime.dateText)
+            ReceiptRow(icon = Icons.Rounded.Schedule, label = "记录时间", value = semanticReceiptDateTime.timeText)
         }
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
@@ -1212,7 +1346,7 @@ private fun ReceiptCard(
                         horizontalArrangement = Arrangement.Center,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(text = "🛠️ 去手动补全", color = Color(0xFF4860A8), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            Text(text = "去手动补全", color = Color(0xFF4860A8), fontWeight = FontWeight.Bold, fontSize = 12.sp)
                     }
                 } else {
                     Box(
@@ -1226,7 +1360,7 @@ private fun ReceiptCard(
                         val helperText = if (primaryAction == "delete") {
                             "这条记录已删除，无需再次修改"
                         } else {
-                            "批量结果请到账本页逐笔调整"
+                            "如需调整，可在账本页逐笔修改"
                         }
                         Text(text = helperText, color = WarmBrownMuted, fontWeight = FontWeight.Medium, fontSize = 11.sp)
                     }
@@ -1374,7 +1508,7 @@ private fun InsightCard(insight: ParsedInsightCard) {
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(
-            text = "📊 ${insight.title}",
+            text = insight.title,
             color = Color(0xFF4A5D8E),
             fontWeight = FontWeight.ExtraBold,
             fontSize = 12.sp,

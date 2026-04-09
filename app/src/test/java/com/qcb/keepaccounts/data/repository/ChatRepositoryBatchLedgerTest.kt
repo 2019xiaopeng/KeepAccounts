@@ -404,11 +404,13 @@ class ChatRepositoryBatchLedgerTest {
                 .first()
                 .filter { it.role == "assistant" }
                 .joinToString("\n") { it.content }
+            val visibleAssistantText = stripHiddenPayloads(assistantText)
 
             assertEquals(0, gateway.requestCount)
-            assertEquals(true, assistantText.contains("latestRecord="))
-            assertEquals(true, assistantText.contains("sampleSize="))
-            assertEquals(true, assistantText.contains("aggregationMethod="))
+            assertEquals(true, visibleAssistantText.contains("最近一笔"))
+            assertEquals(false, visibleAssistantText.contains("结构化结果"))
+            assertEquals(false, visibleAssistantText.contains("追踪ID"))
+            assertEquals(false, visibleAssistantText.contains("sampleSize="))
         }
     }
 
@@ -466,11 +468,12 @@ class ChatRepositoryBatchLedgerTest {
                 .first()
                 .filter { it.role == "assistant" }
                 .joinToString("\n") { it.content }
+            val visibleAssistantText = stripHiddenPayloads(assistantText)
 
             assertEquals(0, gateway.requestCount)
-            assertEquals(true, assistantText.contains("瑞幸咖啡"))
-            assertEquals(true, assistantText.contains("topMerchant="))
-            assertEquals(true, assistantText.contains("sampleSize="))
+            assertEquals(true, visibleAssistantText.contains("瑞幸咖啡"))
+            assertEquals(false, visibleAssistantText.contains("topMerchant="))
+            assertEquals(false, visibleAssistantText.contains("结构化结果"))
         }
     }
 
@@ -558,10 +561,123 @@ class ChatRepositoryBatchLedgerTest {
                 .first()
                 .filter { it.role == "assistant" }
                 .joinToString("\n") { it.content }
+            val visibleAssistantText = stripHiddenPayloads(assistantText)
 
             assertEquals(0, gateway.requestCount)
-            assertEquals(true, assistantText.contains("结构化结果："))
-            assertEquals(true, assistantText.contains("sampleSize="))
+            assertEquals(true, visibleAssistantText.contains("餐饮") || visibleAssistantText.contains("账单"))
+            assertEquals(false, visibleAssistantText.contains("结构化结果"))
+            assertEquals(false, visibleAssistantText.contains("sampleSize="))
+        }
+    }
+
+    @Test
+    fun sendMessage_updateRecentOneColloquialRoutesToWriteAndUpdatesLatest() {
+        runBlocking {
+            val now = System.currentTimeMillis()
+            val gateway = CountingAiChatGateway()
+            val transactionDao = FakeTransactionDao(
+                initialTransactions = listOf(
+                    TransactionEntity(
+                        id = 41L,
+                        type = 0,
+                        amount = 20.0,
+                        categoryName = "餐饮美食",
+                        categoryIcon = "",
+                        remark = "午饭",
+                        recordTimestamp = now - 10_000,
+                        createdTimestamp = now - 10_000,
+                    ),
+                    TransactionEntity(
+                        id = 42L,
+                        type = 0,
+                        amount = 50.0,
+                        categoryName = "交通出行",
+                        categoryIcon = "",
+                        remark = "打车",
+                        recordTimestamp = now - 1_000,
+                        createdTimestamp = now - 1_000,
+                    ),
+                ),
+            )
+            val repository = ChatRepository(
+                chatMessageDao = FakeChatMessageDao(),
+                transactionDao = transactionDao,
+                aiChatGateway = gateway,
+            )
+
+            repository.sendMessage(
+                userInput = "帮我把最近一笔改成30块",
+                aiConfig = AiAssistantConfig(),
+                userName = "测试用户",
+            )
+
+            val latest = transactionDao.getRecentTransactions(limit = 1).firstOrNull()
+            val assistantText = repository.observeChatRecords()
+                .first()
+                .filter { it.role == "assistant" }
+                .joinToString("\n") { it.content }
+            val visibleAssistantText = stripHiddenPayloads(assistantText)
+
+            assertEquals(0, gateway.requestCount)
+            assertEquals(2, transactionDao.countTransactions())
+            assertEquals(30.0, latest?.amount ?: 0.0, 0.001)
+            assertEquals(true, visibleAssistantText.contains("改好") || visibleAssistantText.contains("修改"))
+            assertEquals(false, visibleAssistantText.contains("结构化结果"))
+            assertEquals(false, visibleAssistantText.contains("追踪ID"))
+        }
+    }
+
+    @Test
+    fun sendMessage_statsPastWeekTotalSpendReturnsNaturalSummary() {
+        runBlocking {
+            val now = System.currentTimeMillis()
+            val gateway = CountingAiChatGateway()
+            val repository = ChatRepository(
+                chatMessageDao = FakeChatMessageDao(),
+                transactionDao = FakeTransactionDao(
+                    initialTransactions = listOf(
+                        TransactionEntity(
+                            id = 51L,
+                            type = 0,
+                            amount = 20.0,
+                            categoryName = "餐饮美食",
+                            categoryIcon = "",
+                            remark = "午饭",
+                            recordTimestamp = now - 1_000,
+                            createdTimestamp = now - 1_000,
+                        ),
+                        TransactionEntity(
+                            id = 52L,
+                            type = 0,
+                            amount = 30.0,
+                            categoryName = "交通出行",
+                            categoryIcon = "",
+                            remark = "打车",
+                            recordTimestamp = now - 2_000,
+                            createdTimestamp = now - 2_000,
+                        ),
+                    ),
+                ),
+                aiChatGateway = gateway,
+            )
+
+            repository.sendMessage(
+                userInput = "统计过去一周花了多少钱",
+                aiConfig = AiAssistantConfig(),
+                userName = "测试用户",
+            )
+
+            val assistantText = repository.observeChatRecords()
+                .first()
+                .filter { it.role == "assistant" }
+                .joinToString("\n") { it.content }
+            val visibleAssistantText = stripHiddenPayloads(assistantText)
+
+            assertEquals(0, gateway.requestCount)
+            assertEquals(true, visibleAssistantText.contains("过去一周"))
+            assertEquals(true, visibleAssistantText.contains("总共花了") || visibleAssistantText.contains("总花费"))
+            assertEquals(false, visibleAssistantText.contains("topAmount="))
+            assertEquals(false, visibleAssistantText.contains("结构化结果"))
         }
     }
 
@@ -750,6 +866,14 @@ class ChatRepositoryBatchLedgerTest {
             assertEquals(false, visibleAssistantText.contains("{\""))
         }
     }
+}
+
+private fun stripHiddenPayloads(text: String): String {
+    return text
+        .replace(Regex("<NOTE>[\\s\\S]*?</NOTE>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE)), "")
+        .replace(Regex("<RECEIPT>[\\s\\S]*?</RECEIPT>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE)), "")
+        .replace(Regex("<DATA>[\\s\\S]*?</DATA>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE)), "")
+        .trim()
 }
 
 private class FakeAiChatGateway(

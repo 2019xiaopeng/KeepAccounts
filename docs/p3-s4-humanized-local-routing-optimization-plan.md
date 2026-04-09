@@ -1,9 +1,32 @@
-# P3-S4 人设化本地路由优化方案（仅设计稿）
+# P3-S4 人设化本地路由优化方案（已落地）
 
 - 日期：2026-04-09
-- 状态：Proposed
-- 目标：只做方案设计与文档记录，本轮不改代码
-- 影响范围（拟）：`ChatRepository`、`AgentStyleFormatter`、`ChatScreen`、query/update 规则与测试集
+- 状态：Implemented
+- 目标：完成本地路由人设化、用户可见层零日志泄漏、update/query 口语稳定性增强
+- 影响范围（已实施）：`ChatRepository`、`AgentStyleFormatter`、`ChatScreen`、query/update 规则与测试集
+
+## 0. 本轮落地结果（2026-04-09）
+
+1. 本地 write/query/stats 可见文案完成去技术化：
+- 不再向用户直接展示“结构化结果/追踪ID/sampleSize”等调试字段。
+- 查询和统计结果改为自然语言摘要，技术明细通过隐藏 NOTE payload 透传给 UI 卡片解析。
+
+2. 本地回复节奏人设化：
+- 本地命中路径增加轻量延迟窗口，避免“机械秒回”体感。
+- `AgentStyleFormatter` 改为“确认动作 + 可理解结果 + 轻建议”风格。
+
+3. update 口语可靠性增强：
+- 明确写操作词（update/delete）优先于 query override。
+- “最近一笔/最新一笔/刚刚那笔”等锚点优先定位目标记录。
+- update 无显式时间线索时保持原交易时间戳，避免误改时间导致“最近一笔”排序漂移。
+
+4. Chat 卡片可读性增强：
+- `ChatScreen` 优先解析隐藏 `<NOTE>` payload 生成 insight 卡片。
+- 保留 legacy 可见文本解析兜底，保证历史消息兼容。
+
+5. 回归测试完成：
+- 重点套件：`AgentStyleFormatterTest`、`ChatRepositoryBatchLedgerTest`、`ChatRepositoryTimeSemanticsTest` 通过。
+- 全量单测：`:app:testDebugUnitTest` 通过。
 
 ## 1. 问题复盘（来自真机反馈）
 
@@ -104,14 +127,14 @@
 3. 对“统计过去一周花了多少钱查不到”：
 - 采用 4.5，做口语时间窗统一归一与 query 参数稳定化。
 
-## 6. 分阶段落地建议（后续改代码时执行）
+## 6. 分阶段落地建议（已执行）
 
 1. Phase A：响应通道分层 + 文案模板引擎 + 停顿策略。
 2. Phase B：update 的 UpdateFrame 与锚点优先级。
 3. Phase C：时间窗归一层 + query/stats 口语回归。
 4. Phase D：灰度开关与指标观测（命中率、失败率、用户纠错率）。
 
-## 7. 测试与验收计划（后续实施时）
+## 7. 测试与验收结果
 
 1. 本地 write 人设回归：
 - 输入“打车50”应返回自然口吻，不出现 `结构化结果`、`追踪ID`、JSON。

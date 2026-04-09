@@ -1,6 +1,6 @@
 # ADR-045: Phase3-S4 本地命中人设化回复与可观测信息边界策略
 
-- 状态：Proposed
+- 状态：Accepted
 - 日期：2026-04-09
 - 决策者：KeepAccounts 团队
 - 关联阶段：Phase3 Step4 (P3-S4)
@@ -54,6 +54,21 @@
 
 1. 文案模板与意图归一规则需要维护。
 2. 需要新增回归测试矩阵与灰度开关。
+
+## 实施状态
+
+1. 当前状态：Implemented（2026-04-09）
+2. 关键落地点：
+- `AgentStyleFormatter`：用户可见 write/fallback 文案去结构化，改为自然对话风格。
+- `ChatRepository`：
+	- query/stats 可见文案去日志化，内部通过隐藏 `<NOTE>` 保留解析数据。
+	- 本地命中增加轻量延迟，优化“秒回像日志”体感。
+	- update/query 路由冲突处理中，显式写操作优先。
+	- update 无时间线索时保留原 `recordTimestamp`，避免记录重排。
+- `ChatScreen`：优先从隐藏 NOTE payload 解析 insight 卡片，fallback 到 legacy 解析。
+3. 已验证结果：
+- 重点测试套件通过（`AgentStyleFormatterTest`、`ChatRepositoryBatchLedgerTest`、`ChatRepositoryTimeSemanticsTest`）。
+- 全量单测 `:app:testDebugUnitTest` 通过。
 
 ## 实施前置与验证
 
