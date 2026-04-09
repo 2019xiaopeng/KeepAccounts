@@ -94,6 +94,7 @@ private data class DemoMessage(
     val receiptRecordTimestamp: Long? = null,
     val receiptTransactionId: Long? = null,
     val receiptIsIncome: Boolean = false,
+    val receiptPrimaryAction: String = "create",
 )
 
 private data class ParsedReceiptPayload(
@@ -104,6 +105,17 @@ private data class ParsedReceiptPayload(
     val recordTimestamp: Long?,
     val isIncome: Boolean?,
     val errors: List<String>,
+)
+
+private data class InsightEntry(
+    val key: String,
+    val value: String,
+)
+
+private data class ParsedInsightCard(
+    val title: String,
+    val primaryEntries: List<InsightEntry>,
+    val explainEntries: List<InsightEntry>,
 )
 
 @Composable
@@ -329,6 +341,9 @@ private fun AiChatRecord.toDemoMessage(): DemoMessage {
     val payload = parseReceiptPayload(content)
     val resolvedReceiptSummary = receiptSummary ?: payload?.toReceiptSummary()
     val primaryReceiptItem = resolvedReceiptSummary?.items?.firstOrNull { it.status == "success" }
+    val primaryAction = primaryReceiptItem?.action?.takeIf { it.isNotBlank() }
+        ?: payload?.action?.takeIf { it.isNotBlank() }
+        ?: "create"
     val pureText = stripReceiptPayload(content)
     val visibleText = pureText.ifBlank {
         if (isReceipt || resolvedReceiptSummary != null || payload != null) "已经帮主人记好啦，要好好照顾自己哦" else content.trim()
@@ -376,6 +391,7 @@ private fun AiChatRecord.toDemoMessage(): DemoMessage {
         receiptRecordTimestamp = resolvedReceiptTimestamp,
         receiptTransactionId = transactionId,
         receiptIsIncome = showReceipt && resolvedIsIncome,
+        receiptPrimaryAction = primaryAction,
     )
 }
 
@@ -385,7 +401,10 @@ private fun parseAmount(text: String): String? {
 }
 
 private fun parseReceiptPayload(text: String): ParsedReceiptPayload? {
-    val payload = findPayload(text, "RECEIPT") ?: findPayload(text, "DATA") ?: return null
+    val payload = findPayload(text, "RECEIPT")
+        ?: findPayload(text, "DATA")
+        ?: findMarkdownReceiptPayload(text)
+        ?: return null
     return runCatching {
         val json = JSONObject(payload)
         val amount = if (json.has("amount") && !json.isNull("amount")) {
@@ -499,17 +518,99 @@ private fun parsePayloadDateTimeToTimestamp(rawValue: String?): Long? {
     return null
 }
 
+private fun parseInsightCard(text: String): ParsedInsightCard? {
+    val normalized = stripReceiptPayload(text)
+    if (normalized.isBlank()) return null
+
+    val structuredLine = normalized.lineSequence()
+        .map { it.trim() }
+        .firstOrNull { it.startsWith("结构化结果：") }
+    val explainLine = normalized.lineSequence()
+        .map { it.trim() }
+        .firstOrNull { it.startsWith("依据：") }
+
+    if (structuredLine == null && explainLine == null) return null
+
+    val primaryEntries = parseInsightEntries(structuredLine?.removePrefix("结构化结果：").orEmpty())
+    val explainEntries = parseInsightEntries(explainLine?.removePrefix("依据：").orEmpty())
+    if (primaryEntries.isEmpty() && explainEntries.isEmpty()) return null
+
+    return ParsedInsightCard(
+        title = resolveInsightTitle(primaryEntries),
+        primaryEntries = primaryEntries,
+        explainEntries = explainEntries,
+    )
+}
+
+private fun parseInsightEntries(raw: String): List<InsightEntry> {
+    if (raw.isBlank()) return emptyList()
+    val regex = Regex("([A-Za-z_\\p{IsHan}]+)\\s*=\\s*([^，。；;\\n]+)")
+    return regex.findAll(raw)
+        .mapNotNull { match ->
+            val key = match.groupValues.getOrNull(1)?.trim().orEmpty()
+            val value = match.groupValues.getOrNull(2)?.trim().orEmpty()
+            if (key.isBlank() || value.isBlank()) {
+                null
+            } else {
+                InsightEntry(key = key, value = value)
+            }
+        }
+        .toList()
+}
+
+private fun resolveInsightTitle(primaryEntries: List<InsightEntry>): String {
+    val keys = primaryEntries.map { it.key }
+    return when {
+        keys.any { it == "topMerchant" } -> "商家频次洞察"
+        keys.any { it == "topTimeslot" } -> "时段消费洞察"
+        keys.any { it == "topRatio" } -> "消费占比洞察"
+        keys.any { it == "topAmount" } -> "金额排行洞察"
+        keys.any { it == "topFrequency" } -> "频次排行洞察"
+        keys.any { it == "latestRecord" } -> "最近账单结果"
+        keys.any { it == "maxAmountRecord" } -> "最高消费结果"
+        else -> "账单查询结果"
+    }
+}
+
+private fun toInsightLabel(key: String): String {
+    return when (key) {
+        "latestRecord" -> "最近一笔"
+        "maxAmountRecord" -> "最高消费"
+        "topRecord" -> "优先结果"
+        "matchedItems" -> "匹配条数"
+        "keyword" -> "关键词"
+        "topMerchant" -> "高频商家"
+        "topTimeslot" -> "高频时段"
+        "topRatio" -> "最高占比"
+        "topAmount" -> "最高金额"
+        "topFrequency" -> "最高频次"
+        "bucketCount" -> "分桶数量"
+        "sampleSize" -> "样本量"
+        "timeWindow" -> "时间窗口"
+        "sortKey" -> "排序口径"
+        "aggregationMethod" -> "聚合方式"
+        else -> key
+    }
+}
+
 private fun stripReceiptPayload(text: String): String {
-    return text
+    val stripped = text
         .replace(dataPayloadRegex, "")
         .replace(receiptPayloadRegex, "")
         .replace(notePayloadRegex, "")
         .replace(thinkPayloadRegex, "")
+        .replace(markdownJsonCodeBlockRegex, "")
+        .replace(markdownInlineReceiptJsonRegex, "")
+        .replace(unclosedPayloadStartRegex, "")
+        .replace(unclosedMarkdownJsonCodeBlockRegex, "")
         .replace(leadingNullRegex, "")
         .replace(lineNullRegex, "")
         .replace(repeatedNullRegex, "")
         .replace(Regex("\\n{3,}"), "\n\n")
         .trim()
+
+    val withTagFragmentRemoved = stripTrailingPayloadTagFragment(stripped)
+    return stripTrailingMarkdownFenceFragment(withTagFragmentRemoved)
 }
 
 private fun findPayload(text: String, tag: String): String? {
@@ -517,10 +618,70 @@ private fun findPayload(text: String, tag: String): String? {
     return regex.find(text)?.groupValues?.getOrNull(1)?.trim()?.takeIf { it.isNotBlank() }
 }
 
+private fun findMarkdownReceiptPayload(text: String): String? {
+    markdownJsonCodeBlockRegex.findAll(text).forEach { match ->
+        val payload = match.groupValues.getOrNull(1)?.trim().orEmpty()
+        if (looksLikeReceiptJson(payload)) return payload
+    }
+
+    markdownInlineReceiptJsonRegex.findAll(text).forEach { match ->
+        val payload = match.value.trim()
+        if (looksLikeReceiptJson(payload)) return payload
+    }
+
+    return null
+}
+
+private fun looksLikeReceiptJson(payload: String): Boolean {
+    val normalized = payload.lowercase(Locale.ROOT)
+    return normalized.contains("\"action\"") ||
+        normalized.contains("\"isreceipt\"") ||
+        normalized.contains("\"amount\"") ||
+        normalized.contains("\"items\"") ||
+        normalized.contains("\"successcount\"")
+}
+
+private fun stripTrailingPayloadTagFragment(text: String): String {
+    val lastOpenBracket = text.lastIndexOf('<')
+    if (lastOpenBracket < 0) return text
+
+    val tail = text.substring(lastOpenBracket)
+    if (tail.contains('>')) return text
+
+    val lowerTail = tail.lowercase(Locale.ROOT)
+    val hasPayloadPrefix = payloadTagFragmentPrefixes.any { prefix -> lowerTail.startsWith(prefix) }
+    return if (hasPayloadPrefix) {
+        text.substring(0, lastOpenBracket).trimEnd()
+    } else {
+        text
+    }
+}
+
+private fun stripTrailingMarkdownFenceFragment(text: String): String {
+    val fence = "```"
+    val lastFenceIndex = text.lastIndexOf(fence)
+    if (lastFenceIndex < 0) return text
+
+    val fenceCount = fenceRegex.findAll(text).count()
+    if (fenceCount % 2 == 0) return text
+    return text.substring(0, lastFenceIndex).trimEnd()
+}
+
 private val dataPayloadRegex = Regex("<DATA>.*?</DATA>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
 private val receiptPayloadRegex = Regex("<RECEIPT>.*?</RECEIPT>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
 private val notePayloadRegex = Regex("<NOTE>.*?</NOTE>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
 private val thinkPayloadRegex = Regex("<THINK>.*?</THINK>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
+private val markdownJsonCodeBlockRegex = Regex("(?is)```(?:json)?\\s*(\\{[\\s\\S]*?})\\s*```")
+private val markdownInlineReceiptJsonRegex = Regex("(?is)\\{\\s*\"(?:isReceipt|action|amount|category|recordTime|date|items|successCount|failureCount)\"[\\s\\S]*?}")
+private val unclosedPayloadStartRegex = Regex("(?is)<(?:DATA|RECEIPT|NOTE|THINK)>[\\s\\S]*$")
+private val unclosedMarkdownJsonCodeBlockRegex = Regex("(?is)```(?:json)?[\\s\\S]*$")
+private val fenceRegex = Regex("```")
+private val payloadTagFragmentPrefixes = listOf(
+    "<d", "<da", "<dat", "<data",
+    "<r", "<re", "<rec", "<rece", "<recei", "<receip", "<receipt",
+    "<n", "<no", "<not", "<note",
+    "<t", "<th", "<thi", "<thin", "<think",
+)
 private val leadingNullRegex = Regex("(?is)^\\s*(?:null\\s*)+")
 private val lineNullRegex = Regex("(?im)^\\s*null\\s*$")
 private val repeatedNullRegex = Regex("(?i)(?:null\\s*){4,}")
@@ -689,6 +850,10 @@ private fun MessageRow(
                     onDelete = onDelete,
                     onEdit = onEdit,
                 )
+            } else if (!isUser) {
+                parseInsightCard(message.text)?.let { insight ->
+                    InsightCard(insight = insight)
+                }
             }
         }
 
@@ -772,7 +937,18 @@ private fun ReceiptCard(
     val successItems = receiptItems.filter { it.status == "success" }
     val failureItems = receiptItems.filter { it.status == "failed" }
     val isBatchReceipt = receiptSummary?.isBatch == true || receiptItems.size > 1 || failureItems.isNotEmpty()
-    val canEditSingleReceipt = !isBatchReceipt && successItems.size == 1 && failureItems.isEmpty()
+    val primaryAction = message.receiptPrimaryAction.trim().lowercase(Locale.ROOT)
+    val canEditSingleReceipt = !isBatchReceipt && successItems.size == 1 && failureItems.isEmpty() && primaryAction != "delete"
+    val showRepairAction = failureItems.isNotEmpty()
+    val receiptTitle = if (isBatchReceipt) {
+        "🤍 批量处理结果 🤍"
+    } else {
+        when (primaryAction) {
+            "update" -> "🤍 已修改成功 🤍"
+            "delete" -> "🤍 已删除成功 🤍"
+            else -> "🤍 已记账成功 🤍"
+        }
+    }
     val receiptDateTimestamp = message.receiptRecordTimestamp ?: message.timestamp
     val semanticReceiptDateTime = semanticDateTimeText(receiptDateTimestamp)
     val amountPrefix = if (message.receiptIsIncome) "+" else "-"
@@ -791,7 +967,7 @@ private fun ReceiptCard(
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(
-            text = if (isBatchReceipt) "🤍 批量处理结果 🤍" else "🤍 已记账成功 🤍",
+            text = receiptTitle,
             color = MintGreen,
             fontWeight = FontWeight.ExtraBold,
             fontSize = 13.sp,
@@ -829,6 +1005,15 @@ private fun ReceiptCard(
                         )
                     }
                 }
+            }
+
+            if (showRepairAction) {
+                Text(
+                    text = "可点击下方“去手动补全”快速修正失败项。",
+                    color = WarmBrownMuted,
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 11.sp,
+                )
             }
         } else {
             ReceiptRow(icon = Icons.Rounded.Category, label = "📁 分类", value = message.receiptCategory)
@@ -890,6 +1075,19 @@ private fun ReceiptCard(
                     ) {
                         Text(text = "✏️ 修改", color = WarmBrown, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                     }
+                } else if (showRepairAction) {
+                    Row(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(Color(0xFFEAF4FF))
+                            .appPressable { onEdit() }
+                            .padding(vertical = 8.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(text = "🛠️ 去手动补全", color = Color(0xFF4860A8), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    }
                 } else {
                     Box(
                         modifier = Modifier
@@ -899,7 +1097,12 @@ private fun ReceiptCard(
                             .padding(horizontal = 10.dp, vertical = 8.dp),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Text(text = "批量结果请到账本页逐笔调整", color = WarmBrownMuted, fontWeight = FontWeight.Medium, fontSize = 11.sp)
+                        val helperText = if (primaryAction == "delete") {
+                            "这条记录已删除，无需再次修改"
+                        } else {
+                            "批量结果请到账本页逐笔调整"
+                        }
+                        Text(text = helperText, color = WarmBrownMuted, fontWeight = FontWeight.Medium, fontSize = 11.sp)
                     }
                 }
                 Row(
@@ -1027,6 +1230,91 @@ private fun buildBatchReceiptAmount(item: AiChatReceiptItem): String {
         "金额待确认"
     } else {
         "$prefix${item.amount}"
+    }
+}
+
+@Composable
+private fun InsightCard(insight: ParsedInsightCard) {
+    Column(
+        modifier = Modifier
+            .padding(top = 8.dp)
+            .widthIn(max = 288.dp)
+            .glassCard(
+                shape = RoundedCornerShape(20.dp),
+                backgroundColor = Color.White.copy(alpha = 0.84f),
+                glowColor = Color(0xFFAED3FF).copy(alpha = 0.22f),
+            )
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            text = "📊 ${insight.title}",
+            color = Color(0xFF4A5D8E),
+            fontWeight = FontWeight.ExtraBold,
+            fontSize = 12.sp,
+        )
+
+        insight.primaryEntries.take(4).forEach { entry ->
+            InsightRow(
+                label = toInsightLabel(entry.key),
+                value = entry.value,
+                valueColor = WarmBrown,
+            )
+        }
+
+        if (insight.explainEntries.isNotEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color(0xFFF4F8FF))
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        text = "依据",
+                        color = Color(0xFF6B7BAA),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 10.sp,
+                    )
+                    insight.explainEntries.take(4).forEach { entry ->
+                        InsightRow(
+                            label = toInsightLabel(entry.key),
+                            value = entry.value,
+                            valueColor = WarmBrownMuted,
+                            compact = true,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun InsightRow(
+    label: String,
+    value: String,
+    valueColor: Color,
+    compact: Boolean = false,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = label,
+            color = WarmBrownMuted,
+            fontWeight = FontWeight.Medium,
+            fontSize = if (compact) 10.sp else 11.sp,
+        )
+        Text(
+            text = value,
+            color = valueColor,
+            fontWeight = FontWeight.Bold,
+            fontSize = if (compact) 10.sp else 11.sp,
+        )
     }
 }
 

@@ -328,7 +328,7 @@ class ChatRepository(
             when (event) {
                 is AiStreamEvent.TextDelta -> {
                     textBuffer.append(event.text)
-                    val liveText = stripReceiptPayload(textBuffer.toString())
+                    val liveText = sanitizeAssistantStreamText(textBuffer.toString())
                     val liveChunks = splitAssistantReply(liveText)
                     val pacedChunks = paceStreamChunks(
                         chunks = liveChunks,
@@ -2672,9 +2672,86 @@ class ChatRepository(
     }
 
     private fun extractReceiptDraftsFromText(text: String): List<AiReceiptDraft> {
-        val payloads = findPayloads(text, "DATA") + findPayloads(text, "RECEIPT")
+        val tagPayloads = findPayloads(text, "DATA") + findPayloads(text, "RECEIPT")
+        val markdownPayloads = if (tagPayloads.isEmpty()) {
+            findMarkdownReceiptPayloads(text)
+        } else {
+            emptyList()
+        }
+        val payloads = tagPayloads + markdownPayloads
         if (payloads.isEmpty()) return emptyList()
         return payloads.flatMap(::parseReceiptPayloadDrafts)
+    }
+
+    private fun sanitizeAssistantStreamText(text: String): String {
+        val stripped = stripReceiptPayload(text)
+        val trimmedTagFragment = stripTrailingPayloadTagFragment(stripped)
+        return stripTrailingMarkdownFenceFragment(trimmedTagFragment)
+    }
+
+    private fun stripTrailingPayloadTagFragment(text: String): String {
+        val lastOpenBracket = text.lastIndexOf('<')
+        if (lastOpenBracket < 0) return text
+
+        val tail = text.substring(lastOpenBracket)
+        if (tail.contains('>')) return text
+
+        val lowerTail = tail.lowercase(Locale.ROOT)
+        val hasPayloadPrefix = payloadTagFragmentPrefixes.any { prefix -> lowerTail.startsWith(prefix) }
+        return if (hasPayloadPrefix) {
+            text.substring(0, lastOpenBracket).trimEnd()
+        } else {
+            text
+        }
+    }
+
+    private fun stripTrailingMarkdownFenceFragment(text: String): String {
+        val fence = "```"
+        val lastFenceIndex = text.lastIndexOf(fence)
+        if (lastFenceIndex < 0) return text
+
+        val fenceCount = fenceRegex.findAll(text).count()
+        if (fenceCount % 2 == 0) return text
+        return text.substring(0, lastFenceIndex).trimEnd()
+    }
+
+    private fun findMarkdownReceiptPayloads(text: String): List<String> {
+        val payloads = mutableListOf<String>()
+
+        markdownJsonCodeBlockRegex.findAll(text).forEach { match ->
+            val rawPayload = match.groupValues.getOrNull(1).orEmpty()
+            val normalized = normalizePotentialJsonPayload(rawPayload)
+            if (looksLikeReceiptJson(normalized)) {
+                payloads += normalized
+            }
+        }
+
+        markdownInlineReceiptJsonRegex.findAll(text).forEach { match ->
+            val normalized = normalizePotentialJsonPayload(match.value)
+            if (looksLikeReceiptJson(normalized)) {
+                payloads += normalized
+            }
+        }
+
+        return payloads.distinct()
+    }
+
+    private fun normalizePotentialJsonPayload(raw: String): String {
+        val trimmed = raw.trim()
+        return if (trimmed.startsWith("json", ignoreCase = true)) {
+            trimmed.removePrefix("json").removePrefix("JSON").trim()
+        } else {
+            trimmed
+        }
+    }
+
+    private fun looksLikeReceiptJson(payload: String): Boolean {
+        val normalized = payload.lowercase(Locale.ROOT)
+        return normalized.contains("\"action\"") ||
+            normalized.contains("\"isreceipt\"") ||
+            normalized.contains("\"amount\"") ||
+            normalized.contains("\"items\"") ||
+            normalized.contains("\"successcount\"")
     }
 
     private fun stripReceiptPayload(text: String): String {
@@ -2683,6 +2760,10 @@ class ChatRepository(
             .replace(receiptPayloadRegex, "")
             .replace(notePayloadRegex, "")
             .replace(thinkPayloadRegex, "")
+            .replace(markdownJsonCodeBlockRegex, "")
+            .replace(markdownInlineReceiptJsonRegex, "")
+            .replace(unclosedPayloadStartRegex, "")
+            .replace(unclosedMarkdownJsonCodeBlockRegex, "")
             .replace(leadingNullRegex, "")
             .replace(lineNullRegex, "")
             .replace(repeatedNullRegex, "")
@@ -3208,6 +3289,22 @@ class ChatRepository(
         val receiptPayloadRegex = Regex("<RECEIPT>.*?</RECEIPT>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
         val notePayloadRegex = Regex("<NOTE>.*?</NOTE>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
         val thinkPayloadRegex = Regex("<THINK>.*?</THINK>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
+        val markdownJsonCodeBlockRegex = Regex(
+            "(?is)```(?:json)?\\s*(\\{[\\s\\S]*?})\\s*```",
+            setOf(RegexOption.IGNORE_CASE),
+        )
+        val markdownInlineReceiptJsonRegex = Regex(
+            "(?is)\\{\\s*\"(?:isReceipt|action|amount|category|recordTime|date|items|successCount|failureCount)\"[\\s\\S]*?}",
+        )
+        val unclosedPayloadStartRegex = Regex("(?is)<(?:DATA|RECEIPT|NOTE|THINK)>[\\s\\S]*$")
+        val unclosedMarkdownJsonCodeBlockRegex = Regex("(?is)```(?:json)?[\\s\\S]*$")
+        val fenceRegex = Regex("```")
+        val payloadTagFragmentPrefixes = listOf(
+            "<d", "<da", "<dat", "<data",
+            "<r", "<re", "<rec", "<rece", "<recei", "<receip", "<receipt",
+            "<n", "<no", "<not", "<note",
+            "<t", "<th", "<thi", "<thin", "<think",
+        )
         val leadingNullRegex = Regex("(?is)^\\s*(?:null\\s*)+")
         val lineNullRegex = Regex("(?im)^\\s*null\\s*$")
         val repeatedNullRegex = Regex("(?i)(?:null\\s*){4,}")

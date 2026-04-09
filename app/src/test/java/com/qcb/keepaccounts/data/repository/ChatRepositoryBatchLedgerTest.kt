@@ -564,6 +564,84 @@ class ChatRepositoryBatchLedgerTest {
             assertEquals(true, assistantText.contains("sampleSize="))
         }
     }
+
+    @Test
+    fun sendMessage_markdownJsonReceiptBlock_parsesAndDoesNotLeakJsonText() {
+        runBlocking {
+            val chatMessageDao = FakeChatMessageDao()
+            val transactionDao = FakeTransactionDao()
+            val repository = ChatRepository(
+                chatMessageDao = chatMessageDao,
+                transactionDao = transactionDao,
+                aiChatGateway = FakeAiChatGateway(
+                    """
+                    好的，我来处理。
+
+                    ```json
+                    {"isReceipt":true,"action":"create","amount":50,"category":"交通出行","desc":"打车"}
+                    ```
+                    """.trimIndent(),
+                ),
+                agentDefaultPathEnabled = false,
+            )
+
+            repository.sendMessage(
+                userInput = "帮我记一笔打车 50",
+                aiConfig = AiAssistantConfig(),
+                userName = "测试用户",
+            )
+
+            val assistantText = repository.observeChatRecords()
+                .first()
+                .filter { it.role == "assistant" }
+                .joinToString("\n") { it.content }
+            val visibleAssistantText = assistantText.replace(
+                Regex("<RECEIPT>[\\s\\S]*?</RECEIPT>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE)),
+                "",
+            )
+
+            assertEquals(1, transactionDao.countTransactions())
+            assertEquals(false, assistantText.contains("```"))
+            assertEquals(false, assistantText.contains("<DATA>"))
+            assertEquals(false, assistantText.contains("</DATA>"))
+            assertEquals(false, visibleAssistantText.contains("\"isReceipt\""))
+        }
+    }
+
+    @Test
+    fun sendMessage_splitDataTagAcrossDeltas_appliesReceiptWithoutTagLeak() {
+        runBlocking {
+            val chatMessageDao = FakeChatMessageDao()
+            val transactionDao = FakeTransactionDao()
+            val repository = ChatRepository(
+                chatMessageDao = chatMessageDao,
+                transactionDao = transactionDao,
+                aiChatGateway = MultiDeltaAiChatGateway(
+                    deltas = listOf(
+                        "好的，",
+                        "<DA",
+                        "TA>{\"isReceipt\":true,\"action\":\"create\",\"amount\":30,\"category\":\"餐饮美食\",\"desc\":\"晚饭\"}</DATA>",
+                    ),
+                ),
+                agentDefaultPathEnabled = false,
+            )
+
+            repository.sendMessage(
+                userInput = "帮我记一笔晚饭 30",
+                aiConfig = AiAssistantConfig(),
+                userName = "测试用户",
+            )
+
+            val assistantText = repository.observeChatRecords()
+                .first()
+                .filter { it.role == "assistant" }
+                .joinToString("\n") { it.content }
+
+            assertEquals(1, transactionDao.countTransactions())
+            assertEquals(false, assistantText.contains("<DA"))
+            assertEquals(false, assistantText.contains("</DATA>"))
+        }
+    }
 }
 
 private class FakeAiChatGateway(
@@ -583,6 +661,17 @@ private class CountingAiChatGateway(
     override fun streamReply(request: AiChatRequest): Flow<AiStreamEvent> = flow {
         requestCount += 1
         emit(AiStreamEvent.TextDelta(reply))
+        emit(AiStreamEvent.Completed)
+    }
+}
+
+private class MultiDeltaAiChatGateway(
+    private val deltas: List<String>,
+) : AiChatGateway {
+    override fun streamReply(request: AiChatRequest): Flow<AiStreamEvent> = flow {
+        deltas.forEach { delta ->
+            emit(AiStreamEvent.TextDelta(delta))
+        }
         emit(AiStreamEvent.Completed)
     }
 }
