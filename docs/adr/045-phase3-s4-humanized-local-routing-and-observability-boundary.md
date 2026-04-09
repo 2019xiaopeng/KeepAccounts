@@ -69,6 +69,11 @@
 3. 已验证结果：
 - 重点测试套件通过（`AgentStyleFormatterTest`、`ChatRepositoryBatchLedgerTest`、`ChatRepositoryTimeSemanticsTest`）。
 - 全量单测 `:app:testDebugUnitTest` 通过。
+4. 补充落地点（2026-04-09）：
+- 查询语义补强：支持“过去一周花了多少钱”等自然表达直达本地 stats。
+- 分类语义补强：新增“吃饭/吃中饭/中饭/夜宵”等口语映射到“餐饮美食”。
+- 回复切分修正：单段回复默认单气泡，避免句中硬切。
+- UI 去冗余与情绪化：失败提示去重 + 关键信息点 Emoji 化。
 
 ## 实施前置与验证
 

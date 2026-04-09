@@ -35,7 +35,7 @@ class AgentToolValidator {
                 issues += AgentValidationIssue(
                     field = "items[$index].category",
                     code = AgentErrorCode.EMPTY_CATEGORY,
-                    message = "这笔账单缺少分类，补一句分类后我再试一次。",
+                    message = "哎呀，这笔账单还不知道是什么分类呢，告诉我是吃喝还是交通，我立刻补上~",
                 )
             }
         }

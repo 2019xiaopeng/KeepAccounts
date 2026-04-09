@@ -1193,20 +1193,30 @@ private fun ReceiptCard(
     var confirmDelete by rememberSaveable(message.id) { mutableStateOf(false) }
     val receiptSummary = message.receiptSummary
     val receiptItems = receiptSummary?.items.orEmpty()
-    val receiptErrors = receiptSummary?.errors.orEmpty()
     val successItems = receiptItems.filter { it.status == "success" }
     val failureItems = receiptItems.filter { it.status == "failed" }
+    val failureReasons = failureItems
+        .mapNotNull { it.failureReason?.trim() }
+        .filter { it.isNotBlank() }
+    val receiptErrors = receiptSummary?.errors.orEmpty()
+        .map { it.trim() }
+        .filter { it.isNotBlank() }
+        .filterNot { error ->
+            failureReasons.any { reason ->
+                reason == error || reason.contains(error) || error.contains(reason)
+            }
+        }
     val isBatchReceipt = receiptSummary?.isBatch == true || receiptItems.size > 1 || failureItems.isNotEmpty()
     val primaryAction = message.receiptPrimaryAction.trim().lowercase(Locale.ROOT)
     val canEditSingleReceipt = !isBatchReceipt && successItems.size == 1 && failureItems.isEmpty() && primaryAction != "delete"
     val showRepairAction = failureItems.isNotEmpty()
     val receiptTitle = if (isBatchReceipt) {
-        "批量处理结果"
+        "🧾 批量处理结果"
     } else {
         when (primaryAction) {
-            "update" -> "已更新记录"
-            "delete" -> "已删除记录"
-            else -> "已记账"
+            "update" -> "🛠️ 已更新记录"
+            "delete" -> "🗑️ 已删除记录"
+            else -> "✅ 已记账"
         }
     }
     val receiptDateTimestamp = message.receiptRecordTimestamp ?: message.timestamp
@@ -1237,12 +1247,12 @@ private fun ReceiptCard(
         if (isBatchReceipt) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 ReceiptCountChip(
-                    label = "成功 ${receiptSummary?.successCount ?: successItems.size}",
+                    label = "✅ 成功 ${receiptSummary?.successCount ?: successItems.size}",
                     containerColor = IncomeGreen.copy(alpha = 0.14f),
                     textColor = IncomeGreen,
                 )
                 ReceiptCountChip(
-                    label = "失败 ${receiptSummary?.failureCount ?: failureItems.size}",
+                    label = "⚠️ 失败 ${receiptSummary?.failureCount ?: failureItems.size}",
                     containerColor = WatermelonRed.copy(alpha = 0.12f),
                     textColor = WatermelonRed,
                 )
@@ -1258,7 +1268,7 @@ private fun ReceiptCard(
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     receiptErrors.forEach { error ->
                         Text(
-                            text = "提示：$error",
+                            text = "💡 提示：$error",
                             color = WatermelonRed,
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 11.sp,
@@ -1269,18 +1279,18 @@ private fun ReceiptCard(
 
             if (showRepairAction) {
                 Text(
-                    text = "点击下方“去手动补全”可快速修正未完成项。",
+                    text = "🧩 点“去手动补全”就能快速修正未完成项。",
                     color = WarmBrownMuted,
                     fontWeight = FontWeight.Medium,
                     fontSize = 11.sp,
                 )
             }
         } else {
-            ReceiptRow(icon = Icons.Rounded.Category, label = "分类", value = message.receiptCategory)
-            ReceiptRow(icon = Icons.Rounded.AttachMoney, label = "金额", value = "$amountPrefix${message.receiptAmount}", valueColor = amountColor)
-            ReceiptRow(icon = Icons.Rounded.MoreHoriz, label = "备注", value = message.receiptRemark)
-            ReceiptRow(icon = Icons.Rounded.Today, label = "日期", value = semanticReceiptDateTime.dateText)
-            ReceiptRow(icon = Icons.Rounded.Schedule, label = "记录时间", value = semanticReceiptDateTime.timeText)
+            ReceiptRow(icon = Icons.Rounded.Category, label = "🏷️ 分类", value = message.receiptCategory)
+            ReceiptRow(icon = Icons.Rounded.AttachMoney, label = "💰 金额", value = "$amountPrefix${message.receiptAmount}", valueColor = amountColor)
+            ReceiptRow(icon = Icons.Rounded.MoreHoriz, label = "📝 备注", value = message.receiptRemark)
+            ReceiptRow(icon = Icons.Rounded.Today, label = "📅 日期", value = semanticReceiptDateTime.dateText)
+            ReceiptRow(icon = Icons.Rounded.Schedule, label = "⏰ 记录时间", value = semanticReceiptDateTime.timeText)
         }
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
@@ -1346,7 +1356,7 @@ private fun ReceiptCard(
                         horizontalArrangement = Arrangement.Center,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                            Text(text = "去手动补全", color = Color(0xFF4860A8), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            Text(text = "🧩 去手动补全", color = Color(0xFF4860A8), fontWeight = FontWeight.Bold, fontSize = 12.sp)
                     }
                 } else {
                     Box(
@@ -1423,7 +1433,7 @@ private fun BatchReceiptItemCard(item: AiChatReceiptItem) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             ReceiptCountChip(
-                label = if (isSuccess) "成功" else "失败",
+                label = if (isSuccess) "✅ 成功" else "❌ 失败",
                 containerColor = borderTextColor.copy(alpha = 0.12f),
                 textColor = borderTextColor,
             )
@@ -1452,7 +1462,7 @@ private fun BatchReceiptItemCard(item: AiChatReceiptItem) {
             }
         } else {
             Text(
-                text = item.failureReason?.takeIf { it.isNotBlank() }?.let { "失败原因：$it" } ?: "失败原因：请稍后重试",
+                text = item.failureReason?.takeIf { it.isNotBlank() }?.let { "⚠️ $it" } ?: "⚠️ 处理未完成，请稍后重试",
                 color = WatermelonRed,
                 fontWeight = FontWeight.Bold,
                 fontSize = 11.sp,
@@ -1508,7 +1518,7 @@ private fun InsightCard(insight: ParsedInsightCard) {
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(
-            text = insight.title,
+            text = "🔎 ${insight.title}",
             color = Color(0xFF4A5D8E),
             fontWeight = FontWeight.ExtraBold,
             fontSize = 12.sp,

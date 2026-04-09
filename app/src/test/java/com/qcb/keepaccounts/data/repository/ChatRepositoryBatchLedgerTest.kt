@@ -111,7 +111,7 @@ class ChatRepositoryBatchLedgerTest {
             assertEquals(1, assistantReceipt?.receiptSummary?.failureCount)
             assertEquals(3, assistantReceipt?.receiptSummary?.items?.size)
             val failedItem = assistantReceipt?.receiptSummary?.items?.firstOrNull { it.status == "failed" }
-            assertEquals("这笔账单缺少分类，补一句分类后我再试一次。", failedItem?.failureReason)
+            assertEquals("哎呀，这笔账单还不知道是什么分类呢，告诉我是吃喝还是交通，我立刻补上~", failedItem?.failureReason)
         }
     }
 
@@ -158,7 +158,7 @@ class ChatRepositoryBatchLedgerTest {
             assertEquals(2, assistantReceipt?.receiptSummary?.items?.size)
             assistantReceipt?.receiptSummary?.items?.forEach { item ->
                 assertEquals("failed", item.status)
-                assertEquals("这笔账单缺少分类，补一句分类后我再试一次。", item.failureReason)
+                assertEquals("哎呀，这笔账单还不知道是什么分类呢，告诉我是吃喝还是交通，我立刻补上~", item.failureReason)
             }
         }
     }
@@ -528,6 +528,31 @@ class ChatRepositoryBatchLedgerTest {
     }
 
     @Test
+    fun sendMessage_colloquialMiddayMealPhraseRoutesToLocalWriteAndInfersCategory() {
+        runBlocking {
+            val gateway = CountingAiChatGateway()
+            val transactionDao = FakeTransactionDao()
+            val repository = ChatRepository(
+                chatMessageDao = FakeChatMessageDao(),
+                transactionDao = transactionDao,
+                aiChatGateway = gateway,
+            )
+
+            repository.sendMessage(
+                userInput = "前天吃中饭花了20",
+                aiConfig = AiAssistantConfig(),
+                userName = "测试用户",
+            )
+
+            val latest = transactionDao.getRecentTransactions(limit = 1).firstOrNull()
+            assertEquals(0, gateway.requestCount)
+            assertEquals(1, transactionDao.countTransactions())
+            assertEquals("餐饮美食", latest?.categoryName)
+            assertEquals(20.0, latest?.amount ?: 0.0, 0.001)
+        }
+    }
+
+    @Test
     fun sendMessage_monthCategoryColloquialQueryRoutesToLocalQueryAndBypassesGateway() {
         runBlocking {
             val now = System.currentTimeMillis()
@@ -678,6 +703,85 @@ class ChatRepositoryBatchLedgerTest {
             assertEquals(true, visibleAssistantText.contains("总共花了") || visibleAssistantText.contains("总花费"))
             assertEquals(false, visibleAssistantText.contains("topAmount="))
             assertEquals(false, visibleAssistantText.contains("结构化结果"))
+        }
+    }
+
+    @Test
+    fun sendMessage_pastWeekSpendQuestionWithoutStatsKeywordRoutesToLocalStats() {
+        runBlocking {
+            val now = System.currentTimeMillis()
+            val gateway = CountingAiChatGateway()
+            val repository = ChatRepository(
+                chatMessageDao = FakeChatMessageDao(),
+                transactionDao = FakeTransactionDao(
+                    initialTransactions = listOf(
+                        TransactionEntity(
+                            id = 61L,
+                            type = 0,
+                            amount = 18.0,
+                            categoryName = "餐饮美食",
+                            categoryIcon = "",
+                            remark = "午饭",
+                            recordTimestamp = now - 1_000,
+                            createdTimestamp = now - 1_000,
+                        ),
+                        TransactionEntity(
+                            id = 62L,
+                            type = 0,
+                            amount = 22.0,
+                            categoryName = "交通出行",
+                            categoryIcon = "",
+                            remark = "打车",
+                            recordTimestamp = now - 2_000,
+                            createdTimestamp = now - 2_000,
+                        ),
+                    ),
+                ),
+                aiChatGateway = gateway,
+            )
+
+            repository.sendMessage(
+                userInput = "过去一周花了多少钱",
+                aiConfig = AiAssistantConfig(),
+                userName = "测试用户",
+            )
+
+            val assistantText = repository.observeChatRecords()
+                .first()
+                .filter { it.role == "assistant" }
+                .joinToString("\n") { it.content }
+            val visibleAssistantText = stripHiddenPayloads(assistantText)
+
+            assertEquals(0, gateway.requestCount)
+            assertEquals(true, visibleAssistantText.contains("过去一周"))
+            assertEquals(true, visibleAssistantText.contains("总共花了") || visibleAssistantText.contains("总花费"))
+            assertEquals(false, visibleAssistantText.contains("结构化结果"))
+        }
+    }
+
+    @Test
+    fun sendMessage_fallbackLongParagraphWithoutDelimiters_keepsSingleAssistantBubble() {
+        runBlocking {
+            val repository = ChatRepository(
+                chatMessageDao = FakeChatMessageDao(),
+                transactionDao = FakeTransactionDao(),
+                aiChatGateway = FakeAiChatGateway(
+                    "这是一段比较长的回复但是没有双换行分隔所以应该保持在一个气泡里显示避免阅读时被硬切成多个碎片并且句意仍然完整。",
+                ),
+                agentDefaultPathEnabled = false,
+            )
+
+            repository.sendMessage(
+                userInput = "随便聊聊",
+                aiConfig = AiAssistantConfig(),
+                userName = "测试用户",
+            )
+
+            val assistantMessages = repository.observeChatRecords()
+                .first()
+                .filter { it.role == "assistant" }
+
+            assertEquals(1, assistantMessages.size)
         }
     }
 

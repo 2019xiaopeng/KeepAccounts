@@ -563,11 +563,11 @@ class ChatRepository(
 
                 override suspend fun create(draft: AiReceiptDraft): LedgerAgentOrchestrator.WriteToolResult {
                     val amount = draft.amount ?: return LedgerAgentOrchestrator.WriteToolResult.Failure(
-                        reason = "这笔账单缺少金额，暂时没法处理。",
+                        reason = "哎呀，这笔还不知道金额呢，告诉我花了多少我就马上记好~",
                     )
                     if (draft.category.isNullOrBlank()) {
                         return LedgerAgentOrchestrator.WriteToolResult.Failure(
-                            reason = "这笔账单缺少分类，补一句分类后我再试一次。",
+                            reason = "哎呀，这笔账单还不知道是什么分类呢，告诉我是吃喝还是交通，我立刻补上~",
                         )
                     }
 
@@ -577,7 +577,7 @@ class ChatRepository(
                         userInput = userInput,
                         rawAmount = amount,
                     ) ?: return LedgerAgentOrchestrator.WriteToolResult.Failure(
-                        reason = "新增账单失败，请稍后重试。",
+                        reason = "唔，这笔我刚刚没写进去，再发一次我会继续盯着它。",
                     )
 
                     return LedgerAgentOrchestrator.WriteToolResult.Success(
@@ -997,25 +997,28 @@ class ChatRepository(
         val hasSoftQueryHint = querySoftIntentHints.any { hint -> input.contains(hint) }
         val hasWindowHint = queryWindowRelaxedHints.any { hint -> input.contains(hint) }
         val hasQuestionSignal = input.contains("?") || input.contains("？")
+        val hasSemanticSpendSignal = hasSemanticSpendQuerySignal(input)
         val hasQuerySubjectHint = queryKeywordHints.any { hint -> input.contains(hint) } ||
             statsIntentHints.any { hint -> input.contains(hint) } ||
             trendHints.any { hint -> input.contains(hint) } ||
             frequencyHints.any { hint -> input.contains(hint) } ||
-            ratioHints.any { hint -> input.contains(hint) }
+            ratioHints.any { hint -> input.contains(hint) } ||
+            spendQuestionHints.any { hint -> input.contains(hint) }
         val hasExplicitWriteAction = updateIntentHints.any { hint -> input.contains(hint) } ||
             deleteIntentHints.any { hint -> input.contains(hint) }
 
         if (hasExplicitWriteAction) return null
 
         val relaxedQuerySignal = hasSoftQueryHint ||
-            (hasWindowHint && (hasQuestionSignal || hasQuerySubjectHint))
+            hasSemanticSpendSignal ||
+            (hasWindowHint && (hasQuestionSignal || hasQuerySubjectHint || input.contains("多少")))
         if (!hasStrongQueryHint && !relaxedQuerySignal) return null
 
         val hasWriteHint = writeIntentHints.any { hint -> input.contains(hint) }
         val hasQueryOverride = queryOverrideHints.any { hint -> input.contains(hint) }
         if (hasWriteHint && !hasQueryOverride) return null
 
-        val statsIntent = statsIntentHints.any { hint -> input.contains(hint) }
+        val statsIntent = statsIntentHints.any { hint -> input.contains(hint) } || hasSemanticSpendSignal
         return if (statsIntent) {
             QueryIntentPlan(
                 toolName = AgentToolName.QUERY_SPENDING_STATS,
@@ -1166,6 +1169,9 @@ class ChatRepository(
             .replace("记账", "")
             .replace("花了", "")
             .replace("消费", "")
+            .replace("吃中饭", "")
+            .replace("吃饭", "")
+            .replace("吃了", "")
             .replace("买了", "")
             .trim()
             .ifBlank { text.trim() }
@@ -1601,6 +1607,16 @@ class ChatRepository(
             normalized.contains("总共花了多少") ||
             normalized.contains("总花费") ||
             normalized.contains("总支出")
+    }
+
+    private fun hasSemanticSpendQuerySignal(input: String): Boolean {
+        val normalized = input.trim()
+        if (normalized.isBlank()) return false
+
+        val hasWindowHint = queryWindowRelaxedHints.any { hint -> normalized.contains(hint) }
+        val hasSpendVerb = spendVerbQueryHints.any { hint -> normalized.contains(hint) }
+        val hasAmountAsk = normalized.contains("多少") || spendQuestionHints.any { hint -> normalized.contains(hint) }
+        return isTotalSpendQuestion(normalized) || (hasWindowHint && hasSpendVerb && hasAmountAsk)
     }
 
     private fun resolveFriendlyWindowLabel(window: String): String {
@@ -2436,7 +2452,9 @@ class ChatRepository(
         val mapped = when {
             normalized.contains("餐饮") || normalized.contains("美食") ||
                 normalized.contains("早餐") || normalized.contains("午餐") || normalized.contains("晚餐") ||
-                normalized.contains("午饭") || normalized.contains("晚饭") ||
+                normalized.contains("午饭") || normalized.contains("中饭") || normalized.contains("晚饭") ||
+                normalized.contains("吃饭") || normalized.contains("吃中饭") ||
+                normalized.contains("夜宵") || normalized.contains("宵夜") ||
                 normalized.contains("饮品") || normalized.contains("奶茶") -> "餐饮美食"
 
             normalized.contains("交通") || normalized.contains("出行") || normalized.contains("打车") ||
@@ -2541,6 +2559,8 @@ class ChatRepository(
                         - 一次说清优先：信息足够时直接执行，不要反复确认。
                         - 可解释建议：建议场景只给1个事实+1个可执行动作。
                         - 纠错低成本：用户说“记错了/改成/不对/修改”时，优先理解为 update，而不是 create。
+                        - 不要给用户起外号，不要臆造账单数据。
+                        - 如果没有可用账单数据或工具结果，必须明确说明“当前无法直接查看到完整账本数据”，并引导用户补充条件；禁止编造金额、分类、条数。
 
                         普通聊天时，尽量像真人发消息，可以分成2到4句短消息，每句不超过40字，避免长篇大论。
             如果要连发多条独立消息，请使用双换行分隔（\n\n），不要用单换行硬拆句。
@@ -2595,7 +2615,12 @@ class ChatRepository(
             .map { it.trim() }
             .filter { it.isNotBlank() }
 
-        val sourceParts = if (explicitParts.size > 1) explicitParts else listOf(normalized)
+        // Keep a single continuous bubble unless caller explicitly separates paragraphs/messages.
+        if (explicitParts.size <= 1) {
+            return listOf(normalized)
+        }
+
+        val sourceParts = explicitParts
         val splitParts = buildList {
             sourceParts.forEach { source ->
                 addAll(splitByMajorSentences(source))
@@ -2635,13 +2660,7 @@ class ChatRepository(
             merged += buffer
         }
 
-        return merged.flatMap { segment ->
-            if (segment.length <= maxLen) {
-                listOf(segment)
-            } else {
-                segment.chunked(maxLen)
-            }
-        }
+        return merged
     }
 
     private fun ensureReceiptConversationChunks(
@@ -3345,7 +3364,7 @@ class ChatRepository(
         val queryStrongIntentHints = listOf(
             "最近一笔", "最新一笔", "查询", "查一下", "看看记录", "最高", "花得最多",
             "最频繁", "统计", "分析", "占比", "趋势", "总吃同一家", "同一家", "top",
-            "哪一类消费最多", "排行",
+            "哪一类消费最多", "排行", "花了多少钱", "花了多少", "总花费", "总支出",
         )
         val querySoftIntentHints = listOf(
             "查下", "看下", "看一下", "看一眼", "查查", "查一查",
@@ -3354,6 +3373,8 @@ class ChatRepository(
         val queryWindowRelaxedHints = listOf("今天", "昨天", "本月", "这个月", "上个月", "近7天", "近30天", "最近7天", "最近30天", "最近一周", "最近一个月")
         val queryOverrideHints = listOf("最近一笔", "最高", "最频繁", "统计", "分析", "占比", "趋势", "同一家", "花了多少", "总共")
         val statsIntentHints = listOf("统计", "分析", "占比", "趋势", "最频繁", "同一家", "哪一类消费最多", "排行")
+        val spendVerbQueryHints = listOf("花了", "花费", "支出", "消费", "花销", "用了")
+        val spendQuestionHints = listOf("花了多少钱", "花了多少", "总共花了多少", "总花费", "总支出", "消费多少", "花费多少")
         val highestSpendingHints = listOf("最高", "花得最多", "最贵", "最大一笔")
         val recentOneHints = listOf("最近一笔", "最新一笔", "最后一笔")
         val weekWindowHints = listOf(
@@ -3368,7 +3389,7 @@ class ChatRepository(
         val trendHints = listOf("趋势", "变化", "走势")
         val frequencyHints = listOf("最频繁", "频繁", "次数", "几次", "总是", "同一家")
         val ratioHints = listOf("占比", "比例", "百分比")
-        val writeSceneHints = listOf("打车", "地铁", "公交", "晚饭", "午饭", "早餐", "咖啡", "奶茶", "外卖", "买菜", "房租", "水电", "缴费", "交费")
+        val writeSceneHints = listOf("打车", "地铁", "公交", "晚饭", "中饭", "午饭", "早餐", "吃饭", "吃中饭", "夜宵", "咖啡", "奶茶", "外卖", "买菜", "房租", "水电", "缴费", "交费")
         val queryKeywordHints = listOf(
             "餐饮", "奶茶", "咖啡", "打车", "地铁", "公交", "购物", "外卖", "房租", "工资", "账单",
             "瑞幸", "星巴克", "麦当劳", "肯德基",
@@ -3395,7 +3416,7 @@ class ChatRepository(
             "九" to 9,
         )
         val categoryKeywordHints = listOf(
-            "餐饮", "美食", "早餐", "午餐", "晚餐", "午饭", "晚饭", "饮品", "奶茶", "咖啡", "外卖",
+            "餐饮", "美食", "早餐", "午餐", "晚餐", "午饭", "中饭", "晚饭", "吃饭", "吃中饭", "夜宵", "宵夜", "饮品", "奶茶", "咖啡", "外卖",
             "交通", "出行", "打车", "地铁", "公交", "高铁",
             "购物", "网购", "服饰", "数码",
             "居家", "家居", "房租", "水电", "日用",

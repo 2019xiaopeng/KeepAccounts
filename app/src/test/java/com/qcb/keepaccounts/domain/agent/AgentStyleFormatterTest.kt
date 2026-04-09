@@ -46,4 +46,28 @@ class AgentStyleFormatterTest {
         assertTrue(result.contains("追踪ID") == false)
         assertEquals(true, result.contains("\n\n"))
     }
+
+    @Test
+    fun formatWrite_failureDoesNotEchoRawBackendError() {
+        val formatter = AgentStyleFormatter()
+
+        val rawError = "哎呀，这笔账单还不知道是什么分类呢，告诉我是吃喝还是交通，我立刻补上~"
+        val result = formatter.formatWrite(
+            facts = AgentWriteStyleFacts(
+                successCount = 0,
+                failureCount = 1,
+                createCount = 0,
+                updateCount = 0,
+                deleteCount = 0,
+                errors = listOf(rawError),
+                primaryAction = "create",
+                primaryCategory = null,
+                primaryDesc = null,
+            ),
+            requestId = "req-002",
+        )
+
+        assertTrue(result.contains("差一点点信息") || result.contains("马上帮你补上"))
+        assertTrue(result.contains(rawError) == false)
+    }
 }
