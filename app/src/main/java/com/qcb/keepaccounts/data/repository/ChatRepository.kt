@@ -69,14 +69,6 @@ class ChatRepository(
     ),
 ) {
 
-    private val queryToolExecutor: QueryInsightsToolExecutor by lazy {
-        QueryInsightsToolExecutor(
-            sourceProvider = {
-                loadTransactionSnapshots(limit = 600)
-            },
-        )
-    }
-
     private data class AppliedTransaction(
         val transactionId: Long,
         val type: Int,
@@ -309,15 +301,13 @@ class ChatRepository(
             )
         }
 
-        val recentMessages = chatMessageDao.getRecentMessages(limit = 24).asReversed()
+        val fallbackContextLimit = resolveFallbackContextLimit(
+            userInput = userInput,
+            isCorrectionInput = isCorrectionInput,
+        )
+        val recentMessages = chatMessageDao.getRecentMessages(limit = fallbackContextLimit).asReversed()
         val systemPrompt = buildSystemPrompt(aiConfig, userName)
-        val requestMessages = buildList {
-            add(AiMessage(role = "system", content = systemPrompt))
-            recentMessages.forEach { message ->
-                val gatewayRole = if (message.role == "assistant" || message.role == "ai") "assistant" else "user"
-                add(AiMessage(role = gatewayRole, content = message.content))
-            }
-        }
+        val requestMessages = buildGatewayRequestMessages(systemPrompt, recentMessages)
 
         val textBuffer = StringBuilder()
         val parsedReceipts = mutableListOf<AiReceiptDraft>()
@@ -795,15 +785,58 @@ class ChatRepository(
     }
 
     suspend fun queryTransactionsTool(args: AgentToolArgs.QueryTransactionsArgs): QueryToolCallResult<QueryTransactionsResult> {
-        return queryToolExecutor.queryTransactions(args)
+        val executor = QueryInsightsToolExecutor(
+            sourceProvider = { loadTransactionSnapshotsForQuery(args) },
+        )
+        return executor.queryTransactions(args)
     }
 
     suspend fun querySpendingStatsTool(args: AgentToolArgs.QuerySpendingStatsArgs): QueryToolCallResult<QuerySpendingStatsResult> {
-        return queryToolExecutor.querySpendingStats(args)
+        val executor = QueryInsightsToolExecutor(
+            sourceProvider = { loadTransactionSnapshotsForStats(args) },
+        )
+        return executor.querySpendingStats(args)
     }
 
-    private suspend fun loadTransactionSnapshots(limit: Int): List<LedgerTransactionSnapshot> {
-        return transactionDao.getRecentTransactions(limit = limit).map { entity ->
+    private suspend fun loadTransactionSnapshotsForQuery(args: AgentToolArgs.QueryTransactionsArgs): List<LedgerTransactionSnapshot> {
+        val snapshotLimit = resolveQuerySnapshotLimit(args)
+        return loadTransactionSnapshotsByWindow(
+            window = args.window,
+            startAtMillis = args.startAtMillis,
+            endAtMillis = args.endAtMillis,
+            limit = snapshotLimit,
+        )
+    }
+
+    private suspend fun loadTransactionSnapshotsForStats(args: AgentToolArgs.QuerySpendingStatsArgs): List<LedgerTransactionSnapshot> {
+        val snapshotLimit = resolveStatsSnapshotLimit(args)
+        return loadTransactionSnapshotsByWindow(
+            window = args.window,
+            startAtMillis = args.startAtMillis,
+            endAtMillis = args.endAtMillis,
+            limit = snapshotLimit,
+        )
+    }
+
+    private suspend fun loadTransactionSnapshotsByWindow(
+        window: String,
+        startAtMillis: Long?,
+        endAtMillis: Long?,
+        limit: Int,
+    ): List<LedgerTransactionSnapshot> {
+        val safeLimit = limit.coerceIn(20, 1000)
+        val range = resolveSnapshotRange(window, startAtMillis, endAtMillis)
+        val entities = if (range != null) {
+            transactionDao.getTransactionsInRange(
+                startAtMillis = range.first,
+                endAtMillis = range.second,
+                limit = safeLimit,
+            )
+        } else {
+            transactionDao.getRecentTransactions(limit = safeLimit)
+        }
+
+        return entities.map { entity ->
             LedgerTransactionSnapshot(
                 transactionId = entity.id,
                 type = entity.type,
@@ -813,6 +846,86 @@ class ChatRepository(
                 recordTimestamp = entity.recordTimestamp,
             )
         }
+    }
+
+    private fun resolveSnapshotRange(
+        window: String,
+        startAtMillis: Long?,
+        endAtMillis: Long?,
+    ): Pair<Long, Long>? {
+        val now = System.currentTimeMillis()
+        val todayStart = startOfDayTimestamp(now)
+        val todayEnd = endOfDayTimestamp(now)
+
+        return when (window) {
+            "today" -> todayStart to todayEnd
+            "yesterday" -> (todayStart - oneDayMillis) to (todayEnd - oneDayMillis)
+            "last7days" -> (todayStart - 6L * oneDayMillis) to todayEnd
+            "last30days" -> (todayStart - 29L * oneDayMillis) to todayEnd
+            "last12months" -> {
+                val rangeStart = Calendar.getInstance().apply {
+                    timeInMillis = now
+                    add(Calendar.MONTH, -11)
+                    set(Calendar.DAY_OF_MONTH, 1)
+                    set(Calendar.HOUR_OF_DAY, 0)
+                    set(Calendar.MINUTE, 0)
+                    set(Calendar.SECOND, 0)
+                    set(Calendar.MILLISECOND, 0)
+                }.timeInMillis
+                rangeStart to todayEnd
+            }
+
+            "custom" -> {
+                if (startAtMillis != null && endAtMillis != null && startAtMillis <= endAtMillis) {
+                    startAtMillis to endAtMillis
+                } else {
+                    null
+                }
+            }
+
+            else -> null
+        }
+    }
+
+    private fun resolveQuerySnapshotLimit(args: AgentToolArgs.QueryTransactionsArgs): Int {
+        val hasFilter = args.filters.transactionId != null ||
+            !args.filters.keyword.isNullOrBlank() ||
+            args.filters.amountMin != null ||
+            args.filters.amountMax != null ||
+            !args.filters.dateKeyword.isNullOrBlank()
+
+        return when {
+            isSimpleLatestQuery(args, hasFilter) -> 40
+            args.sortKey == "record_time_desc" && args.limit <= 3 && !hasFilter -> 80
+            args.sortKey == "record_time_desc" -> 180
+            args.sortKey == "amount_desc" && hasFilter -> 480
+            args.sortKey == "amount_desc" -> 600
+            else -> 320
+        }
+    }
+
+    private fun isSimpleLatestQuery(
+        args: AgentToolArgs.QueryTransactionsArgs,
+        hasFilter: Boolean,
+    ): Boolean {
+        return args.sortKey == "record_time_desc" &&
+            args.limit <= 1 &&
+            !hasFilter &&
+            args.window != "last12months"
+    }
+
+    private fun resolveStatsSnapshotLimit(args: AgentToolArgs.QuerySpendingStatsArgs): Int {
+        val base = when (args.window) {
+            "today", "yesterday" -> 160
+            "last7days" -> 320
+            "last30days" -> 520
+            "last12months" -> 800
+            "custom" -> 600
+            else -> 480
+        }
+
+        val byTopN = (args.topN.coerceIn(1, 50) * 18).coerceAtLeast(120)
+        return maxOf(base, byTopN).coerceAtMost(1000)
     }
 
     private suspend fun handleQueryIntent(
@@ -949,7 +1062,18 @@ class ChatRepository(
         if (input.isBlank()) return null
 
         val hasStrongQueryHint = queryStrongIntentHints.any { hint -> input.contains(hint) }
-        if (!hasStrongQueryHint) return null
+        val hasSoftQueryHint = querySoftIntentHints.any { hint -> input.contains(hint) }
+        val hasWindowHint = queryWindowRelaxedHints.any { hint -> input.contains(hint) }
+        val hasQuestionSignal = input.contains("?") || input.contains("？")
+        val hasQuerySubjectHint = queryKeywordHints.any { hint -> input.contains(hint) } ||
+            statsIntentHints.any { hint -> input.contains(hint) } ||
+            trendHints.any { hint -> input.contains(hint) } ||
+            frequencyHints.any { hint -> input.contains(hint) } ||
+            ratioHints.any { hint -> input.contains(hint) }
+
+        val relaxedQuerySignal = hasSoftQueryHint ||
+            (hasWindowHint && (hasQuestionSignal || hasQuerySubjectHint))
+        if (!hasStrongQueryHint && !relaxedQuerySignal) return null
 
         val hasWriteHint = writeIntentHints.any { hint -> input.contains(hint) }
         val hasQueryOverride = queryOverrideHints.any { hint -> input.contains(hint) }
@@ -975,7 +1099,15 @@ class ChatRepository(
 
         val hasWriteHint = writeIntentHints.any { hint -> input.contains(hint) }
         val hasAmount = parseAmountCandidates(input).isNotEmpty()
-        if (!hasWriteHint && !hasAmount) return emptyList()
+        val hasQuerySignal = queryStrongIntentHints.any { hint -> input.contains(hint) } ||
+            querySoftIntentHints.any { hint -> input.contains(hint) } ||
+            statsIntentHints.any { hint -> input.contains(hint) } ||
+            (queryWindowRelaxedHints.any { hint -> input.contains(hint) } &&
+                (input.contains("查") || input.contains("看") || input.contains("统计") || input.contains("分析")))
+        val hasWriteSceneHint = writeSceneHints.any { hint -> input.contains(hint) }
+
+        if (hasQuerySignal && !hasWriteHint) return emptyList()
+        if (!hasWriteHint && !(hasAmount && hasWriteSceneHint)) return emptyList()
 
         val action = when {
             deleteIntentHints.any { hint -> input.contains(hint) } -> ACTION_DELETE
@@ -2291,6 +2423,7 @@ class ChatRepository(
         val mapped = when {
             normalized.contains("餐饮") || normalized.contains("美食") ||
                 normalized.contains("早餐") || normalized.contains("午餐") || normalized.contains("晚餐") ||
+                normalized.contains("午饭") || normalized.contains("晚饭") ||
                 normalized.contains("饮品") || normalized.contains("奶茶") -> "餐饮美食"
 
             normalized.contains("交通") || normalized.contains("出行") || normalized.contains("打车") ||
@@ -2315,6 +2448,51 @@ class ChatRepository(
         }
 
         return mapped ?: if (type == 1) "收入" else "其他"
+    }
+
+    private fun resolveFallbackContextLimit(
+        userInput: String,
+        isCorrectionInput: Boolean,
+    ): Int {
+        if (isCorrectionInput) return 18
+        val length = userInput.trim().length
+        return when {
+            length <= 12 -> 8
+            length <= 24 -> 10
+            length <= 40 -> 12
+            else -> 14
+        }
+    }
+
+    private fun buildGatewayRequestMessages(
+        systemPrompt: String,
+        recentMessages: List<ChatMessageEntity>,
+    ): List<AiMessage> {
+        val normalized = recentMessages.mapNotNull { message ->
+            val role = if (message.role == "assistant" || message.role == "ai") "assistant" else "user"
+            val content = stripReceiptPayload(message.content).trim()
+            if (content.isBlank()) {
+                null
+            } else {
+                AiMessage(role = role, content = content)
+            }
+        }
+
+        val merged = mutableListOf<AiMessage>()
+        normalized.forEach { message ->
+            val last = merged.lastOrNull()
+            if (last != null && last.role == message.role) {
+                merged[merged.lastIndex] = last.copy(content = "${last.content}\n${message.content}")
+            } else {
+                merged += message
+            }
+        }
+
+        val cappedTurns = merged.takeLast(12)
+        return buildList {
+            add(AiMessage(role = "system", content = systemPrompt))
+            addAll(cappedTurns)
+        }
     }
 
     private fun buildSystemPrompt(
@@ -2956,20 +3134,26 @@ class ChatRepository(
             "最频繁", "统计", "分析", "占比", "趋势", "总吃同一家", "同一家", "top",
             "哪一类消费最多", "排行",
         )
-        val queryOverrideHints = listOf("最近一笔", "最高", "最频繁", "统计", "分析", "占比", "趋势", "同一家")
+        val querySoftIntentHints = listOf(
+            "查下", "看下", "看一下", "看一眼", "查查", "查一查",
+            "本月", "这个月", "上个月", "近7天", "近30天", "最近7天", "最近30天",
+        )
+        val queryWindowRelaxedHints = listOf("今天", "昨天", "本月", "这个月", "上个月", "近7天", "近30天", "最近7天", "最近30天", "最近一周", "最近一个月")
+        val queryOverrideHints = listOf("最近一笔", "最高", "最频繁", "统计", "分析", "占比", "趋势", "同一家", "花了多少", "总共")
         val statsIntentHints = listOf("统计", "分析", "占比", "趋势", "最频繁", "同一家", "哪一类消费最多", "排行")
         val highestSpendingHints = listOf("最高", "花得最多", "最贵", "最大一笔")
         val recentOneHints = listOf("最近一笔", "最新一笔", "最后一笔")
-        val weekWindowHints = listOf("最近一周", "过去一周", "本周", "7天")
-        val monthWindowHints = listOf("最近一个月", "过去一个月", "本月", "月度", "30天")
+        val weekWindowHints = listOf("最近一周", "过去一周", "本周", "7天", "近7天", "最近7天")
+        val monthWindowHints = listOf("最近一个月", "过去一个月", "本月", "这个月", "上个月", "月度", "30天", "近30天", "最近30天")
         val yearWindowHints = listOf("最近一年", "过去一年", "年度", "12个月")
         val merchantHints = listOf("同一家", "商家", "店", "门店")
         val timeSlotHints = listOf("时段", "几点", "什么时候", "早上", "晚上", "中午")
         val trendHints = listOf("趋势", "变化", "走势")
         val frequencyHints = listOf("最频繁", "频繁", "次数", "几次", "总是", "同一家")
         val ratioHints = listOf("占比", "比例", "百分比")
+        val writeSceneHints = listOf("打车", "地铁", "公交", "晚饭", "午饭", "早餐", "咖啡", "奶茶", "外卖", "买菜", "房租", "水电", "缴费", "交费")
         val queryKeywordHints = listOf(
-            "餐饮", "奶茶", "咖啡", "打车", "地铁", "公交", "购物", "外卖", "房租", "工资",
+            "餐饮", "奶茶", "咖啡", "打车", "地铁", "公交", "购物", "外卖", "房租", "工资", "账单",
             "瑞幸", "星巴克", "麦当劳", "肯德基",
         )
         val amountMinRegexes = listOf(
@@ -2994,7 +3178,7 @@ class ChatRepository(
             "九" to 9,
         )
         val categoryKeywordHints = listOf(
-            "餐饮", "美食", "早餐", "午餐", "晚餐", "饮品", "奶茶",
+            "餐饮", "美食", "早餐", "午餐", "晚餐", "午饭", "晚饭", "饮品", "奶茶", "咖啡", "外卖",
             "交通", "出行", "打车", "地铁", "公交", "高铁",
             "购物", "网购", "服饰", "数码",
             "居家", "家居", "房租", "水电", "日用",

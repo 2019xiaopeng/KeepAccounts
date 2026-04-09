@@ -473,6 +473,97 @@ class ChatRepositoryBatchLedgerTest {
             assertEquals(true, assistantText.contains("sampleSize="))
         }
     }
+
+    @Test
+    fun sendMessage_colloquialTaxiExpenseRoutesToLocalWriteAndBypassesGateway() {
+        runBlocking {
+            val gateway = CountingAiChatGateway()
+            val transactionDao = FakeTransactionDao()
+            val repository = ChatRepository(
+                chatMessageDao = FakeChatMessageDao(),
+                transactionDao = transactionDao,
+                aiChatGateway = gateway,
+            )
+
+            repository.sendMessage(
+                userInput = "打车花了 50",
+                aiConfig = AiAssistantConfig(),
+                userName = "测试用户",
+            )
+
+            val latest = transactionDao.getRecentTransactions(limit = 1).firstOrNull()
+            assertEquals(0, gateway.requestCount)
+            assertEquals(1, transactionDao.countTransactions())
+            assertEquals("交通出行", latest?.categoryName)
+            assertEquals(50.0, latest?.amount ?: 0.0, 0.001)
+        }
+    }
+
+    @Test
+    fun sendMessage_colloquialRelativeMealRoutesToLocalWriteAndInfersCategory() {
+        runBlocking {
+            val gateway = CountingAiChatGateway()
+            val transactionDao = FakeTransactionDao()
+            val repository = ChatRepository(
+                chatMessageDao = FakeChatMessageDao(),
+                transactionDao = transactionDao,
+                aiChatGateway = gateway,
+            )
+
+            repository.sendMessage(
+                userInput = "前天晚饭 30",
+                aiConfig = AiAssistantConfig(),
+                userName = "测试用户",
+            )
+
+            val latest = transactionDao.getRecentTransactions(limit = 1).firstOrNull()
+            assertEquals(0, gateway.requestCount)
+            assertEquals(1, transactionDao.countTransactions())
+            assertEquals("餐饮美食", latest?.categoryName)
+            assertEquals(30.0, latest?.amount ?: 0.0, 0.001)
+        }
+    }
+
+    @Test
+    fun sendMessage_monthCategoryColloquialQueryRoutesToLocalQueryAndBypassesGateway() {
+        runBlocking {
+            val now = System.currentTimeMillis()
+            val gateway = CountingAiChatGateway()
+            val repository = ChatRepository(
+                chatMessageDao = FakeChatMessageDao(),
+                transactionDao = FakeTransactionDao(
+                    initialTransactions = listOf(
+                        TransactionEntity(
+                            id = 31L,
+                            type = 0,
+                            amount = 48.0,
+                            categoryName = "餐饮美食",
+                            categoryIcon = "",
+                            remark = "午餐",
+                            recordTimestamp = now - 1_000,
+                            createdTimestamp = now - 1_000,
+                        ),
+                    ),
+                ),
+                aiChatGateway = gateway,
+            )
+
+            repository.sendMessage(
+                userInput = "本月餐饮",
+                aiConfig = AiAssistantConfig(),
+                userName = "测试用户",
+            )
+
+            val assistantText = repository.observeChatRecords()
+                .first()
+                .filter { it.role == "assistant" }
+                .joinToString("\n") { it.content }
+
+            assertEquals(0, gateway.requestCount)
+            assertEquals(true, assistantText.contains("结构化结果："))
+            assertEquals(true, assistantText.contains("sampleSize="))
+        }
+    }
 }
 
 private class FakeAiChatGateway(
@@ -583,6 +674,17 @@ private class FakeTransactionDao(initialTransactions: List<TransactionEntity> = 
 
     override suspend fun getRecentTransactions(limit: Int): List<TransactionEntity> {
         return transactions.sortedByDescending { it.recordTimestamp }.take(limit)
+    }
+
+    override suspend fun getTransactionsInRange(
+        startAtMillis: Long,
+        endAtMillis: Long,
+        limit: Int,
+    ): List<TransactionEntity> {
+        return transactions
+            .filter { it.recordTimestamp in startAtMillis..endAtMillis }
+            .sortedByDescending { it.recordTimestamp }
+            .take(limit)
     }
 
     override fun observeTransactionById(id: Long): Flow<TransactionEntity?> = MutableStateFlow(

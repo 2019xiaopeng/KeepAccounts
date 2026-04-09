@@ -264,6 +264,17 @@ private class TimeSemanticsFakeTransactionDao(initialTransactions: List<Transact
         return transactions.sortedByDescending { it.recordTimestamp }.take(limit)
     }
 
+    override suspend fun getTransactionsInRange(
+        startAtMillis: Long,
+        endAtMillis: Long,
+        limit: Int,
+    ): List<TransactionEntity> {
+        return transactions
+            .filter { it.recordTimestamp in startAtMillis..endAtMillis }
+            .sortedByDescending { it.recordTimestamp }
+            .take(limit)
+    }
+
     override fun observeTransactionById(id: Long): Flow<TransactionEntity?> = MutableStateFlow(
         transactions.firstOrNull { it.id == id },
     )
