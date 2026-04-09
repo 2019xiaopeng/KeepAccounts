@@ -71,3 +71,4 @@
 
 1. 2026-04-09 已完成“速度与准确率”增强一轮改造，详见 `docs/p3-s4-speed-accuracy-optimization-evidence.md`。
 2. 2026-04-09 已完成“流式安全与聊天回执/洞察 UI”二轮增强，详见 `docs/p3-s4-stream-safety-and-chat-ui-hardening-evidence.md`。
+3. 2026-04-09 已完成“完成态气泡 + 零 JSON 可见”三轮增强，详见 `docs/p3-s4-completion-render-and-zero-json-visibility-evidence.md`。

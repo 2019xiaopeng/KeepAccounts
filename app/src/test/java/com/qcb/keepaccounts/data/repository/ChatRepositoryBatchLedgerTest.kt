@@ -642,6 +642,114 @@ class ChatRepositoryBatchLedgerTest {
             assertEquals(false, assistantText.contains("</DATA>"))
         }
     }
+
+    @Test
+    fun sendMessage_streamingDeltas_flushesAssistantMessageOnlyAfterCompleted() {
+        runBlocking {
+            val chatMessageDao = FakeChatMessageDao()
+            val repository = ChatRepository(
+                chatMessageDao = chatMessageDao,
+                transactionDao = FakeTransactionDao(),
+                aiChatGateway = MultiDeltaAiChatGateway(
+                    deltas = listOf("你", "好", "呀"),
+                ),
+                agentDefaultPathEnabled = false,
+            )
+
+            repository.sendMessage(
+                userInput = "随便聊聊",
+                aiConfig = AiAssistantConfig(),
+                userName = "测试用户",
+            )
+
+            val assistantMessages = repository.observeChatRecords()
+                .first()
+                .filter { it.role == "assistant" }
+
+            assertEquals(1, assistantMessages.size)
+            assertEquals("你好呀", assistantMessages.first().content)
+            assertEquals(2, chatMessageDao.insertCount)
+            assertEquals(0, chatMessageDao.updateCount)
+        }
+    }
+
+    @Test
+    fun sendMessage_inlineJsonWithoutTags_parsesAndDoesNotLeakJsonText() {
+        runBlocking {
+            val transactionDao = FakeTransactionDao()
+            val repository = ChatRepository(
+                chatMessageDao = FakeChatMessageDao(),
+                transactionDao = transactionDao,
+                aiChatGateway = FakeAiChatGateway(
+                    """
+                    好的，我来处理。
+                    {"isReceipt":true,"action":"create","amount":66,"category":"交通出行","desc":"打车"}
+                    已经帮你记好了。
+                    """.trimIndent(),
+                ),
+                agentDefaultPathEnabled = false,
+            )
+
+            repository.sendMessage(
+                userInput = "打车66",
+                aiConfig = AiAssistantConfig(),
+                userName = "测试用户",
+            )
+
+            val assistantText = repository.observeChatRecords()
+                .first()
+                .filter { it.role == "assistant" }
+                .joinToString("\n") { it.content }
+            val visibleAssistantText = assistantText.replace(
+                Regex("<RECEIPT>[\\s\\S]*?</RECEIPT>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE)),
+                "",
+            )
+
+            assertEquals(1, transactionDao.countTransactions())
+            assertEquals(1, repository.observeChatRecords().first().count { it.role == "assistant" && it.isReceipt })
+            assertEquals(false, visibleAssistantText.contains("\"isReceipt\""))
+            assertEquals(false, visibleAssistantText.contains("\"amount\""))
+            assertEquals(false, visibleAssistantText.contains("{"))
+            assertEquals(false, visibleAssistantText.contains("}"))
+        }
+    }
+
+    @Test
+    fun sendMessage_unclosedInlineJsonFragment_doesNotLeakJsonText() {
+        runBlocking {
+            val transactionDao = FakeTransactionDao()
+            val repository = ChatRepository(
+                chatMessageDao = FakeChatMessageDao(),
+                transactionDao = transactionDao,
+                aiChatGateway = FakeAiChatGateway(
+                    """
+                    我来帮你记。
+                    {"isReceipt":true,"action":"create","amount":66
+                    """.trimIndent(),
+                ),
+                agentDefaultPathEnabled = false,
+            )
+
+            repository.sendMessage(
+                userInput = "打车66",
+                aiConfig = AiAssistantConfig(),
+                userName = "测试用户",
+            )
+
+            val assistantText = repository.observeChatRecords()
+                .first()
+                .filter { it.role == "assistant" }
+                .joinToString("\n") { it.content }
+            val visibleAssistantText = assistantText.replace(
+                Regex("<RECEIPT>[\\s\\S]*?</RECEIPT>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE)),
+                "",
+            )
+
+            assertEquals(0, transactionDao.countTransactions())
+            assertEquals(false, visibleAssistantText.contains("\"isReceipt\""))
+            assertEquals(false, visibleAssistantText.contains("{\""))
+        }
+    }
 }
 
 private class FakeAiChatGateway(
@@ -680,10 +788,15 @@ private class FakeChatMessageDao : ChatMessageDao {
     private val messages = mutableListOf<ChatMessageEntity>()
     private val messagesFlow = MutableStateFlow<List<ChatMessageEntity>>(emptyList())
     private var nextId = 1L
+    var insertCount: Int = 0
+        private set
+    var updateCount: Int = 0
+        private set
 
     override suspend fun insertMessage(message: ChatMessageEntity): Long {
         val stored = message.copy(id = if (message.id == 0L) nextId++ else message.id)
         messages += stored
+        insertCount += 1
         publish()
         return stored.id
     }
@@ -713,6 +826,7 @@ private class FakeChatMessageDao : ChatMessageDao {
                 transactionId = transactionId,
                 transactionBindings = transactionBindings,
             )
+            updateCount += 1
             publish()
         }
     }

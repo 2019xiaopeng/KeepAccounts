@@ -75,6 +75,7 @@ import com.qcb.keepaccounts.ui.theme.WarmBrown
 import com.qcb.keepaccounts.ui.theme.WarmBrownMuted
 import com.qcb.keepaccounts.ui.theme.WatermelonRed
 import kotlinx.coroutines.delay
+import org.json.JSONArray
 import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -610,7 +611,17 @@ private fun stripReceiptPayload(text: String): String {
         .trim()
 
     val withTagFragmentRemoved = stripTrailingPayloadTagFragment(stripped)
-    return stripTrailingMarkdownFenceFragment(withTagFragmentRemoved)
+    val withoutFenceFragment = stripTrailingMarkdownFenceFragment(withTagFragmentRemoved)
+    val withoutCodeBlocks = withoutFenceFragment
+        .replace(markdownAnyCodeBlockRegex, "")
+        .replace(unclosedMarkdownAnyCodeBlockRegex, "")
+    val withoutJsonSegments = stripLikelyJsonSegments(withoutCodeBlocks)
+    val withoutTrailingJson = stripTrailingJsonFragment(withoutJsonSegments)
+    return withoutTrailingJson
+        .replace(jsonKeyLineRegex, "")
+        .replace(orphanJsonPunctuationLineRegex, "")
+        .replace(Regex("\\n{3,}"), "\n\n")
+        .trim()
 }
 
 private fun findPayload(text: String, tag: String): String? {
@@ -667,6 +678,115 @@ private fun stripTrailingMarkdownFenceFragment(text: String): String {
     return text.substring(0, lastFenceIndex).trimEnd()
 }
 
+private fun stripLikelyJsonSegments(text: String): String {
+    if (text.isBlank()) return text
+
+    val ranges = mutableListOf<IntRange>()
+    var cursor = 0
+    while (cursor < text.length) {
+        val current = text[cursor]
+        if (current == '{' || current == '[') {
+            val end = findBalancedJsonSegmentEnd(text, cursor)
+            if (end > cursor) {
+                val candidate = text.substring(cursor, end + 1)
+                if (looksLikeJsonSegment(candidate)) {
+                    ranges += cursor..end
+                    cursor = end + 1
+                    continue
+                }
+            }
+        }
+        cursor += 1
+    }
+
+    if (ranges.isEmpty()) return text
+
+    val builder = StringBuilder()
+    var start = 0
+    ranges.forEach { range ->
+        if (range.first > start) {
+            builder.append(text.substring(start, range.first))
+        }
+        start = range.last + 1
+    }
+    if (start < text.length) {
+        builder.append(text.substring(start))
+    }
+    return builder.toString()
+}
+
+private fun stripTrailingJsonFragment(text: String): String {
+    val lastObjectStart = text.lastIndexOf('{')
+    val lastArrayStart = text.lastIndexOf('[')
+    val start = maxOf(lastObjectStart, lastArrayStart)
+    if (start < 0) return text
+
+    if (findBalancedJsonSegmentEnd(text, start) >= start) {
+        return text
+    }
+
+    val fragment = text.substring(start)
+    return if (looksLikeJsonSegment(fragment) || jsonQuotedKeyRegex.containsMatchIn(fragment)) {
+        text.substring(0, start).trimEnd()
+    } else {
+        text
+    }
+}
+
+private fun findBalancedJsonSegmentEnd(text: String, startIndex: Int): Int {
+    val stack = ArrayDeque<Char>()
+    var inString = false
+    var escaped = false
+
+    for (index in startIndex until text.length) {
+        val char = text[index]
+
+        if (inString) {
+            when {
+                escaped -> escaped = false
+                char == '\\' -> escaped = true
+                char == '"' -> inString = false
+            }
+            continue
+        }
+
+        when (char) {
+            '"' -> inString = true
+            '{', '[' -> stack.addLast(char)
+            '}', ']' -> {
+                if (stack.isEmpty()) return -1
+                val open = stack.removeLast()
+                if (!isMatchingJsonBracket(open, char)) return -1
+                if (stack.isEmpty()) return index
+            }
+        }
+    }
+
+    return -1
+}
+
+private fun isMatchingJsonBracket(open: Char, close: Char): Boolean {
+    return (open == '{' && close == '}') || (open == '[' && close == ']')
+}
+
+private fun looksLikeJsonSegment(segment: String): Boolean {
+    val trimmed = segment.trim()
+    if (trimmed.length < 2) return false
+
+    val jsonShape = (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+        (trimmed.startsWith('[') && trimmed.endsWith(']'))
+    if (!jsonShape) return false
+
+    val strictParsed = if (trimmed.startsWith('{')) {
+        runCatching { JSONObject(trimmed) }.isSuccess
+    } else {
+        runCatching { JSONArray(trimmed) }.isSuccess
+    }
+    if (strictParsed) return true
+
+    return jsonQuotedKeyRegex.containsMatchIn(trimmed) || jsonLooseKeyRegex.containsMatchIn(trimmed)
+}
+
 private val dataPayloadRegex = Regex("<DATA>.*?</DATA>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
 private val receiptPayloadRegex = Regex("<RECEIPT>.*?</RECEIPT>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
 private val notePayloadRegex = Regex("<NOTE>.*?</NOTE>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
@@ -675,6 +795,12 @@ private val markdownJsonCodeBlockRegex = Regex("(?is)```(?:json)?\\s*(\\{[\\s\\S
 private val markdownInlineReceiptJsonRegex = Regex("(?is)\\{\\s*\"(?:isReceipt|action|amount|category|recordTime|date|items|successCount|failureCount)\"[\\s\\S]*?}")
 private val unclosedPayloadStartRegex = Regex("(?is)<(?:DATA|RECEIPT|NOTE|THINK)>[\\s\\S]*$")
 private val unclosedMarkdownJsonCodeBlockRegex = Regex("(?is)```(?:json)?[\\s\\S]*$")
+private val markdownAnyCodeBlockRegex = Regex("(?is)```[\\s\\S]*?```")
+private val unclosedMarkdownAnyCodeBlockRegex = Regex("(?is)```[\\s\\S]*$")
+private val jsonQuotedKeyRegex = Regex("\"[^\"]+\"\\s*:")
+private val jsonLooseKeyRegex = Regex("(?is)[\\{\\[,]\\s*[A-Za-z_\\p{IsHan}][A-Za-z0-9_\\p{IsHan}-]*\\s*:")
+private val jsonKeyLineRegex = Regex("(?m)^\\s*\"[^\"]+\"\\s*:\\s*.*$")
+private val orphanJsonPunctuationLineRegex = Regex("(?m)^\\s*[\\{\\}\\[\\],:]+\\s*$")
 private val fenceRegex = Regex("```")
 private val payloadTagFragmentPrefixes = listOf(
     "<d", "<da", "<dat", "<data",

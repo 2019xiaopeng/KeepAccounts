@@ -40,7 +40,6 @@ import com.qcb.keepaccounts.ui.model.AiChatRecord
 import com.qcb.keepaccounts.ui.model.AiChatReceiptItem
 import com.qcb.keepaccounts.ui.model.AiChatReceiptSummary
 import com.qcb.keepaccounts.ui.model.AiTone
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
@@ -314,8 +313,6 @@ class ChatRepository(
         var streamErrorMessage: String? = null
         val assistantMessageIds = mutableListOf<Long>()
         val streamBaseTimestamp = System.currentTimeMillis() + 1
-        var lastRenderedChunks: List<String> = emptyList()
-        var lastBubbleRevealAt = 0L
 
         aiChatGateway.streamReply(
             AiChatRequest(
@@ -328,27 +325,6 @@ class ChatRepository(
             when (event) {
                 is AiStreamEvent.TextDelta -> {
                     textBuffer.append(event.text)
-                    val liveText = sanitizeAssistantStreamText(textBuffer.toString())
-                    val liveChunks = splitAssistantReply(liveText)
-                    val pacedChunks = paceStreamChunks(
-                        chunks = liveChunks,
-                        renderedCount = lastRenderedChunks.size,
-                        lastRevealAt = lastBubbleRevealAt,
-                    )
-                    if (pacedChunks != lastRenderedChunks) {
-                        syncAssistantReplyChunks(
-                            messageIds = assistantMessageIds,
-                            chunks = pacedChunks,
-                            baseTimestamp = streamBaseTimestamp,
-                            isReceiptLast = false,
-                            receiptTransactionId = null,
-                            receiptTransactionBindings = null,
-                        )
-                        if (pacedChunks.size > lastRenderedChunks.size) {
-                            lastBubbleRevealAt = System.currentTimeMillis()
-                        }
-                        lastRenderedChunks = pacedChunks
-                    }
                 }
 
                 is AiStreamEvent.ReceiptParsed -> parsedReceipts += event.drafts
@@ -363,7 +339,7 @@ class ChatRepository(
         val rawAssistantText = textBuffer.toString().trim()
         val fallbackReceipts = extractReceiptDraftsFromText(rawAssistantText)
         val resolvedReceipts = resolveReceiptDrafts(parsedReceipts, fallbackReceipts)
-        val cleanedAssistantText = stripReceiptPayload(rawAssistantText)
+        val cleanedAssistantText = sanitizeAssistantVisibleText(rawAssistantText)
 
         val normalizedReceipts = resolvedReceipts
             .filter { it.isReceipt }
@@ -428,13 +404,6 @@ class ChatRepository(
                 replyChunks.dropLast(1) + receiptContent
             }
 
-            lastRenderedChunks = revealRemainingChunksWithDelay(
-                messageIds = assistantMessageIds,
-                renderedChunks = lastRenderedChunks,
-                targetChunks = finalChunks,
-                baseTimestamp = streamBaseTimestamp,
-            )
-
             syncAssistantReplyChunks(
                 messageIds = assistantMessageIds,
                 chunks = finalChunks,
@@ -448,13 +417,6 @@ class ChatRepository(
 
         val finalChunks = splitAssistantReply(finalAssistantText)
 
-        lastRenderedChunks = revealRemainingChunksWithDelay(
-            messageIds = assistantMessageIds,
-            renderedChunks = lastRenderedChunks,
-            targetChunks = finalChunks,
-            baseTimestamp = streamBaseTimestamp,
-        )
-
         syncAssistantReplyChunks(
             messageIds = assistantMessageIds,
             chunks = finalChunks,
@@ -463,49 +425,6 @@ class ChatRepository(
             receiptTransactionId = null,
             receiptTransactionBindings = null,
         )
-    }
-
-    private suspend fun revealRemainingChunksWithDelay(
-        messageIds: MutableList<Long>,
-        renderedChunks: List<String>,
-        targetChunks: List<String>,
-        baseTimestamp: Long,
-    ): List<String> {
-        if (targetChunks.size <= renderedChunks.size) return renderedChunks
-
-        var current = renderedChunks
-        for (nextCount in (renderedChunks.size + 1)..targetChunks.size) {
-            if (current.isNotEmpty()) {
-                delay(assistantBubbleRevealIntervalMs)
-            }
-            val partial = targetChunks.take(nextCount)
-            syncAssistantReplyChunks(
-                messageIds = messageIds,
-                chunks = partial,
-                baseTimestamp = baseTimestamp,
-                isReceiptLast = false,
-                receiptTransactionId = null,
-                receiptTransactionBindings = null,
-            )
-            current = partial
-        }
-        return current
-    }
-
-    private fun paceStreamChunks(
-        chunks: List<String>,
-        renderedCount: Int,
-        lastRevealAt: Long,
-    ): List<String> {
-        if (chunks.size <= renderedCount) return chunks
-        if (renderedCount == 0) return chunks.take(1)
-
-        val elapsed = System.currentTimeMillis() - lastRevealAt
-        return if (elapsed >= assistantBubbleRevealIntervalMs) {
-            chunks.take(renderedCount + 1)
-        } else {
-            chunks.take(renderedCount)
-        }
     }
 
     private suspend fun syncAssistantReplyChunks(
@@ -2683,10 +2602,129 @@ class ChatRepository(
         return payloads.flatMap(::parseReceiptPayloadDrafts)
     }
 
-    private fun sanitizeAssistantStreamText(text: String): String {
+    private fun sanitizeAssistantVisibleText(text: String): String {
         val stripped = stripReceiptPayload(text)
         val trimmedTagFragment = stripTrailingPayloadTagFragment(stripped)
-        return stripTrailingMarkdownFenceFragment(trimmedTagFragment)
+        val trimmedFenceFragment = stripTrailingMarkdownFenceFragment(trimmedTagFragment)
+        val withoutCodeBlocks = trimmedFenceFragment
+            .replace(markdownAnyCodeBlockRegex, "")
+            .replace(unclosedMarkdownAnyCodeBlockRegex, "")
+        val withoutJsonSegments = stripLikelyJsonSegments(withoutCodeBlocks)
+        val withoutTrailingJson = stripTrailingJsonFragment(withoutJsonSegments)
+        return withoutTrailingJson
+            .replace(jsonKeyLineRegex, "")
+            .replace(orphanJsonPunctuationLineRegex, "")
+            .replace(Regex("\\n{3,}"), "\n\n")
+            .trim()
+    }
+
+    private fun stripLikelyJsonSegments(text: String): String {
+        if (text.isBlank()) return text
+
+        val ranges = mutableListOf<IntRange>()
+        var cursor = 0
+        while (cursor < text.length) {
+            val current = text[cursor]
+            if (current == '{' || current == '[') {
+                val end = findBalancedJsonSegmentEnd(text, cursor)
+                if (end > cursor) {
+                    val candidate = text.substring(cursor, end + 1)
+                    if (looksLikeJsonSegment(candidate)) {
+                        ranges += cursor..end
+                        cursor = end + 1
+                        continue
+                    }
+                }
+            }
+            cursor += 1
+        }
+
+        if (ranges.isEmpty()) return text
+
+        val builder = StringBuilder()
+        var start = 0
+        ranges.forEach { range ->
+            if (range.first > start) {
+                builder.append(text.substring(start, range.first))
+            }
+            start = range.last + 1
+        }
+        if (start < text.length) {
+            builder.append(text.substring(start))
+        }
+        return builder.toString()
+    }
+
+    private fun stripTrailingJsonFragment(text: String): String {
+        val lastObjectStart = text.lastIndexOf('{')
+        val lastArrayStart = text.lastIndexOf('[')
+        val start = maxOf(lastObjectStart, lastArrayStart)
+        if (start < 0) return text
+
+        if (findBalancedJsonSegmentEnd(text, start) >= start) {
+            return text
+        }
+
+        val fragment = text.substring(start)
+        return if (looksLikeJsonSegment(fragment) || jsonQuotedKeyRegex.containsMatchIn(fragment)) {
+            text.substring(0, start).trimEnd()
+        } else {
+            text
+        }
+    }
+
+    private fun findBalancedJsonSegmentEnd(text: String, startIndex: Int): Int {
+        val stack = ArrayDeque<Char>()
+        var inString = false
+        var escaped = false
+
+        for (index in startIndex until text.length) {
+            val char = text[index]
+
+            if (inString) {
+                when {
+                    escaped -> escaped = false
+                    char == '\\' -> escaped = true
+                    char == '"' -> inString = false
+                }
+                continue
+            }
+
+            when (char) {
+                '"' -> inString = true
+                '{', '[' -> stack.addLast(char)
+                '}', ']' -> {
+                    if (stack.isEmpty()) return -1
+                    val open = stack.removeLast()
+                    if (!isMatchingJsonBracket(open, char)) return -1
+                    if (stack.isEmpty()) return index
+                }
+            }
+        }
+
+        return -1
+    }
+
+    private fun isMatchingJsonBracket(open: Char, close: Char): Boolean {
+        return (open == '{' && close == '}') || (open == '[' && close == ']')
+    }
+
+    private fun looksLikeJsonSegment(segment: String): Boolean {
+        val trimmed = segment.trim()
+        if (trimmed.length < 2) return false
+
+        val jsonShape = (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+            (trimmed.startsWith('[') && trimmed.endsWith(']'))
+        if (!jsonShape) return false
+
+        val strictParsed = if (trimmed.startsWith('{')) {
+            runCatching { JSONObject(trimmed) }.isSuccess
+        } else {
+            runCatching { JSONArray(trimmed) }.isSuccess
+        }
+        if (strictParsed) return true
+
+        return jsonQuotedKeyRegex.containsMatchIn(trimmed) || jsonLooseKeyRegex.containsMatchIn(trimmed)
     }
 
     private fun stripTrailingPayloadTagFragment(text: String): String {
@@ -3298,6 +3336,12 @@ class ChatRepository(
         )
         val unclosedPayloadStartRegex = Regex("(?is)<(?:DATA|RECEIPT|NOTE|THINK)>[\\s\\S]*$")
         val unclosedMarkdownJsonCodeBlockRegex = Regex("(?is)```(?:json)?[\\s\\S]*$")
+        val markdownAnyCodeBlockRegex = Regex("(?is)```[\\s\\S]*?```")
+        val unclosedMarkdownAnyCodeBlockRegex = Regex("(?is)```[\\s\\S]*$")
+        val jsonQuotedKeyRegex = Regex("\"[^\"]+\"\\s*:")
+        val jsonLooseKeyRegex = Regex("(?is)[\\{\\[,]\\s*[A-Za-z_\\p{IsHan}][A-Za-z0-9_\\p{IsHan}-]*\\s*:")
+        val jsonKeyLineRegex = Regex("(?m)^\\s*\"[^\"]+\"\\s*:\\s*.*$")
+        val orphanJsonPunctuationLineRegex = Regex("(?m)^\\s*[\\{\\}\\[\\],:]+\\s*$")
         val fenceRegex = Regex("```")
         val payloadTagFragmentPrefixes = listOf(
             "<d", "<da", "<dat", "<data",
@@ -3331,6 +3375,5 @@ class ChatRepository(
             "yyyy.MM.dd",
             "yyyy年M月d日",
         )
-        const val assistantBubbleRevealIntervalMs = 520L
     }
 }
