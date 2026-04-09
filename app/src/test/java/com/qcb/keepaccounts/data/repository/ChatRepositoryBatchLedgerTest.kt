@@ -111,7 +111,7 @@ class ChatRepositoryBatchLedgerTest {
             assertEquals(1, assistantReceipt?.receiptSummary?.failureCount)
             assertEquals(3, assistantReceipt?.receiptSummary?.items?.size)
             val failedItem = assistantReceipt?.receiptSummary?.items?.firstOrNull { it.status == "failed" }
-            assertEquals("这笔账单缺少分类，补一句分类后我再试一次。", failedItem?.failureReason)
+            assertEquals("哎呀，这笔账单还缺少分类呢 \uD83E\uDD7A 补充一下分类，我再帮你记上吧~", failedItem?.failureReason)
         }
     }
 
@@ -158,7 +158,7 @@ class ChatRepositoryBatchLedgerTest {
             assertEquals(2, assistantReceipt?.receiptSummary?.items?.size)
             assistantReceipt?.receiptSummary?.items?.forEach { item ->
                 assertEquals("failed", item.status)
-                assertEquals("这笔账单缺少分类，补一句分类后我再试一次。", item.failureReason)
+                assertEquals("哎呀，这笔账单还缺少分类呢 \uD83E\uDD7A 补充一下分类，我再帮你记上吧~", item.failureReason)
             }
         }
     }

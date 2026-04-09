@@ -567,7 +567,7 @@ class ChatRepository(
                     )
                     if (draft.category.isNullOrBlank()) {
                         return LedgerAgentOrchestrator.WriteToolResult.Failure(
-                            reason = "这笔账单缺少分类，补一句分类后我再试一次。",
+                            reason = "哎呀，这笔账单还缺少分类呢 \uD83E\uDD7A 补充一下分类，我再帮你记上吧~",
                         )
                     }
 
