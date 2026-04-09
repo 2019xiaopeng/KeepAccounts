@@ -3328,18 +3328,18 @@ class ChatRepository(
         val notePayloadRegex = Regex("<NOTE>.*?</NOTE>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
         val thinkPayloadRegex = Regex("<THINK>.*?</THINK>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE))
         val markdownJsonCodeBlockRegex = Regex(
-            "(?is)```(?:json)?\\s*(\\{[\\s\\S]*?})\\s*```",
+            "(?is)```(?:json)?\\s*(\\{[\\s\\S]*?\\})\\s*```",
             setOf(RegexOption.IGNORE_CASE),
         )
         val markdownInlineReceiptJsonRegex = Regex(
-            "(?is)\\{\\s*\"(?:isReceipt|action|amount|category|recordTime|date|items|successCount|failureCount)\"[\\s\\S]*?}",
+            "(?is)\\{\\s*\"(?:isReceipt|action|amount|category|recordTime|date|items|successCount|failureCount)\"[\\s\\S]*?\\}",
         )
         val unclosedPayloadStartRegex = Regex("(?is)<(?:DATA|RECEIPT|NOTE|THINK)>[\\s\\S]*$")
         val unclosedMarkdownJsonCodeBlockRegex = Regex("(?is)```(?:json)?[\\s\\S]*$")
         val markdownAnyCodeBlockRegex = Regex("(?is)```[\\s\\S]*?```")
         val unclosedMarkdownAnyCodeBlockRegex = Regex("(?is)```[\\s\\S]*$")
         val jsonQuotedKeyRegex = Regex("\"[^\"]+\"\\s*:")
-        val jsonLooseKeyRegex = Regex("(?is)[\\{\\[,]\\s*[A-Za-z_\\p{IsHan}][A-Za-z0-9_\\p{IsHan}-]*\\s*:")
+        val jsonLooseKeyRegex = Regex("(?is)[\\{\\[,]\\s*[A-Za-z_\\u4E00-\\u9FFF][A-Za-z0-9_\\u4E00-\\u9FFF-]*\\s*:")
         val jsonKeyLineRegex = Regex("(?m)^\\s*\"[^\"]+\"\\s*:\\s*.*$")
         val orphanJsonPunctuationLineRegex = Regex("(?m)^\\s*[\\{\\}\\[\\],:]+\\s*$")
         val fenceRegex = Regex("```")
