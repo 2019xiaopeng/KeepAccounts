@@ -3,6 +3,10 @@ package com.qcb.keepaccounts.data
 import android.content.Context
 import androidx.room.Room
 import com.qcb.keepaccounts.BuildConfig
+import com.qcb.keepaccounts.data.agent.AgentJsonlMirrorStore
+import com.qcb.keepaccounts.data.agent.AgentQualityFeedbackRepository
+import com.qcb.keepaccounts.data.agent.AgentReplayService
+import com.qcb.keepaccounts.data.agent.RoomAgentRunLogger
 import com.qcb.keepaccounts.data.local.AppDatabase
 import com.qcb.keepaccounts.data.local.preferences.UserSettingsRepository
 import com.qcb.keepaccounts.data.remote.github.GitHubReleaseApi
@@ -17,6 +21,7 @@ import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
+import java.io.File
 
 interface AppContainer {
     val transactionRepository: TransactionRepository
@@ -37,7 +42,38 @@ class DefaultAppContainer(context: Context) : AppContainer {
         context,
         AppDatabase::class.java,
         "keep_accounts.db",
+    ).addMigrations(
+        AppDatabase.MIGRATION_2_3,
+        AppDatabase.MIGRATION_3_4,
     ).build()
+
+    private val jsonlMirrorStore: AgentJsonlMirrorStore by lazy {
+        AgentJsonlMirrorStore(
+            File(context.filesDir, "agent_logs/agent_tool_calls.jsonl"),
+        )
+    }
+
+    private val agentRunLogger by lazy {
+        RoomAgentRunLogger(
+            runDao = database.agentRunDao(),
+            toolCallDao = database.agentToolCallDao(),
+            jsonlMirrorStore = jsonlMirrorStore,
+        )
+    }
+
+    private val agentReplayService by lazy {
+        AgentReplayService(
+            runDao = database.agentRunDao(),
+            toolCallDao = database.agentToolCallDao(),
+            jsonlMirrorStore = jsonlMirrorStore,
+        )
+    }
+
+    private val agentQualityFeedbackRepository by lazy {
+        AgentQualityFeedbackRepository(
+            dao = database.agentQualityFeedbackDao(),
+        )
+    }
 
     private val aiHttpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
@@ -85,6 +121,9 @@ class DefaultAppContainer(context: Context) : AppContainer {
             chatMessageDao = database.chatMessageDao(),
             transactionDao = database.transactionDao(),
             aiChatGateway = aiChatGateway,
+            agentRunLogger = agentRunLogger,
+            agentReplayService = agentReplayService,
+            qualityFeedbackRepository = agentQualityFeedbackRepository,
         )
     }
 

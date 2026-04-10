@@ -56,6 +56,8 @@ import com.qcb.keepaccounts.data.local.entity.TransactionEntity
 import com.qcb.keepaccounts.ui.components.glassCard
 import com.qcb.keepaccounts.ui.components.rememberTopBarCollapseProgress
 import com.qcb.keepaccounts.ui.format.formatCurrency
+import com.qcb.keepaccounts.ui.format.formatClockTime
+import com.qcb.keepaccounts.ui.format.formatRelativeDateText
 import com.qcb.keepaccounts.ui.format.formatSignedCurrency
 import com.qcb.keepaccounts.ui.icons.resolveCategoryIcon
 import com.qcb.keepaccounts.ui.model.ManualEntryPrefill
@@ -461,6 +463,7 @@ private fun DaySectionCard(
                     onEdit = {
                         onEditRecord(
                             ManualEntryPrefill(
+                                transactionId = record.id,
                                 type = if (record.isIncome) "income" else "expense",
                                 category = record.category,
                                 desc = record.desc,
@@ -638,17 +641,13 @@ private fun mapTransactionsToSections(
     val grouped = recentRecords.groupBy { dayKeyFormat.format(Date(it.recordTimestamp)) }
         .toSortedMap(reverseOrder())
 
-    val todayKey = dayKeyFormat.format(Date())
-    val yesterdayCalendar = Calendar.getInstance().apply { add(Calendar.DAY_OF_MONTH, -1) }
-    val yesterdayKey = dayKeyFormat.format(yesterdayCalendar.time)
-
-    return grouped.map { (dayKey, list) ->
+    return grouped.map { (_, list) ->
         val dayDate = Date(list.first().recordTimestamp)
-        val title = when (dayKey) {
-            todayKey -> "今天 ${dayDisplayFormat.format(dayDate)}"
-            yesterdayKey -> "昨天 ${dayDisplayFormat.format(dayDate)}"
-            else -> dayDisplayFormat.format(dayDate)
-        }
+        val title = formatRelativeDateText(
+            timestamp = dayDate.time,
+            relativePattern = "MM-dd",
+            absolutePattern = "MM-dd",
+        )
 
         val expense = list.filter { it.type == 0 }.sumOf { it.amount }
         val income = list.filter { it.type == 1 }.sumOf { it.amount }
@@ -666,7 +665,7 @@ private fun mapTransactionsToSections(
                 category = tx.categoryName,
                 desc = tx.remark,
                 recordTimestamp = tx.recordTimestamp,
-                time = timeFormat.format(Date(tx.recordTimestamp)),
+                time = formatClockTime(tx.recordTimestamp),
                 amount = formatSignedCurrency(ledgerCurrency, tx.amount, isIncome),
                 amountRaw = String.format(Locale.CHINA, "%.2f", tx.amount),
                 isIncome = isIncome,
