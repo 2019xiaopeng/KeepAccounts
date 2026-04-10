@@ -63,6 +63,14 @@
 - [x] 定向 `:app:testDebugUnitTest --tests ...` 通过。
 - [x] 全量 `:app:testDebugUnitTest` 通过。
 
+## C6. 语义归一化补全（金额/数量/时间）
+
+- [x] 新增 `AmountNormalizer`，支持中文金额、口语金额与基础加减表达式。
+- [x] 新增 `CountNormalizer`，支持中文数量词与计数短语归一化。
+- [x] 新增 `TemporalResolverV2`，支持复杂相对时间解析并输出 `confidence/trace`。
+- [x] `ChatRepository` 已接入上述组件（金额解析、删除数量解析、时间解析入口）。
+- [x] 新增单测：`AmountNormalizerTest`、`CountNormalizerTest`、`TemporalResolverV2Test`。
+
 ## 本轮关键改动文件
 
 - `app/src/main/java/com/qcb/keepaccounts/data/repository/ChatRepository.kt`
@@ -70,10 +78,16 @@
 - `app/src/main/java/com/qcb/keepaccounts/domain/agent/AgentToolContracts.kt`
 - `app/src/main/java/com/qcb/keepaccounts/domain/agent/PlannerOutputValidator.kt`
 - `app/src/main/java/com/qcb/keepaccounts/domain/agent/PendingIntentStateStore.kt`
+- `app/src/main/java/com/qcb/keepaccounts/domain/agent/AmountNormalizer.kt`
+- `app/src/main/java/com/qcb/keepaccounts/domain/agent/CountNormalizer.kt`
+- `app/src/main/java/com/qcb/keepaccounts/domain/agent/TemporalResolverV2.kt`
 - `app/src/test/java/com/qcb/keepaccounts/data/repository/ChatRepositoryBatchLedgerTest.kt`
 - `app/src/test/java/com/qcb/keepaccounts/data/repository/SiliconFlowPlannerGatewayTest.kt`
 - `app/src/test/java/com/qcb/keepaccounts/domain/agent/PlannerOutputValidatorTest.kt`
 - `app/src/test/java/com/qcb/keepaccounts/domain/agent/PendingIntentStateStoreTest.kt`
+- `app/src/test/java/com/qcb/keepaccounts/domain/agent/AmountNormalizerTest.kt`
+- `app/src/test/java/com/qcb/keepaccounts/domain/agent/CountNormalizerTest.kt`
+- `app/src/test/java/com/qcb/keepaccounts/domain/agent/TemporalResolverV2Test.kt`
 
 ## 下一步（PhaseC 后续）
 

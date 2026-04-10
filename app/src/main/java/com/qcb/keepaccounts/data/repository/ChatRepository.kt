@@ -24,6 +24,8 @@ import com.qcb.keepaccounts.domain.agent.AgentErrorCode
 import com.qcb.keepaccounts.domain.agent.AgentPlanner
 import com.qcb.keepaccounts.domain.agent.AgentStyleFormatter
 import com.qcb.keepaccounts.domain.agent.AgentWriteStyleFacts
+import com.qcb.keepaccounts.domain.agent.AmountNormalizer
+import com.qcb.keepaccounts.domain.agent.CountNormalizer
 import com.qcb.keepaccounts.domain.agent.IntentPlanV2
 import com.qcb.keepaccounts.domain.agent.LedgerTransactionSnapshot
 import com.qcb.keepaccounts.domain.agent.LedgerAgentOrchestrator
@@ -40,6 +42,7 @@ import com.qcb.keepaccounts.domain.agent.QuerySpendingStatsResult
 import com.qcb.keepaccounts.domain.agent.QueryToolCallResult
 import com.qcb.keepaccounts.domain.agent.QueryTransactionsResult
 import com.qcb.keepaccounts.domain.agent.InMemoryPendingIntentStateStore
+import com.qcb.keepaccounts.domain.agent.TemporalResolverV2
 import com.qcb.keepaccounts.domain.agent.TransactionFilter
 import com.qcb.keepaccounts.domain.contract.AiChatGateway
 import com.qcb.keepaccounts.domain.contract.AiChatRequest
@@ -82,6 +85,9 @@ class ChatRepository(
     private val plannerOutputValidator: PlannerOutputValidator = PlannerOutputValidator(),
     private val pendingIntentStateStore: PendingIntentStateStore = InMemoryPendingIntentStateStore(),
     private val pendingIntentTtlMillis: Long = defaultPendingIntentTtlMillis,
+    private val amountNormalizer: AmountNormalizer = AmountNormalizer(),
+    private val countNormalizer: CountNormalizer = CountNormalizer(),
+    private val temporalResolverV2: TemporalResolverV2 = TemporalResolverV2(),
     private val plannerRolloutGateEnabled: Boolean = true,
     private val plannerGateWindowDays: Int = 7,
     private val plannerGateMinSamples: Int = 20,
@@ -1257,16 +1263,7 @@ class ChatRepository(
     }
 
     private fun parseAmountCandidates(text: String): List<Double> {
-        val withCurrency = amountWithCurrencyRegex.findAll(text)
-            .mapNotNull { it.groupValues.getOrNull(1)?.toDoubleOrNull() }
-            .filter { it > 0.0 }
-            .toList()
-        if (withCurrency.isNotEmpty()) return withCurrency
-
-        return plainAmountRegex.findAll(text)
-            .mapNotNull { it.groupValues.getOrNull(1)?.toDoubleOrNull() }
-            .filter { amount -> amount > 0.0 && amount < 100000.0 }
-            .toList()
+        return amountNormalizer.parseAmountCandidates(text)
     }
 
     private fun parseTransactionIdHint(text: String): Long? {
@@ -2144,22 +2141,7 @@ class ChatRepository(
     }
 
     private fun parseChineseNumber(raw: String): Int? {
-        if (raw.isBlank()) return null
-        val normalized = raw.trim()
-        normalized.toIntOrNull()?.let { return it }
-        if (normalized == "十") return 10
-
-        if ("十" in normalized) {
-            val parts = normalized.split("十")
-            val tenPart = parts.getOrNull(0).orEmpty()
-            val onePart = parts.getOrNull(1).orEmpty()
-
-            val tens = if (tenPart.isBlank()) 1 else chineseDigitMap[tenPart] ?: return null
-            val ones = if (onePart.isBlank()) 0 else chineseDigitMap[onePart] ?: return null
-            return tens * 10 + ones
-        }
-
-        return chineseDigitMap[normalized]
+        return countNormalizer.parseStandaloneNumber(raw)
     }
 
     private fun parseAmountBound(userInput: String, patterns: List<Regex>): Double? {
@@ -2602,30 +2584,7 @@ class ChatRepository(
     }
 
     private fun parseDeleteCountHint(text: String): Int? {
-        val digitMatch = Regex("(\\d{1,2})\\s*(?:笔|条)").find(text)
-        if (digitMatch != null) {
-            return digitMatch.groupValues[1].toIntOrNull()?.coerceIn(1, 50)
-        }
-
-        val chineseNumberMap = mapOf(
-            "一" to 1,
-            "两" to 2,
-            "二" to 2,
-            "三" to 3,
-            "四" to 4,
-            "五" to 5,
-            "六" to 6,
-            "七" to 7,
-            "八" to 8,
-            "九" to 9,
-            "十" to 10,
-        )
-        val cnMatch = Regex("([一二两三四五六七八九十])\\s*(?:笔|条)").find(text)
-        if (cnMatch != null) {
-            return chineseNumberMap[cnMatch.groupValues[1]]?.coerceIn(1, 50)
-        }
-
-        return null
+        return countNormalizer.parseCountHint(text, maxValue = 50)
     }
 
     private fun PreviewActionItem.toDeleteDraft(): AiReceiptDraft {
@@ -2991,6 +2950,14 @@ class ChatRepository(
     }
 
     private fun parseDateFromText(text: String, now: Calendar): ParsedDate? {
+        temporalResolverV2.resolve(text, now)?.date?.let { resolved ->
+            return ParsedDate(
+                year = resolved.year,
+                month = resolved.month,
+                day = resolved.day,
+            )
+        }
+
         parseAbsoluteDateWithYear(text)?.let { return it }
         parseAbsoluteDateWithoutYear(text, now.get(Calendar.YEAR))?.let { return it }
         parseRelativeDate(text, now)?.let { return it }
@@ -3036,6 +3003,13 @@ class ChatRepository(
     }
 
     private fun parseTimeFromText(text: String): ParsedTime? {
+        temporalResolverV2.resolve(text)?.time?.let { resolved ->
+            return ParsedTime(
+                hour = resolved.hour,
+                minute = resolved.minute,
+            )
+        }
+
         val normalized = text.replace("：", ":")
 
         val colonMatch = Regex("(?<!\\d)(\\d{1,2}):(\\d{1,2})(?!\\d)").find(normalized)
