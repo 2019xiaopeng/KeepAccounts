@@ -72,11 +72,12 @@
 | --- | --- | --- | --- |
 | 2026-04-10 | PhaseB 主路径灰度与执行逻辑 | `ChatRepository.kt` / `AgentToolContracts.kt` / `AgentQualityFeedbackRepository.kt` / `AppContainer.kt` | `31c87c9` |
 | 2026-04-10 | PhaseB 主路径回归测试 | `ChatRepositoryBatchLedgerTest.kt` | `31c87c9` |
-| 2026-04-10 | PhaseB 清单文档 | `p3-s5-phaseb-checklist.md` | 本提交 |
+| 2026-04-10 | PhaseB 清单文档 | `p3-s5-phaseb-checklist.md` | `0973d7d` |
 | 2026-04-10 | 接入真实 PlannerGateway（Function Calling） | `SiliconFlowPlannerGateway.kt` / `SiliconFlowApi.kt` / `SiliconFlowDtos.kt` / `AppContainer.kt` | `fdba746` |
 | 2026-04-10 | planner 输出合法化校验与回落 | `PlannerOutputValidator.kt` / `ChatRepository.kt` / `PlannerOutputValidatorTest.kt` | `fdba746` |
 | 2026-04-10 | 灰度观测聚合报表与测试 | `AgentQualityFeedbackRepository.kt` / `AgentQualityFeedbackRepositoryTest.kt` / `ChatRepository.kt` | `fdba746` |
 | 2026-04-10 | PlannerGateway 与回归测试 | `SiliconFlowPlannerGatewayTest.kt` / `SiliconFlowAiGatewayTest.kt` / `ChatRepositoryBatchLedgerTest.kt` | `fdba746` |
+| 2026-04-10 | PhaseB+ 文档记录回填 | `p3-s5-phaseb-checklist.md` | `b148670` |
 
 ## 下一步（PhaseB+）
 
