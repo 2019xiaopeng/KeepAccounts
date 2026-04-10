@@ -12,6 +12,7 @@ enum class AgentRoutePath {
 
 enum class AgentQualityStage {
     INTENT_ROUTING,
+    PLANNER_SHADOW,
     TOOL_EXECUTION,
     STYLE_RENDERING,
 }

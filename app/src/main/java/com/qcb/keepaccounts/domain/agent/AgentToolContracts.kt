@@ -7,6 +7,70 @@ data class AgentRequestContext(
     val startedAt: Long,
 )
 
+data class PlannerInputV2(
+    val requestId: String,
+    val userInput: String,
+    val nowMillis: Long,
+    val timezoneId: String,
+)
+
+enum class PlannerIntentType {
+    CREATE_TRANSACTIONS,
+    UPDATE_TRANSACTIONS,
+    DELETE_TRANSACTIONS,
+    QUERY_TRANSACTIONS,
+    QUERY_SPENDING_STATS,
+    CHITCHAT,
+    UNKNOWN,
+}
+
+enum class PlannerTargetMode {
+    SINGLE,
+    SET,
+    TOP_N,
+}
+
+enum class PlannerRiskLevel {
+    LOW,
+    MEDIUM,
+    HIGH,
+}
+
+data class IntentPlanV2(
+    val intent: PlannerIntentType,
+    val confidence: Double,
+    val targetMode: PlannerTargetMode = PlannerTargetMode.SINGLE,
+    val riskLevel: PlannerRiskLevel = PlannerRiskLevel.LOW,
+    val needsConfirmation: Boolean = false,
+    val missingSlots: List<String> = emptyList(),
+    val queryArgs: AgentToolArgs.QueryTransactionsArgs? = null,
+    val statsArgs: AgentToolArgs.QuerySpendingStatsArgs? = null,
+)
+
+data class ToolCallEnvelope(
+    val requestId: String,
+    val stepIndex: Int,
+    val toolName: AgentToolName,
+    val argsJson: String,
+    val plannedAt: Long,
+)
+
+data class ObservationEnvelope(
+    val requestId: String,
+    val toolName: AgentToolName?,
+    val status: AgentToolStatus,
+    val resultJson: String? = null,
+    val observedAt: Long,
+)
+
+interface AgentPlanner {
+    suspend fun plan(input: PlannerInputV2): IntentPlanV2?
+}
+
+object NoOpAgentPlanner : AgentPlanner {
+    override suspend fun plan(input: PlannerInputV2): IntentPlanV2? = null
+}
+
 enum class AgentToolName {
     PREVIEW_ACTIONS,
     CREATE_TRANSACTIONS,

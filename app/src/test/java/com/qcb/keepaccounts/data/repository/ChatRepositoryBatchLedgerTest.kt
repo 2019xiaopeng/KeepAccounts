@@ -1,11 +1,19 @@
 package com.qcb.keepaccounts.data.repository
 
+import com.qcb.keepaccounts.data.agent.AgentQualityFeedbackRepository
+import com.qcb.keepaccounts.data.agent.AgentQualityStage
+import com.qcb.keepaccounts.data.local.dao.AgentQualityFeedbackDao
 import com.qcb.keepaccounts.data.local.dao.ChatMessageDao
 import com.qcb.keepaccounts.data.local.dao.TransactionDao
+import com.qcb.keepaccounts.data.local.entity.AgentQualityFeedbackEntity
 import com.qcb.keepaccounts.data.local.entity.ChatMessageEntity
 import com.qcb.keepaccounts.data.local.entity.TransactionEntity
+import com.qcb.keepaccounts.domain.agent.AgentPlanner
+import com.qcb.keepaccounts.domain.agent.IntentPlanV2
 import com.qcb.keepaccounts.domain.agent.AgentToolArgs
 import com.qcb.keepaccounts.domain.agent.AgentToolStatus
+import com.qcb.keepaccounts.domain.agent.PlannerInputV2
+import com.qcb.keepaccounts.domain.agent.PlannerIntentType
 import com.qcb.keepaccounts.domain.agent.TransactionFilter
 import com.qcb.keepaccounts.domain.contract.AiChatGateway
 import com.qcb.keepaccounts.domain.contract.AiChatRequest
@@ -474,6 +482,96 @@ class ChatRepositoryBatchLedgerTest {
             assertEquals(true, visibleAssistantText.contains("瑞幸咖啡"))
             assertEquals(false, visibleAssistantText.contains("topMerchant="))
             assertEquals(false, visibleAssistantText.contains("结构化结果"))
+        }
+    }
+
+    @Test
+    fun sendMessage_queryRoute_recordsPlannerShadowMatchSample() {
+        runBlocking {
+            val now = System.currentTimeMillis()
+            val feedbackDao = object : AgentQualityFeedbackDao {
+                private val items = mutableListOf<AgentQualityFeedbackEntity>()
+                private var nextId = 1L
+
+                override suspend fun insertFeedback(feedback: AgentQualityFeedbackEntity) {
+                    items += feedback.copy(id = nextId++)
+                }
+
+                override suspend fun listByRequestId(requestId: String): List<AgentQualityFeedbackEntity> {
+                    return items.filter { it.requestId == requestId }
+                }
+
+                override suspend fun getLatestFeedback(): AgentQualityFeedbackEntity? {
+                    return items.maxByOrNull { it.createdAt }
+                }
+
+                override suspend fun listSince(sinceMillis: Long): List<AgentQualityFeedbackEntity> {
+                    return items.filter { it.createdAt >= sinceMillis }
+                }
+
+                override suspend fun markCorrectionSample(
+                    requestId: String,
+                    correctedByRequestId: String,
+                    metadataJson: String?,
+                ) {
+                    val index = items.indexOfLast { it.requestId == requestId }
+                    if (index < 0) return
+                    val current = items[index]
+                    items[index] = current.copy(
+                        isCorrectionSample = true,
+                        correctedByRequestId = correctedByRequestId,
+                        metadataJson = metadataJson,
+                    )
+                }
+            }
+
+            val qualityRepository = AgentQualityFeedbackRepository(feedbackDao)
+            val planner = object : AgentPlanner {
+                override suspend fun plan(input: PlannerInputV2): IntentPlanV2 {
+                    return IntentPlanV2(
+                        intent = PlannerIntentType.QUERY_TRANSACTIONS,
+                        confidence = 0.94,
+                    )
+                }
+            }
+
+            val repository = ChatRepository(
+                chatMessageDao = FakeChatMessageDao(),
+                transactionDao = FakeTransactionDao(
+                    initialTransactions = listOf(
+                        TransactionEntity(
+                            id = 91L,
+                            type = 0,
+                            amount = 19.0,
+                            categoryName = "餐饮美食",
+                            categoryIcon = "",
+                            remark = "晚饭",
+                            recordTimestamp = now - 1_000,
+                            createdTimestamp = now - 1_000,
+                        ),
+                    ),
+                ),
+                aiChatGateway = CountingAiChatGateway(),
+                qualityFeedbackRepository = qualityRepository,
+                agentPlanner = planner,
+                plannerShadowEnabled = true,
+            )
+
+            repository.sendMessage(
+                userInput = "帮我查最近一笔记录",
+                aiConfig = AiAssistantConfig(),
+                userName = "测试用户",
+            )
+
+            val records = feedbackDao.listSince(0L)
+            val shadowRecord = records.lastOrNull { it.stage == AgentQualityStage.PLANNER_SHADOW.name }
+
+            assertEquals(true, records.any { it.stage == AgentQualityStage.TOOL_EXECUTION.name })
+            assertEquals(true, shadowRecord != null)
+            assertEquals("SHADOW_MATCH", shadowRecord?.runStatus)
+            assertEquals("QUERY_TRANSACTIONS", shadowRecord?.expectedAction)
+            assertEquals("QUERY_TRANSACTIONS", shadowRecord?.actualAction)
+            assertEquals(true, shadowRecord?.metadataJson?.contains("\"plannerAvailable\":true") == true)
         }
     }
 

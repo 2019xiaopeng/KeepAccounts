@@ -15,6 +15,7 @@ import com.qcb.keepaccounts.data.repository.ChatRepository
 import com.qcb.keepaccounts.data.remote.siliconflow.SiliconFlowApi
 import com.qcb.keepaccounts.data.repository.SiliconFlowAiGateway
 import com.qcb.keepaccounts.data.repository.TransactionRepository
+import com.qcb.keepaccounts.domain.agent.NoOpAgentPlanner
 import com.qcb.keepaccounts.domain.contract.AiChatGateway
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
@@ -75,6 +76,10 @@ class DefaultAppContainer(context: Context) : AppContainer {
         )
     }
 
+    private val agentPlanner by lazy {
+        NoOpAgentPlanner
+    }
+
     private val aiHttpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
             .addInterceptor { chain ->
@@ -124,6 +129,8 @@ class DefaultAppContainer(context: Context) : AppContainer {
             agentRunLogger = agentRunLogger,
             agentReplayService = agentReplayService,
             qualityFeedbackRepository = agentQualityFeedbackRepository,
+            agentPlanner = agentPlanner,
+            plannerShadowEnabled = true,
         )
     }
 

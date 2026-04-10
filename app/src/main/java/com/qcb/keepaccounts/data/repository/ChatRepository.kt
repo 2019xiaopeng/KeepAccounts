@@ -19,11 +19,16 @@ import com.qcb.keepaccounts.domain.agent.AgentToolCallRecord
 import com.qcb.keepaccounts.domain.agent.AgentToolName
 import com.qcb.keepaccounts.domain.agent.AgentToolStatus
 import com.qcb.keepaccounts.domain.agent.AgentErrorCode
+import com.qcb.keepaccounts.domain.agent.AgentPlanner
 import com.qcb.keepaccounts.domain.agent.AgentStyleFormatter
 import com.qcb.keepaccounts.domain.agent.AgentWriteStyleFacts
+import com.qcb.keepaccounts.domain.agent.IntentPlanV2
 import com.qcb.keepaccounts.domain.agent.LedgerTransactionSnapshot
 import com.qcb.keepaccounts.domain.agent.LedgerAgentOrchestrator
+import com.qcb.keepaccounts.domain.agent.NoOpAgentPlanner
 import com.qcb.keepaccounts.domain.agent.NoOpAgentRunLogger
+import com.qcb.keepaccounts.domain.agent.PlannerInputV2
+import com.qcb.keepaccounts.domain.agent.PlannerIntentType
 import com.qcb.keepaccounts.domain.agent.PreviewActionItem
 import com.qcb.keepaccounts.domain.agent.QueryInsightsToolExecutor
 import com.qcb.keepaccounts.domain.agent.QuerySpendingStatsResult
@@ -50,6 +55,7 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import java.util.TimeZone
 import java.util.UUID
 import kotlin.math.abs
 
@@ -62,6 +68,8 @@ class ChatRepository(
     private val qualityFeedbackRepository: AgentQualityFeedbackRepository? = null,
     private val requestIdProvider: () -> String = { UUID.randomUUID().toString() },
     private val styleFormatter: AgentStyleFormatter = AgentStyleFormatter(),
+    private val agentPlanner: AgentPlanner = NoOpAgentPlanner,
+    private val plannerShadowEnabled: Boolean = true,
     private val agentDefaultPathEnabled: Boolean = true,
     private val promptFallbackEnabled: Boolean = true,
     private val agentOrchestrator: LedgerAgentOrchestrator = LedgerAgentOrchestrator(
@@ -204,6 +212,15 @@ class ChatRepository(
             )
         }
 
+        val plannerShadowPlan = if (agentDefaultPathEnabled && plannerShadowEnabled) {
+            runPlannerShadow(
+                requestId = requestId,
+                userInput = userInput,
+            )
+        } else {
+            null
+        }
+
         if (agentDefaultPathEnabled) {
             val queryPlan = buildQueryIntentPlan(userInput)
             if (queryPlan != null) {
@@ -225,6 +242,16 @@ class ChatRepository(
                     errorCode = execution.errorCode?.name,
                     errorMessage = execution.errorMessage,
                     metadataJson = execution.resultJson,
+                )
+                recordPlannerShadowFeedback(
+                    requestId = requestId,
+                    userInput = userInput,
+                    routePath = AgentRoutePath.AGENT_PRIMARY,
+                    plannerPlan = plannerShadowPlan,
+                    legacyAction = queryPlan.toolName.name,
+                    legacyRunStatus = if (execution.status == AgentToolStatus.SUCCESS) "SUCCESS" else "FAILED",
+                    fallbackUsed = false,
+                    isCorrectionInput = isCorrectionInput,
                 )
                 return
             }
@@ -249,6 +276,16 @@ class ChatRepository(
                     errorCode = execution.errorCode?.name,
                     errorMessage = execution.errorMessage,
                     metadataJson = buildReceiptMetaTag(execution.applyResult),
+                )
+                recordPlannerShadowFeedback(
+                    requestId = requestId,
+                    userInput = userInput,
+                    routePath = AgentRoutePath.AGENT_PRIMARY,
+                    plannerPlan = plannerShadowPlan,
+                    legacyAction = writeDrafts.firstOrNull()?.action,
+                    legacyRunStatus = if (execution.status == AgentToolStatus.SUCCESS) "SUCCESS" else "FAILED",
+                    fallbackUsed = false,
+                    isCorrectionInput = isCorrectionInput,
                 )
                 return
             }
@@ -282,6 +319,16 @@ class ChatRepository(
                     errorMessage = "prompt fallback disabled",
                     metadataJson = null,
                 )
+                recordPlannerShadowFeedback(
+                    requestId = requestId,
+                    userInput = userInput,
+                    routePath = AgentRoutePath.FALLBACK_BLOCKED,
+                    plannerPlan = plannerShadowPlan,
+                    legacyAction = "PROMPT_FALLBACK_BLOCKED",
+                    legacyRunStatus = "FAILED",
+                    fallbackUsed = true,
+                    isCorrectionInput = isCorrectionInput,
+                )
                 return
             }
 
@@ -298,6 +345,16 @@ class ChatRepository(
                 errorCode = null,
                 errorMessage = null,
                 metadataJson = null,
+            )
+            recordPlannerShadowFeedback(
+                requestId = requestId,
+                userInput = userInput,
+                routePath = AgentRoutePath.PROMPT_FALLBACK,
+                plannerPlan = plannerShadowPlan,
+                legacyAction = "PROMPT_FALLBACK",
+                legacyRunStatus = "FALLBACK",
+                fallbackUsed = true,
+                isCorrectionInput = isCorrectionInput,
             )
         }
 
@@ -1284,6 +1341,120 @@ class ChatRepository(
                 createdAt = System.currentTimeMillis(),
             ),
         )
+    }
+
+    private suspend fun runPlannerShadow(
+        requestId: String,
+        userInput: String,
+    ): IntentPlanV2? {
+        return runCatching {
+            agentPlanner.plan(
+                PlannerInputV2(
+                    requestId = requestId,
+                    userInput = userInput,
+                    nowMillis = System.currentTimeMillis(),
+                    timezoneId = TimeZone.getDefault().id,
+                ),
+            )
+        }.getOrNull()
+    }
+
+    private suspend fun recordPlannerShadowFeedback(
+        requestId: String,
+        userInput: String,
+        routePath: AgentRoutePath,
+        plannerPlan: IntentPlanV2?,
+        legacyAction: String?,
+        legacyRunStatus: String,
+        fallbackUsed: Boolean,
+        isCorrectionInput: Boolean,
+    ) {
+        if (!plannerShadowEnabled) return
+
+        val normalizedLegacyAction = normalizeLegacyAction(legacyAction)
+        val plannerAction = normalizePlannerAction(plannerPlan)
+        val comparable = plannerPlan != null && !normalizedLegacyAction.isNullOrBlank() && !plannerAction.isNullOrBlank()
+        val isMatch = comparable && plannerAction == normalizedLegacyAction
+
+        val shadowRunStatus = when {
+            plannerPlan == null -> "SHADOW_NO_PLAN"
+            comparable && isMatch -> "SHADOW_MATCH"
+            comparable -> "SHADOW_MISMATCH"
+            else -> "SHADOW_PARTIAL"
+        }
+
+        recordQualityFeedback(
+            requestId = requestId,
+            routePath = routePath,
+            stage = AgentQualityStage.PLANNER_SHADOW,
+            userInput = userInput,
+            expectedAction = normalizedLegacyAction,
+            actualAction = plannerAction,
+            runStatus = shadowRunStatus,
+            fallbackUsed = fallbackUsed,
+            isMisjudged = isCorrectionInput || (comparable && !isMatch),
+            errorCode = null,
+            errorMessage = null,
+            metadataJson = buildPlannerShadowMetadata(
+                plannerPlan = plannerPlan,
+                legacyAction = legacyAction,
+                normalizedLegacyAction = normalizedLegacyAction,
+                normalizedPlannerAction = plannerAction,
+                legacyRunStatus = legacyRunStatus,
+                isMatch = isMatch,
+            ),
+        )
+    }
+
+    private fun normalizeLegacyAction(action: String?): String? {
+        val normalized = action?.trim()?.uppercase(Locale.ROOT).orEmpty()
+        if (normalized.isBlank()) return null
+
+        return when (normalized) {
+            ACTION_CREATE.uppercase(Locale.ROOT) -> PlannerIntentType.CREATE_TRANSACTIONS.name
+            ACTION_UPDATE.uppercase(Locale.ROOT) -> PlannerIntentType.UPDATE_TRANSACTIONS.name
+            ACTION_DELETE.uppercase(Locale.ROOT) -> PlannerIntentType.DELETE_TRANSACTIONS.name
+            AgentToolName.QUERY_TRANSACTIONS.name -> PlannerIntentType.QUERY_TRANSACTIONS.name
+            AgentToolName.QUERY_SPENDING_STATS.name -> PlannerIntentType.QUERY_SPENDING_STATS.name
+            "PROMPT_FALLBACK", "PROMPT_FALLBACK_BLOCKED" -> PlannerIntentType.CHITCHAT.name
+            else -> normalized
+        }
+    }
+
+    private fun normalizePlannerAction(plan: IntentPlanV2?): String? {
+        return plan?.intent?.name
+    }
+
+    private fun buildPlannerShadowMetadata(
+        plannerPlan: IntentPlanV2?,
+        legacyAction: String?,
+        normalizedLegacyAction: String?,
+        normalizedPlannerAction: String?,
+        legacyRunStatus: String,
+        isMatch: Boolean,
+    ): String {
+        return JSONObject().apply {
+            put("legacyActionRaw", legacyAction)
+            put("legacyAction", normalizedLegacyAction)
+            put("legacyRunStatus", legacyRunStatus)
+            put("plannerAction", normalizedPlannerAction)
+            put("plannerAvailable", plannerPlan != null)
+            put("isMatch", isMatch)
+
+            if (plannerPlan != null) {
+                put("confidence", plannerPlan.confidence)
+                put("targetMode", plannerPlan.targetMode.name)
+                put("riskLevel", plannerPlan.riskLevel.name)
+                put("needsConfirmation", plannerPlan.needsConfirmation)
+                put("missingSlots", JSONArray(plannerPlan.missingSlots))
+                plannerPlan.queryArgs?.let { args ->
+                    put("queryArgs", JSONObject(args.toQueryArgsJson()))
+                }
+                plannerPlan.statsArgs?.let { args ->
+                    put("statsArgs", JSONObject(args.toStatsArgsJson()))
+                }
+            }
+        }.toString()
     }
 
     suspend fun getAgentQualityMetrics(windowDays: Int = 30): AgentQualityMetrics? {
