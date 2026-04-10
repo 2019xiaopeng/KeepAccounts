@@ -32,11 +32,14 @@ import com.qcb.keepaccounts.domain.agent.NoOpAgentRunLogger
 import com.qcb.keepaccounts.domain.agent.PlannerInputV2
 import com.qcb.keepaccounts.domain.agent.PlannerIntentType
 import com.qcb.keepaccounts.domain.agent.PlannerOutputValidator
+import com.qcb.keepaccounts.domain.agent.PendingIntentState
+import com.qcb.keepaccounts.domain.agent.PendingIntentStateStore
 import com.qcb.keepaccounts.domain.agent.PreviewActionItem
 import com.qcb.keepaccounts.domain.agent.QueryInsightsToolExecutor
 import com.qcb.keepaccounts.domain.agent.QuerySpendingStatsResult
 import com.qcb.keepaccounts.domain.agent.QueryToolCallResult
 import com.qcb.keepaccounts.domain.agent.QueryTransactionsResult
+import com.qcb.keepaccounts.domain.agent.InMemoryPendingIntentStateStore
 import com.qcb.keepaccounts.domain.agent.TransactionFilter
 import com.qcb.keepaccounts.domain.contract.AiChatGateway
 import com.qcb.keepaccounts.domain.contract.AiChatRequest
@@ -77,6 +80,13 @@ class ChatRepository(
     private val plannerPrimaryRolloutPercent: Int = 0,
     private val plannerPrimaryMinConfidence: Double = 0.75,
     private val plannerOutputValidator: PlannerOutputValidator = PlannerOutputValidator(),
+    private val pendingIntentStateStore: PendingIntentStateStore = InMemoryPendingIntentStateStore(),
+    private val pendingIntentTtlMillis: Long = defaultPendingIntentTtlMillis,
+    private val plannerRolloutGateEnabled: Boolean = true,
+    private val plannerGateWindowDays: Int = 7,
+    private val plannerGateMinSamples: Int = 20,
+    private val plannerGateMaxMisjudgeRate: Double = 0.30,
+    private val plannerGateMaxMismatchSamples: Int = 10,
     private val agentDefaultPathEnabled: Boolean = true,
     private val promptFallbackEnabled: Boolean = true,
     private val agentOrchestrator: LedgerAgentOrchestrator = LedgerAgentOrchestrator(
@@ -131,11 +141,22 @@ class ChatRepository(
 
     private data class PlannerPrimaryExecutionResult(
         val expectedAction: String,
-        val actualAction: String,
+        val actualAction: String? = null,
+        val stage: AgentQualityStage = AgentQualityStage.TOOL_EXECUTION,
         val status: AgentToolStatus,
         val errorCode: AgentErrorCode? = null,
         val errorMessage: String? = null,
         val metadataJson: String? = null,
+        val fallbackUsed: Boolean = false,
+        val isMisjudged: Boolean = false,
+    )
+
+    private data class PlannerRolloutGuardSnapshot(
+        val allowed: Boolean,
+        val reason: String,
+        val sampleCount: Int,
+        val misjudgeRate: Double,
+        val mismatchSamples: Int,
     )
 
     private data class ApplyTransactionsResult(
@@ -228,6 +249,17 @@ class ChatRepository(
             )
         }
 
+        if (agentDefaultPathEnabled) {
+            val pendingHandled = tryHandlePendingIntent(
+                requestId = requestId,
+                userInput = userInput,
+                isCorrectionInput = isCorrectionInput,
+            )
+            if (pendingHandled) {
+                return
+            }
+        }
+
         val shouldTryPlannerPrimary = agentDefaultPathEnabled && shouldUsePlannerPrimary(requestId)
         val plannerPlan = if (agentDefaultPathEnabled && (plannerShadowEnabled || shouldTryPlannerPrimary)) {
             runPlannerShadow(
@@ -240,26 +272,13 @@ class ChatRepository(
 
         if (agentDefaultPathEnabled) {
             if (shouldTryPlannerPrimary) {
-                val plannerPrimaryExecution = tryHandlePlannerPrimaryIntent(
+                val plannerPrimaryHandled = tryHandlePlannerPrimaryIntent(
                     requestId = requestId,
                     userInput = userInput,
                     plannerPlan = plannerPlan,
+                    isCorrectionInput = isCorrectionInput,
                 )
-                if (plannerPrimaryExecution != null) {
-                    recordQualityFeedback(
-                        requestId = requestId,
-                        routePath = AgentRoutePath.PLANNER_PRIMARY,
-                        stage = AgentQualityStage.TOOL_EXECUTION,
-                        userInput = userInput,
-                        expectedAction = plannerPrimaryExecution.expectedAction,
-                        actualAction = plannerPrimaryExecution.actualAction,
-                        runStatus = if (plannerPrimaryExecution.status == AgentToolStatus.SUCCESS) "SUCCESS" else "FAILED",
-                        fallbackUsed = false,
-                        isMisjudged = isCorrectionInput || plannerPrimaryExecution.status != AgentToolStatus.SUCCESS,
-                        errorCode = plannerPrimaryExecution.errorCode?.name,
-                        errorMessage = plannerPrimaryExecution.errorMessage,
-                        metadataJson = plannerPrimaryExecution.metadataJson,
-                    )
+                if (plannerPrimaryHandled) {
                     return
                 }
             }
@@ -1401,45 +1420,135 @@ class ChatRepository(
         }.getOrNull()
     }
 
-    private fun shouldUsePlannerPrimary(requestId: String): Boolean {
+    private suspend fun shouldUsePlannerPrimary(requestId: String): Boolean {
         if (!plannerPrimaryEnabled) return false
 
         val rollout = plannerPrimaryRolloutPercent.coerceIn(0, 100)
         if (rollout <= 0) return false
-        if (rollout >= 100) return true
 
-        val bucket = ((requestId.hashCode().toLong() and 0x7FFFFFFF) % 100L).toInt()
-        return bucket < rollout
+        val bucketHit = if (rollout >= 100) {
+            true
+        } else {
+            val bucket = ((requestId.hashCode().toLong() and 0x7FFFFFFF) % 100L).toInt()
+            bucket < rollout
+        }
+        if (!bucketHit) return false
+
+        if (!plannerRolloutGateEnabled) return true
+        return evaluatePlannerRolloutGate().allowed
+    }
+
+    private suspend fun evaluatePlannerRolloutGate(): PlannerRolloutGuardSnapshot {
+        val sinceMillis = System.currentTimeMillis() - plannerGateWindowDays.coerceAtLeast(1) * oneDayMillis
+        val report = qualityFeedbackRepository?.buildObservationReport(sinceMillis)
+            ?: return PlannerRolloutGuardSnapshot(
+                allowed = true,
+                reason = "no_quality_repository",
+                sampleCount = 0,
+                misjudgeRate = 0.0,
+                mismatchSamples = 0,
+            )
+
+        val buckets = report.buckets.filter {
+            it.routePath == AgentRoutePath.PLANNER_PRIMARY.name && it.stage == AgentQualityStage.TOOL_EXECUTION.name
+        }
+        if (buckets.isEmpty()) {
+            return PlannerRolloutGuardSnapshot(
+                allowed = true,
+                reason = "insufficient_samples",
+                sampleCount = 0,
+                misjudgeRate = 0.0,
+                mismatchSamples = 0,
+            )
+        }
+
+        val sampleCount = buckets.sumOf { it.totalSamples }
+        val misjudgedSamples = buckets.sumOf { it.misjudgedSamples }
+        val mismatchSamples = buckets.sumOf { it.mismatchSamples }
+        val misjudgeRate = if (sampleCount <= 0) 0.0 else misjudgedSamples.toDouble() / sampleCount.toDouble()
+
+        if (sampleCount < plannerGateMinSamples) {
+            return PlannerRolloutGuardSnapshot(
+                allowed = true,
+                reason = "insufficient_samples",
+                sampleCount = sampleCount,
+                misjudgeRate = misjudgeRate,
+                mismatchSamples = mismatchSamples,
+            )
+        }
+
+        if (misjudgeRate > plannerGateMaxMisjudgeRate) {
+            return PlannerRolloutGuardSnapshot(
+                allowed = false,
+                reason = "misjudge_rate_exceeded",
+                sampleCount = sampleCount,
+                misjudgeRate = misjudgeRate,
+                mismatchSamples = mismatchSamples,
+            )
+        }
+
+        if (mismatchSamples > plannerGateMaxMismatchSamples) {
+            return PlannerRolloutGuardSnapshot(
+                allowed = false,
+                reason = "mismatch_samples_exceeded",
+                sampleCount = sampleCount,
+                misjudgeRate = misjudgeRate,
+                mismatchSamples = mismatchSamples,
+            )
+        }
+
+        return PlannerRolloutGuardSnapshot(
+            allowed = true,
+            reason = "within_threshold",
+            sampleCount = sampleCount,
+            misjudgeRate = misjudgeRate,
+            mismatchSamples = mismatchSamples,
+        )
     }
 
     private suspend fun tryHandlePlannerPrimaryIntent(
         requestId: String,
         userInput: String,
         plannerPlan: IntentPlanV2?,
-    ): PlannerPrimaryExecutionResult? {
-        if (plannerPlan == null) return null
-        if (plannerPlan.confidence < plannerPrimaryMinConfidence) return null
+        isCorrectionInput: Boolean,
+    ): Boolean {
+        if (plannerPlan == null) return false
+        if (plannerPlan.confidence < plannerPrimaryMinConfidence) return false
 
         val validationIssues = plannerOutputValidator.validate(plannerPlan)
         if (validationIssues.isNotEmpty()) {
-            recordQualityFeedback(
+            val pendingHandled = trySavePendingIntentFromPlan(
                 requestId = requestId,
-                routePath = AgentRoutePath.PLANNER_PRIMARY,
-                stage = AgentQualityStage.INTENT_ROUTING,
                 userInput = userInput,
+                plan = plannerPlan,
+                issues = validationIssues,
+            )
+
+            val validationResult = PlannerPrimaryExecutionResult(
                 expectedAction = plannerPlan.intent.name,
                 actualAction = null,
-                runStatus = "VALIDATION_REJECTED",
-                fallbackUsed = true,
-                isMisjudged = true,
-                errorCode = validationIssues.firstOrNull()?.code?.name,
+                stage = AgentQualityStage.INTENT_ROUTING,
+                status = AgentToolStatus.SKIPPED,
+                errorCode = validationIssues.firstOrNull()?.code,
                 errorMessage = validationIssues.firstOrNull()?.message,
                 metadataJson = buildPlannerValidationIssuesJson(validationIssues),
+                fallbackUsed = true,
+                isMisjudged = true,
             )
-            return null
+            recordPlannerPrimaryFeedback(
+                requestId = requestId,
+                userInput = userInput,
+                result = validationResult,
+                isCorrectionInput = isCorrectionInput,
+            )
+
+            if (pendingHandled) {
+                return true
+            }
+            return false
         }
 
-        return when (plannerPlan.intent) {
+        val executionResult = when (plannerPlan.intent) {
             PlannerIntentType.QUERY_TRANSACTIONS -> {
                 val execution = handleQueryIntent(
                     requestId = requestId,
@@ -1478,13 +1587,16 @@ class ChatRepository(
                 )
             }
 
-            PlannerIntentType.CREATE_TRANSACTIONS -> {
-                val drafts = buildCreateDraftsFromPlannerPlan(
+            PlannerIntentType.CREATE_TRANSACTIONS,
+            PlannerIntentType.UPDATE_TRANSACTIONS,
+            PlannerIntentType.DELETE_TRANSACTIONS,
+            -> {
+                val drafts = buildWriteDraftsFromPlannerPlan(
                     plannerPlan = plannerPlan,
                     userInput = userInput,
                 )
-                if (drafts.size != 1) {
-                    return null
+                if (drafts.isEmpty()) {
+                    return false
                 }
 
                 val execution = handleWriteIntent(
@@ -1493,8 +1605,8 @@ class ChatRepository(
                     drafts = drafts,
                 )
                 PlannerPrimaryExecutionResult(
-                    expectedAction = PlannerIntentType.CREATE_TRANSACTIONS.name,
-                    actualAction = PlannerIntentType.CREATE_TRANSACTIONS.name,
+                    expectedAction = plannerPlan.intent.name,
+                    actualAction = plannerPlan.intent.name,
                     status = execution.status,
                     errorCode = execution.errorCode,
                     errorMessage = execution.errorMessage,
@@ -1502,8 +1614,226 @@ class ChatRepository(
                 )
             }
 
-            else -> null
+            else -> return false
         }
+
+        recordPlannerPrimaryFeedback(
+            requestId = requestId,
+            userInput = userInput,
+            result = executionResult,
+            isCorrectionInput = isCorrectionInput,
+        )
+        return true
+    }
+
+    private suspend fun tryHandlePendingIntent(
+        requestId: String,
+        userInput: String,
+        isCorrectionInput: Boolean,
+    ): Boolean {
+        val now = System.currentTimeMillis()
+        val pending = pendingIntentStateStore.getActive(now) ?: return false
+        if (userInput.contains("取消", ignoreCase = true) || userInput.contains("算了", ignoreCase = true)) {
+            pendingIntentStateStore.clear()
+            return false
+        }
+
+        val mergedDraft = mergePendingDraft(pending.draft, userInput)
+        val unresolved = resolveMissingSlots(mergedDraft, pending.missingSlots)
+        if (unresolved.isNotEmpty()) {
+            pendingIntentStateStore.save(
+                pending.copy(
+                    draft = mergedDraft,
+                    missingSlots = unresolved,
+                    expiresAt = now + pendingIntentTtlMillis,
+                ),
+            )
+            syncAssistantReplyChunks(
+                messageIds = mutableListOf(),
+                chunks = splitAssistantReply(buildMissingSlotPrompt(unresolved)),
+                baseTimestamp = System.currentTimeMillis() + 1,
+                isReceiptLast = false,
+                receiptTransactionId = null,
+                receiptTransactionBindings = null,
+            )
+            return true
+        }
+
+        val execution = handleWriteIntent(
+            requestId = requestId,
+            userInput = userInput,
+            drafts = listOf(mergedDraft),
+        )
+        pendingIntentStateStore.clear()
+
+        val expected = when (pending.action.lowercase(Locale.ROOT)) {
+            ACTION_UPDATE -> PlannerIntentType.UPDATE_TRANSACTIONS.name
+            ACTION_DELETE -> PlannerIntentType.DELETE_TRANSACTIONS.name
+            else -> PlannerIntentType.CREATE_TRANSACTIONS.name
+        }
+        recordQualityFeedback(
+            requestId = requestId,
+            routePath = AgentRoutePath.PLANNER_PRIMARY,
+            stage = AgentQualityStage.TOOL_EXECUTION,
+            userInput = userInput,
+            expectedAction = expected,
+            actualAction = expected,
+            runStatus = if (execution.status == AgentToolStatus.SUCCESS) "SUCCESS" else "FAILED",
+            fallbackUsed = false,
+            isMisjudged = isCorrectionInput || execution.status != AgentToolStatus.SUCCESS,
+            errorCode = execution.errorCode?.name,
+            errorMessage = execution.errorMessage,
+            metadataJson = buildReceiptMetaTag(execution.applyResult),
+        )
+        return true
+    }
+
+    private fun mergePendingDraft(
+        base: AiReceiptDraft,
+        userInput: String,
+    ): AiReceiptDraft {
+        val amountHint = parseAmountCandidates(userInput).firstOrNull()
+        val categoryHint = inferCategoryFromText(userInput, type = 0)
+        val dateHint = resolveRelativeDateKeyword(userInput)
+        val transactionIdHint = parseTransactionIdHint(userInput)
+        val descHint = normalizeWriteDesc(userInput)
+
+        return base.copy(
+            amount = amountHint ?: base.amount,
+            category = categoryHint ?: base.category,
+            date = dateHint ?: base.date,
+            transactionId = transactionIdHint ?: base.transactionId,
+            desc = if (descHint.isNotBlank()) descHint else base.desc,
+        )
+    }
+
+    private fun resolveMissingSlots(
+        draft: AiReceiptDraft,
+        preferred: List<String>,
+    ): List<String> {
+        val raw = if (preferred.isNotEmpty()) preferred else listOf("amount", "category")
+        return raw.filter { slot ->
+            when (slot) {
+                "amount" -> draft.amount == null
+                "category" -> draft.category.isNullOrBlank()
+                "target" -> draft.transactionId == null && draft.desc.isNullOrBlank() && draft.category.isNullOrBlank() && draft.date.isNullOrBlank() && draft.amount == null
+                else -> false
+            }
+        }
+    }
+
+    private fun buildMissingSlotPrompt(missingSlots: List<String>): String {
+        val first = missingSlots.firstOrNull() ?: return "我还差一点信息，你补一句我就继续。"
+        val hint = when (first) {
+            "amount" -> "金额"
+            "category" -> "分类"
+            "target" -> "要操作的那笔记录"
+            else -> "关键信息"
+        }
+        return "我还差一个信息：$hint。补一句我就继续处理。"
+    }
+
+    private suspend fun trySavePendingIntentFromPlan(
+        requestId: String,
+        userInput: String,
+        plan: IntentPlanV2,
+        issues: List<AgentValidationIssue>,
+    ): Boolean {
+        if (plan.intent !in setOf(
+                PlannerIntentType.CREATE_TRANSACTIONS,
+                PlannerIntentType.UPDATE_TRANSACTIONS,
+                PlannerIntentType.DELETE_TRANSACTIONS,
+            )
+        ) {
+            return false
+        }
+
+        val sourceItems = if (plan.writeItems.isNotEmpty()) plan.writeItems else plan.createItems
+        val sourceItem = sourceItems.firstOrNull() ?: return false
+        val fallbackAction = when (plan.intent) {
+            PlannerIntentType.UPDATE_TRANSACTIONS -> ACTION_UPDATE
+            PlannerIntentType.DELETE_TRANSACTIONS -> ACTION_DELETE
+            else -> ACTION_CREATE
+        }
+        val normalizedAction = sourceItem.action
+            .trim()
+            .lowercase(Locale.ROOT)
+            .ifBlank { fallbackAction }
+        val draft = AiReceiptDraft(
+            isReceipt = true,
+            action = normalizedAction,
+            amount = sourceItem.amount,
+            category = sourceItem.category?.trim().takeUnless { it.isNullOrBlank() }
+                ?: inferCategoryFromText(userInput, type = 0),
+            desc = sourceItem.desc?.trim().orEmpty().ifBlank { normalizeWriteDesc(userInput) },
+            recordTime = sourceItem.recordTime,
+            date = sourceItem.date,
+            transactionId = sourceItem.transactionId,
+        )
+        val missingSlots = plan.missingSlots
+            .ifEmpty {
+                issues.mapNotNull { issue ->
+                    when {
+                        issue.field.contains("amount") -> "amount"
+                        issue.field.contains("category") -> "category"
+                        issue.field.contains("target") -> "target"
+                        else -> null
+                    }
+                }.distinct()
+            }
+            .ifEmpty { listOf("amount", "category") }
+
+        val now = System.currentTimeMillis()
+        pendingIntentStateStore.save(
+            PendingIntentState(
+                requestId = requestId,
+                source = AgentRoutePath.PLANNER_PRIMARY.name,
+                action = draft.action,
+                draft = draft,
+                missingSlots = missingSlots,
+                createdAt = now,
+                expiresAt = now + pendingIntentTtlMillis,
+            ),
+        )
+
+        syncAssistantReplyChunks(
+            messageIds = mutableListOf(),
+            chunks = splitAssistantReply(buildMissingSlotPrompt(missingSlots)),
+            baseTimestamp = System.currentTimeMillis() + 1,
+            isReceiptLast = false,
+            receiptTransactionId = null,
+            receiptTransactionBindings = null,
+        )
+        return true
+    }
+
+    private suspend fun recordPlannerPrimaryFeedback(
+        requestId: String,
+        userInput: String,
+        result: PlannerPrimaryExecutionResult,
+        isCorrectionInput: Boolean,
+    ) {
+        val runStatus = when (result.status) {
+            AgentToolStatus.SUCCESS -> "SUCCESS"
+            AgentToolStatus.PARTIAL_SUCCESS -> "PARTIAL_SUCCESS"
+            AgentToolStatus.SKIPPED -> "SKIPPED"
+            else -> "FAILED"
+        }
+
+        recordQualityFeedback(
+            requestId = requestId,
+            routePath = AgentRoutePath.PLANNER_PRIMARY,
+            stage = result.stage,
+            userInput = userInput,
+            expectedAction = result.expectedAction,
+            actualAction = result.actualAction,
+            runStatus = runStatus,
+            fallbackUsed = result.fallbackUsed,
+            isMisjudged = result.isMisjudged || isCorrectionInput,
+            errorCode = result.errorCode?.name,
+            errorMessage = result.errorMessage,
+            metadataJson = result.metadataJson,
+        )
     }
 
     private fun buildPlannerValidationIssuesJson(issues: List<AgentValidationIssue>): String {
@@ -1525,16 +1855,24 @@ class ChatRepository(
         }.toString()
     }
 
-    private fun buildCreateDraftsFromPlannerPlan(
+    private fun buildWriteDraftsFromPlannerPlan(
         plannerPlan: IntentPlanV2,
         userInput: String,
     ): List<AiReceiptDraft> {
-        return plannerPlan.createItems.mapNotNull { item ->
-            if (!item.action.equals(ACTION_CREATE, ignoreCase = true)) {
-                return@mapNotNull null
-            }
+        val sourceItems = if (plannerPlan.writeItems.isNotEmpty()) plannerPlan.writeItems else plannerPlan.createItems
 
-            val amount = item.amount ?: return@mapNotNull null
+        return sourceItems.mapNotNull { item ->
+            val fallbackAction = when (plannerPlan.intent) {
+                PlannerIntentType.UPDATE_TRANSACTIONS -> ACTION_UPDATE
+                PlannerIntentType.DELETE_TRANSACTIONS -> ACTION_DELETE
+                else -> ACTION_CREATE
+            }
+            val normalizedAction = item.action
+                .trim()
+                .lowercase(Locale.ROOT)
+                .ifBlank { fallbackAction }
+
+            val amount = item.amount
             val normalizedDesc = item.desc?.trim().orEmpty().ifBlank { normalizeWriteDesc(userInput) }
             val category = item.category?.trim().takeUnless { it.isNullOrBlank() }
                 ?: inferCategoryFromText(normalizedDesc, type = 0)
@@ -1542,7 +1880,7 @@ class ChatRepository(
 
             AiReceiptDraft(
                 isReceipt = true,
-                action = ACTION_CREATE,
+                action = normalizedAction,
                 amount = amount,
                 category = category,
                 desc = normalizedDesc,
@@ -1550,6 +1888,13 @@ class ChatRepository(
                 date = item.date,
                 transactionId = item.transactionId,
             )
+        }.filter { draft ->
+            when (draft.action) {
+                ACTION_CREATE -> draft.amount != null
+                ACTION_UPDATE -> draft.amount != null || !draft.category.isNullOrBlank() || !draft.recordTime.isNullOrBlank() || !draft.date.isNullOrBlank() || !draft.desc.isNullOrBlank()
+                ACTION_DELETE -> draft.transactionId != null || !draft.category.isNullOrBlank() || !draft.date.isNullOrBlank() || !draft.desc.isNullOrBlank() || draft.amount != null
+                else -> false
+            }
         }
     }
 
@@ -3865,6 +4210,7 @@ class ChatRepository(
         val conversationDelimiterRegex = Regex("\\n\\s*\\n+|<MSG>|\\|\\|\\|", setOf(RegexOption.IGNORE_CASE))
         val majorSentenceRegex = Regex("(?<=[。！？!?])")
         const val oneDayMillis = 24L * 60L * 60L * 1000L
+        const val defaultPendingIntentTtlMillis = 5L * 60L * 1000L
         const val localReplyMinDelayMs = 520L
         const val localReplyMaxDelayMs = 980L
         const val highRiskDeleteCountThreshold = 3

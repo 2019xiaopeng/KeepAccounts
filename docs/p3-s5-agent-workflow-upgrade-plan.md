@@ -1,7 +1,7 @@
 # P3-S5 Agent Workflow 升级方案（LLM 规划优先 + 本地执行闭环）
 
 - 日期：2026-04-10
-- 状态：Proposed
+- 状态：In Progress（PhaseA/PhaseB 已完成，PhaseC 进行中）
 - 适用范围：Phase3 后续迭代（承接 P3-S4）
 - 关联 ADR：ADR-033、ADR-041、ADR-042、ADR-043、ADR-044、ADR-045、ADR-046（拟）
 
@@ -200,3 +200,13 @@
 建议采纳“LLM 规划优先 + 本地执行闭环”的混合 Agent 工作流，作为 Phase3 后续主路线。
 
 这条路线能保持本地执行的可控与可审计，同时补上 Regex 路由在语义理解、多轮记忆和复杂时间金额解析上的天花板。
+
+## 11. 里程碑进展（2026-04-10）
+
+1. PhaseA：已完成（契约、影子模式、回放与观测基线）。
+2. PhaseB：已完成（planner primary 覆盖 query/stats/single-create，含合法化与聚合报表）。
+3. PhaseC（本轮）：已完成首批核心落地。
+- planner 执行器扩展到 update/delete/batch（writeItems）。
+- 接入 PendingIntentState（TTL）支持多轮补全。
+- 接入放量双阈值门禁（misjudgeRate + mismatchSamples）。
+- 编译与全量单测通过。

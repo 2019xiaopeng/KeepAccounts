@@ -46,7 +46,7 @@ class SiliconFlowPlannerGateway(
     private fun buildPlannerMessages(input: PlannerInputV2): List<SiliconFlowMessageDto> {
         val systemPrompt = """
             你是 KeepAccounts 的 planner，只输出结构化函数参数，不输出额外解释。
-            你必须根据用户输入判断 intent，并尽量填充 queryArgs/statsArgs/createItems。
+            你必须根据用户输入判断 intent，并尽量填充 queryArgs/statsArgs/writeItems。
             如果无法确定，intent 填 unknown，confidence 低于 0.5。
         """.trimIndent()
 
@@ -86,6 +86,7 @@ class SiliconFlowPlannerGateway(
                 "missingSlots" to mapOf("type" to "array", "items" to mapOf("type" to "string")),
                 "queryArgs" to mapOf("type" to "object"),
                 "statsArgs" to mapOf("type" to "object"),
+                "writeItems" to mapOf("type" to "array", "items" to mapOf("type" to "object")),
                 "createItems" to mapOf("type" to "array", "items" to mapOf("type" to "object")),
             ),
             "required" to listOf("intent", "confidence"),
@@ -157,6 +158,7 @@ class SiliconFlowPlannerGateway(
                 missingSlots = missingSlots,
                 queryArgs = root.optJSONObject("queryArgs")?.toQueryArgs(),
                 statsArgs = root.optJSONObject("statsArgs")?.toStatsArgs(),
+                writeItems = root.optJSONArray("writeItems").toCreateItems(),
                 createItems = root.optJSONArray("createItems").toCreateItems(),
             )
         }.getOrNull()

@@ -1,6 +1,8 @@
 package com.qcb.keepaccounts.data.repository
 
 import com.qcb.keepaccounts.data.agent.AgentQualityFeedbackRepository
+import com.qcb.keepaccounts.data.agent.AgentQualityFeedbackInput
+import com.qcb.keepaccounts.data.agent.AgentRoutePath
 import com.qcb.keepaccounts.data.agent.AgentQualityStage
 import com.qcb.keepaccounts.data.local.dao.AgentQualityFeedbackDao
 import com.qcb.keepaccounts.data.local.dao.ChatMessageDao
@@ -684,6 +686,209 @@ class ChatRepositoryBatchLedgerTest {
     }
 
     @Test
+    fun sendMessage_plannerPrimaryMissingSlot_usesPendingAndCompletesNextTurn() {
+        runBlocking {
+            val gateway = CountingAiChatGateway(reply = "不应走到这里")
+            val transactionDao = FakeTransactionDao()
+            val planner = object : AgentPlanner {
+                override suspend fun plan(input: PlannerInputV2): IntentPlanV2 {
+                    return IntentPlanV2(
+                        intent = PlannerIntentType.CREATE_TRANSACTIONS,
+                        confidence = 0.96,
+                        writeItems = listOf(
+                            PreviewActionItem(
+                                action = "create",
+                                amount = null,
+                                category = "餐饮美食",
+                                recordTime = null,
+                                desc = "午饭",
+                            ),
+                        ),
+                        missingSlots = listOf("amount"),
+                    )
+                }
+            }
+
+            val repository = ChatRepository(
+                chatMessageDao = FakeChatMessageDao(),
+                transactionDao = transactionDao,
+                aiChatGateway = gateway,
+                agentPlanner = planner,
+                plannerPrimaryEnabled = true,
+                plannerPrimaryRolloutPercent = 100,
+                plannerPrimaryMinConfidence = 0.75,
+                pendingIntentTtlMillis = 5 * 60 * 1000L,
+            )
+
+            repository.sendMessage(
+                userInput = "帮我记一笔午饭",
+                aiConfig = AiAssistantConfig(),
+                userName = "测试用户",
+            )
+
+            val firstAssistantText = repository.observeChatRecords()
+                .first()
+                .filter { it.role == "assistant" }
+                .joinToString("\n") { it.content }
+
+            assertEquals(0, transactionDao.countTransactions())
+            assertEquals(true, firstAssistantText.contains("还差一个信息") || firstAssistantText.contains("补一句"))
+
+            repository.sendMessage(
+                userInput = "35",
+                aiConfig = AiAssistantConfig(),
+                userName = "测试用户",
+            )
+
+            val latest = transactionDao.getRecentTransactions(limit = 1).firstOrNull()
+            assertEquals(0, gateway.requestCount)
+            assertEquals(1, transactionDao.countTransactions())
+            assertEquals(35.0, latest?.amount ?: 0.0, 0.001)
+            assertEquals("餐饮美食", latest?.categoryName)
+        }
+    }
+
+    @Test
+    fun sendMessage_plannerPrimaryGate_blocksWhenMisjudgeThresholdExceeded() {
+        runBlocking {
+            val feedbackDao = InMemoryQualityFeedbackDao()
+            val qualityRepository = AgentQualityFeedbackRepository(feedbackDao)
+            val now = System.currentTimeMillis()
+            qualityRepository.record(
+                AgentQualityFeedbackInput(
+                    requestId = "hist-1",
+                    routePath = AgentRoutePath.PLANNER_PRIMARY,
+                    stage = AgentQualityStage.TOOL_EXECUTION,
+                    userInput = "历史样本",
+                    expectedAction = "QUERY_TRANSACTIONS",
+                    actualAction = "QUERY_TRANSACTIONS",
+                    runStatus = "FAILED",
+                    fallbackUsed = false,
+                    isMisjudged = true,
+                    createdAt = now,
+                ),
+            )
+
+            val planner = object : AgentPlanner {
+                override suspend fun plan(input: PlannerInputV2): IntentPlanV2 {
+                    return IntentPlanV2(
+                        intent = PlannerIntentType.QUERY_TRANSACTIONS,
+                        confidence = 0.95,
+                        queryArgs = AgentToolArgs.QueryTransactionsArgs(
+                            filters = TransactionFilter(),
+                            window = "last30days",
+                            sortKey = "record_time_desc",
+                            limit = 1,
+                        ),
+                    )
+                }
+            }
+
+            val gateway = CountingAiChatGateway(reply = "普通回复")
+            val repository = ChatRepository(
+                chatMessageDao = FakeChatMessageDao(),
+                transactionDao = FakeTransactionDao(),
+                aiChatGateway = gateway,
+                qualityFeedbackRepository = qualityRepository,
+                agentPlanner = planner,
+                plannerPrimaryEnabled = true,
+                plannerPrimaryRolloutPercent = 100,
+                plannerPrimaryMinConfidence = 0.75,
+                plannerRolloutGateEnabled = true,
+                plannerGateWindowDays = 7,
+                plannerGateMinSamples = 1,
+                plannerGateMaxMisjudgeRate = 0.2,
+                plannerGateMaxMismatchSamples = 10,
+            )
+
+            repository.sendMessage(
+                userInput = "随便聊聊",
+                aiConfig = AiAssistantConfig(),
+                userName = "测试用户",
+            )
+
+            assertEquals(1, gateway.requestCount)
+        }
+    }
+
+    @Test
+    fun sendMessage_plannerPrimaryGate_blocksWhenMismatchThresholdExceeded() {
+        runBlocking {
+            val feedbackDao = InMemoryQualityFeedbackDao()
+            val qualityRepository = AgentQualityFeedbackRepository(feedbackDao)
+            val now = System.currentTimeMillis()
+            qualityRepository.record(
+                AgentQualityFeedbackInput(
+                    requestId = "hist-2",
+                    routePath = AgentRoutePath.PLANNER_PRIMARY,
+                    stage = AgentQualityStage.TOOL_EXECUTION,
+                    userInput = "历史样本A",
+                    expectedAction = "QUERY_TRANSACTIONS",
+                    actualAction = "QUERY_SPENDING_STATS",
+                    runStatus = "SUCCESS",
+                    fallbackUsed = false,
+                    isMisjudged = false,
+                    createdAt = now,
+                ),
+            )
+            qualityRepository.record(
+                AgentQualityFeedbackInput(
+                    requestId = "hist-3",
+                    routePath = AgentRoutePath.PLANNER_PRIMARY,
+                    stage = AgentQualityStage.TOOL_EXECUTION,
+                    userInput = "历史样本B",
+                    expectedAction = "QUERY_TRANSACTIONS",
+                    actualAction = "QUERY_SPENDING_STATS",
+                    runStatus = "SUCCESS",
+                    fallbackUsed = false,
+                    isMisjudged = false,
+                    createdAt = now + 1,
+                ),
+            )
+
+            val planner = object : AgentPlanner {
+                override suspend fun plan(input: PlannerInputV2): IntentPlanV2 {
+                    return IntentPlanV2(
+                        intent = PlannerIntentType.QUERY_TRANSACTIONS,
+                        confidence = 0.95,
+                        queryArgs = AgentToolArgs.QueryTransactionsArgs(
+                            filters = TransactionFilter(),
+                            window = "last30days",
+                            sortKey = "record_time_desc",
+                            limit = 1,
+                        ),
+                    )
+                }
+            }
+
+            val gateway = CountingAiChatGateway(reply = "普通回复")
+            val repository = ChatRepository(
+                chatMessageDao = FakeChatMessageDao(),
+                transactionDao = FakeTransactionDao(),
+                aiChatGateway = gateway,
+                qualityFeedbackRepository = qualityRepository,
+                agentPlanner = planner,
+                plannerPrimaryEnabled = true,
+                plannerPrimaryRolloutPercent = 100,
+                plannerPrimaryMinConfidence = 0.75,
+                plannerRolloutGateEnabled = true,
+                plannerGateWindowDays = 7,
+                plannerGateMinSamples = 1,
+                plannerGateMaxMisjudgeRate = 1.0,
+                plannerGateMaxMismatchSamples = 0,
+            )
+
+            repository.sendMessage(
+                userInput = "随便聊聊",
+                aiConfig = AiAssistantConfig(),
+                userName = "测试用户",
+            )
+
+            assertEquals(1, gateway.requestCount)
+        }
+    }
+
+    @Test
     fun sendMessage_plannerPrimaryLowConfidence_fallsBackToLegacyFlow() {
         runBlocking {
             val gateway = CountingAiChatGateway(reply = "普通回复")
@@ -1307,6 +1512,42 @@ private fun stripHiddenPayloads(text: String): String {
         .replace(Regex("<RECEIPT>[\\s\\S]*?</RECEIPT>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE)), "")
         .replace(Regex("<DATA>[\\s\\S]*?</DATA>", setOf(RegexOption.DOT_MATCHES_ALL, RegexOption.IGNORE_CASE)), "")
         .trim()
+}
+
+private class InMemoryQualityFeedbackDao : AgentQualityFeedbackDao {
+    private val items = mutableListOf<AgentQualityFeedbackEntity>()
+    private var nextId = 1L
+
+    override suspend fun insertFeedback(feedback: AgentQualityFeedbackEntity) {
+        items += feedback.copy(id = nextId++)
+    }
+
+    override suspend fun listByRequestId(requestId: String): List<AgentQualityFeedbackEntity> {
+        return items.filter { it.requestId == requestId }.sortedByDescending { it.createdAt }
+    }
+
+    override suspend fun getLatestFeedback(): AgentQualityFeedbackEntity? {
+        return items.maxByOrNull { it.createdAt }
+    }
+
+    override suspend fun listSince(sinceMillis: Long): List<AgentQualityFeedbackEntity> {
+        return items.filter { it.createdAt >= sinceMillis }
+    }
+
+    override suspend fun markCorrectionSample(
+        requestId: String,
+        correctedByRequestId: String,
+        metadataJson: String?,
+    ) {
+        val index = items.indexOfLast { it.requestId == requestId }
+        if (index < 0) return
+        val current = items[index]
+        items[index] = current.copy(
+            isCorrectionSample = true,
+            correctedByRequestId = correctedByRequestId,
+            metadataJson = metadataJson,
+        )
+    }
 }
 
 private class FakeAiChatGateway(

@@ -39,7 +39,50 @@ class PlannerOutputValidatorTest {
     }
 
     @Test
-    fun validate_reportsSingleCreateConstraintViolation() {
+    fun validate_reportsCreateMissingAmountIssue() {
+        val issues = validator.validate(
+            IntentPlanV2(
+                intent = PlannerIntentType.CREATE_TRANSACTIONS,
+                confidence = 0.9,
+                writeItems = listOf(
+                    PreviewActionItem(
+                        action = "create",
+                        amount = null,
+                        category = "餐饮美食",
+                        recordTime = null,
+                    ),
+                ),
+            ),
+        )
+
+        assertTrue(issues.any { it.field.contains("amount") })
+    }
+
+    @Test
+    fun validate_reportsDeleteMissingTargetIssue() {
+        val issues = validator.validate(
+            IntentPlanV2(
+                intent = PlannerIntentType.DELETE_TRANSACTIONS,
+                confidence = 0.92,
+                writeItems = listOf(
+                    PreviewActionItem(
+                        action = "delete",
+                        amount = null,
+                        category = null,
+                        recordTime = null,
+                        date = null,
+                        desc = null,
+                        transactionId = null,
+                    ),
+                ),
+            ),
+        )
+
+        assertTrue(issues.any { it.field.contains("target") })
+    }
+
+    @Test
+    fun validate_acceptsLegacyCreateItemsFallbackWhenWriteItemsEmpty() {
         val issues = validator.validate(
             IntentPlanV2(
                 intent = PlannerIntentType.CREATE_TRANSACTIONS,
@@ -47,20 +90,14 @@ class PlannerOutputValidatorTest {
                 createItems = listOf(
                     PreviewActionItem(
                         action = "create",
-                        amount = 20.0,
+                        amount = 35.0,
                         category = "餐饮美食",
-                        recordTime = null,
-                    ),
-                    PreviewActionItem(
-                        action = "create",
-                        amount = 10.0,
-                        category = "交通出行",
                         recordTime = null,
                     ),
                 ),
             ),
         )
 
-        assertTrue(issues.any { it.field == "createItems.size" })
+        assertTrue(issues.isEmpty())
     }
 }

@@ -114,6 +114,63 @@ class SiliconFlowPlannerGatewayTest {
             assertEquals(3, plan?.statsArgs?.topN)
         }
     }
+
+    @Test
+    fun plan_parsesWriteItemsForUpdateIntent() {
+        runBlocking {
+            val api = FakePlannerApi(
+                response = SiliconFlowChatResponseDto(
+                    choices = listOf(
+                        SiliconFlowChoiceDto(
+                            message = SiliconFlowAssistantMessageDto(
+                                toolCalls = listOf(
+                                    SiliconFlowToolCallDto(
+                                        function = SiliconFlowToolCallFunctionDto(
+                                            name = "submit_intent_plan_v2",
+                                            arguments =
+                                                """
+                                                {
+                                                  "intent": "update_transactions",
+                                                  "confidence": 0.89,
+                                                  "writeItems": [
+                                                    {
+                                                      "action": "update",
+                                                      "transactionId": 42,
+                                                      "amount": 88.5,
+                                                      "category": "交通出行",
+                                                      "desc": "打车更正"
+                                                    }
+                                                  ],
+                                                  "missingSlots": ["none"]
+                                                }
+                                                """.trimIndent(),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            )
+            val gateway = SiliconFlowPlannerGateway(api)
+
+            val plan = gateway.plan(
+                PlannerInputV2(
+                    requestId = "req-3",
+                    userInput = "把那笔打车改成 88.5",
+                    nowMillis = 1_700_000_000_000,
+                    timezoneId = "Asia/Shanghai",
+                ),
+            )
+
+            assertNotNull(plan)
+            assertEquals(PlannerIntentType.UPDATE_TRANSACTIONS, plan?.intent)
+            assertEquals(1, plan?.writeItems?.size)
+            assertEquals("update", plan?.writeItems?.firstOrNull()?.action)
+            assertEquals(42L, plan?.writeItems?.firstOrNull()?.transactionId)
+            assertEquals(88.5, plan?.writeItems?.firstOrNull()?.amount ?: 0.0, 0.0001)
+        }
+    }
 }
 
 private class FakePlannerApi(
