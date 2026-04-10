@@ -5,6 +5,7 @@
 - 决策者：KeepAccounts 团队
 - 关联阶段：Phase3 Step4 (P3-S4)
 - 前置 ADR：ADR-042、ADR-043、ADR-044
+- 后续演进：ADR-046（P3-S5，LLM 规划优先 + 本地执行闭环）
 
 ## 背景
 
