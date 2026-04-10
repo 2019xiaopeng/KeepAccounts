@@ -14,6 +14,7 @@ import com.qcb.keepaccounts.domain.agent.AgentToolArgs
 import com.qcb.keepaccounts.domain.agent.AgentToolStatus
 import com.qcb.keepaccounts.domain.agent.PlannerInputV2
 import com.qcb.keepaccounts.domain.agent.PlannerIntentType
+import com.qcb.keepaccounts.domain.agent.PreviewActionItem
 import com.qcb.keepaccounts.domain.agent.TransactionFilter
 import com.qcb.keepaccounts.domain.contract.AiChatGateway
 import com.qcb.keepaccounts.domain.contract.AiChatRequest
@@ -572,6 +573,159 @@ class ChatRepositoryBatchLedgerTest {
             assertEquals("QUERY_TRANSACTIONS", shadowRecord?.expectedAction)
             assertEquals("QUERY_TRANSACTIONS", shadowRecord?.actualAction)
             assertEquals(true, shadowRecord?.metadataJson?.contains("\"plannerAvailable\":true") == true)
+        }
+    }
+
+    @Test
+    fun sendMessage_plannerPrimaryQuery_executesPlannedQueryWhenRolloutEnabled() {
+        runBlocking {
+            val now = System.currentTimeMillis()
+            val gateway = CountingAiChatGateway(reply = "不应走到这里")
+            val planner = object : AgentPlanner {
+                override suspend fun plan(input: PlannerInputV2): IntentPlanV2 {
+                    return IntentPlanV2(
+                        intent = PlannerIntentType.QUERY_TRANSACTIONS,
+                        confidence = 0.95,
+                        queryArgs = AgentToolArgs.QueryTransactionsArgs(
+                            filters = TransactionFilter(),
+                            window = "last30days",
+                            sortKey = "record_time_desc",
+                            limit = 1,
+                        ),
+                    )
+                }
+            }
+
+            val repository = ChatRepository(
+                chatMessageDao = FakeChatMessageDao(),
+                transactionDao = FakeTransactionDao(
+                    initialTransactions = listOf(
+                        TransactionEntity(
+                            id = 101L,
+                            type = 0,
+                            amount = 28.0,
+                            categoryName = "餐饮美食",
+                            categoryIcon = "",
+                            remark = "晚饭",
+                            recordTimestamp = now - 1_000,
+                            createdTimestamp = now - 1_000,
+                        ),
+                    ),
+                ),
+                aiChatGateway = gateway,
+                agentPlanner = planner,
+                plannerPrimaryEnabled = true,
+                plannerPrimaryRolloutPercent = 100,
+                plannerPrimaryMinConfidence = 0.75,
+            )
+
+            repository.sendMessage(
+                userInput = "今天心情一般",
+                aiConfig = AiAssistantConfig(),
+                userName = "测试用户",
+            )
+
+            val assistantText = repository.observeChatRecords()
+                .first()
+                .filter { it.role == "assistant" }
+                .joinToString("\n") { it.content }
+            val visibleAssistantText = stripHiddenPayloads(assistantText)
+
+            assertEquals(0, gateway.requestCount)
+            assertEquals(true, visibleAssistantText.contains("最近一笔"))
+        }
+    }
+
+    @Test
+    fun sendMessage_plannerPrimarySingleCreate_executesPlannedCreate() {
+        runBlocking {
+            val gateway = CountingAiChatGateway(reply = "不应走到这里")
+            val transactionDao = FakeTransactionDao()
+            val planner = object : AgentPlanner {
+                override suspend fun plan(input: PlannerInputV2): IntentPlanV2 {
+                    return IntentPlanV2(
+                        intent = PlannerIntentType.CREATE_TRANSACTIONS,
+                        confidence = 0.92,
+                        createItems = listOf(
+                            PreviewActionItem(
+                                action = "create",
+                                amount = 66.0,
+                                category = "交通出行",
+                                recordTime = null,
+                                desc = "打车",
+                            ),
+                        ),
+                    )
+                }
+            }
+
+            val repository = ChatRepository(
+                chatMessageDao = FakeChatMessageDao(),
+                transactionDao = transactionDao,
+                aiChatGateway = gateway,
+                agentPlanner = planner,
+                plannerPrimaryEnabled = true,
+                plannerPrimaryRolloutPercent = 100,
+                plannerPrimaryMinConfidence = 0.75,
+            )
+
+            repository.sendMessage(
+                userInput = "随便记一下",
+                aiConfig = AiAssistantConfig(),
+                userName = "测试用户",
+            )
+
+            val latest = transactionDao.getRecentTransactions(limit = 1).firstOrNull()
+            assertEquals(0, gateway.requestCount)
+            assertEquals(1, transactionDao.countTransactions())
+            assertEquals("交通出行", latest?.categoryName)
+            assertEquals(66.0, latest?.amount ?: 0.0, 0.001)
+        }
+    }
+
+    @Test
+    fun sendMessage_plannerPrimaryLowConfidence_fallsBackToLegacyFlow() {
+        runBlocking {
+            val gateway = CountingAiChatGateway(reply = "普通回复")
+            val planner = object : AgentPlanner {
+                override suspend fun plan(input: PlannerInputV2): IntentPlanV2 {
+                    return IntentPlanV2(
+                        intent = PlannerIntentType.QUERY_TRANSACTIONS,
+                        confidence = 0.30,
+                        queryArgs = AgentToolArgs.QueryTransactionsArgs(
+                            filters = TransactionFilter(),
+                            window = "last30days",
+                            sortKey = "record_time_desc",
+                            limit = 1,
+                        ),
+                    )
+                }
+            }
+
+            val repository = ChatRepository(
+                chatMessageDao = FakeChatMessageDao(),
+                transactionDao = FakeTransactionDao(),
+                aiChatGateway = gateway,
+                agentPlanner = planner,
+                plannerPrimaryEnabled = true,
+                plannerPrimaryRolloutPercent = 100,
+                plannerPrimaryMinConfidence = 0.75,
+            )
+
+            repository.sendMessage(
+                userInput = "随便聊聊",
+                aiConfig = AiAssistantConfig(),
+                userName = "测试用户",
+            )
+
+            val assistantText = repository.observeChatRecords()
+                .first()
+                .filter { it.role == "assistant" }
+                .joinToString("\n") { it.content }
+            val visibleAssistantText = stripHiddenPayloads(assistantText)
+
+            assertEquals(1, gateway.requestCount)
+            assertEquals(true, visibleAssistantText.contains("普通回复"))
         }
     }
 

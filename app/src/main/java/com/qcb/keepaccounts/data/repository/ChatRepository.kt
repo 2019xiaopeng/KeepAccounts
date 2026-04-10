@@ -70,6 +70,9 @@ class ChatRepository(
     private val styleFormatter: AgentStyleFormatter = AgentStyleFormatter(),
     private val agentPlanner: AgentPlanner = NoOpAgentPlanner,
     private val plannerShadowEnabled: Boolean = true,
+    private val plannerPrimaryEnabled: Boolean = false,
+    private val plannerPrimaryRolloutPercent: Int = 0,
+    private val plannerPrimaryMinConfidence: Double = 0.75,
     private val agentDefaultPathEnabled: Boolean = true,
     private val promptFallbackEnabled: Boolean = true,
     private val agentOrchestrator: LedgerAgentOrchestrator = LedgerAgentOrchestrator(
@@ -120,6 +123,15 @@ class ChatRepository(
         val applyResult: ApplyTransactionsResult,
         val errorCode: AgentErrorCode? = null,
         val errorMessage: String? = null,
+    )
+
+    private data class PlannerPrimaryExecutionResult(
+        val expectedAction: String,
+        val actualAction: String,
+        val status: AgentToolStatus,
+        val errorCode: AgentErrorCode? = null,
+        val errorMessage: String? = null,
+        val metadataJson: String? = null,
     )
 
     private data class ApplyTransactionsResult(
@@ -212,7 +224,8 @@ class ChatRepository(
             )
         }
 
-        val plannerShadowPlan = if (agentDefaultPathEnabled && plannerShadowEnabled) {
+        val shouldTryPlannerPrimary = agentDefaultPathEnabled && shouldUsePlannerPrimary(requestId)
+        val plannerPlan = if (agentDefaultPathEnabled && (plannerShadowEnabled || shouldTryPlannerPrimary)) {
             runPlannerShadow(
                 requestId = requestId,
                 userInput = userInput,
@@ -222,6 +235,31 @@ class ChatRepository(
         }
 
         if (agentDefaultPathEnabled) {
+            if (shouldTryPlannerPrimary) {
+                val plannerPrimaryExecution = tryHandlePlannerPrimaryIntent(
+                    requestId = requestId,
+                    userInput = userInput,
+                    plannerPlan = plannerPlan,
+                )
+                if (plannerPrimaryExecution != null) {
+                    recordQualityFeedback(
+                        requestId = requestId,
+                        routePath = AgentRoutePath.PLANNER_PRIMARY,
+                        stage = AgentQualityStage.TOOL_EXECUTION,
+                        userInput = userInput,
+                        expectedAction = plannerPrimaryExecution.expectedAction,
+                        actualAction = plannerPrimaryExecution.actualAction,
+                        runStatus = if (plannerPrimaryExecution.status == AgentToolStatus.SUCCESS) "SUCCESS" else "FAILED",
+                        fallbackUsed = false,
+                        isMisjudged = isCorrectionInput || plannerPrimaryExecution.status != AgentToolStatus.SUCCESS,
+                        errorCode = plannerPrimaryExecution.errorCode?.name,
+                        errorMessage = plannerPrimaryExecution.errorMessage,
+                        metadataJson = plannerPrimaryExecution.metadataJson,
+                    )
+                    return
+                }
+            }
+
             val queryPlan = buildQueryIntentPlan(userInput)
             if (queryPlan != null) {
                 val execution = handleQueryIntent(
@@ -247,7 +285,7 @@ class ChatRepository(
                     requestId = requestId,
                     userInput = userInput,
                     routePath = AgentRoutePath.AGENT_PRIMARY,
-                    plannerPlan = plannerShadowPlan,
+                    plannerPlan = plannerPlan,
                     legacyAction = queryPlan.toolName.name,
                     legacyRunStatus = if (execution.status == AgentToolStatus.SUCCESS) "SUCCESS" else "FAILED",
                     fallbackUsed = false,
@@ -281,7 +319,7 @@ class ChatRepository(
                     requestId = requestId,
                     userInput = userInput,
                     routePath = AgentRoutePath.AGENT_PRIMARY,
-                    plannerPlan = plannerShadowPlan,
+                    plannerPlan = plannerPlan,
                     legacyAction = writeDrafts.firstOrNull()?.action,
                     legacyRunStatus = if (execution.status == AgentToolStatus.SUCCESS) "SUCCESS" else "FAILED",
                     fallbackUsed = false,
@@ -323,7 +361,7 @@ class ChatRepository(
                     requestId = requestId,
                     userInput = userInput,
                     routePath = AgentRoutePath.FALLBACK_BLOCKED,
-                    plannerPlan = plannerShadowPlan,
+                    plannerPlan = plannerPlan,
                     legacyAction = "PROMPT_FALLBACK_BLOCKED",
                     legacyRunStatus = "FAILED",
                     fallbackUsed = true,
@@ -350,7 +388,7 @@ class ChatRepository(
                 requestId = requestId,
                 userInput = userInput,
                 routePath = AgentRoutePath.PROMPT_FALLBACK,
-                plannerPlan = plannerShadowPlan,
+                plannerPlan = plannerPlan,
                 legacyAction = "PROMPT_FALLBACK",
                 legacyRunStatus = "FALLBACK",
                 fallbackUsed = true,
@@ -1357,6 +1395,120 @@ class ChatRepository(
                 ),
             )
         }.getOrNull()
+    }
+
+    private fun shouldUsePlannerPrimary(requestId: String): Boolean {
+        if (!plannerPrimaryEnabled) return false
+
+        val rollout = plannerPrimaryRolloutPercent.coerceIn(0, 100)
+        if (rollout <= 0) return false
+        if (rollout >= 100) return true
+
+        val bucket = ((requestId.hashCode().toLong() and 0x7FFFFFFF) % 100L).toInt()
+        return bucket < rollout
+    }
+
+    private suspend fun tryHandlePlannerPrimaryIntent(
+        requestId: String,
+        userInput: String,
+        plannerPlan: IntentPlanV2?,
+    ): PlannerPrimaryExecutionResult? {
+        if (plannerPlan == null) return null
+        if (plannerPlan.confidence < plannerPrimaryMinConfidence) return null
+
+        return when (plannerPlan.intent) {
+            PlannerIntentType.QUERY_TRANSACTIONS -> {
+                val execution = handleQueryIntent(
+                    requestId = requestId,
+                    userInput = userInput,
+                    plan = QueryIntentPlan(
+                        toolName = AgentToolName.QUERY_TRANSACTIONS,
+                        queryArgs = plannerPlan.queryArgs ?: buildQueryArgsFromText(userInput),
+                    ),
+                )
+                PlannerPrimaryExecutionResult(
+                    expectedAction = PlannerIntentType.QUERY_TRANSACTIONS.name,
+                    actualAction = execution.toolName.name,
+                    status = execution.status,
+                    errorCode = execution.errorCode,
+                    errorMessage = execution.errorMessage,
+                    metadataJson = execution.resultJson,
+                )
+            }
+
+            PlannerIntentType.QUERY_SPENDING_STATS -> {
+                val execution = handleQueryIntent(
+                    requestId = requestId,
+                    userInput = userInput,
+                    plan = QueryIntentPlan(
+                        toolName = AgentToolName.QUERY_SPENDING_STATS,
+                        statsArgs = plannerPlan.statsArgs ?: buildStatsArgsFromText(userInput),
+                    ),
+                )
+                PlannerPrimaryExecutionResult(
+                    expectedAction = PlannerIntentType.QUERY_SPENDING_STATS.name,
+                    actualAction = execution.toolName.name,
+                    status = execution.status,
+                    errorCode = execution.errorCode,
+                    errorMessage = execution.errorMessage,
+                    metadataJson = execution.resultJson,
+                )
+            }
+
+            PlannerIntentType.CREATE_TRANSACTIONS -> {
+                val drafts = buildCreateDraftsFromPlannerPlan(
+                    plannerPlan = plannerPlan,
+                    userInput = userInput,
+                )
+                if (drafts.size != 1) {
+                    return null
+                }
+
+                val execution = handleWriteIntent(
+                    requestId = requestId,
+                    userInput = userInput,
+                    drafts = drafts,
+                )
+                PlannerPrimaryExecutionResult(
+                    expectedAction = PlannerIntentType.CREATE_TRANSACTIONS.name,
+                    actualAction = PlannerIntentType.CREATE_TRANSACTIONS.name,
+                    status = execution.status,
+                    errorCode = execution.errorCode,
+                    errorMessage = execution.errorMessage,
+                    metadataJson = buildReceiptMetaTag(execution.applyResult),
+                )
+            }
+
+            else -> null
+        }
+    }
+
+    private fun buildCreateDraftsFromPlannerPlan(
+        plannerPlan: IntentPlanV2,
+        userInput: String,
+    ): List<AiReceiptDraft> {
+        return plannerPlan.createItems.mapNotNull { item ->
+            if (!item.action.equals(ACTION_CREATE, ignoreCase = true)) {
+                return@mapNotNull null
+            }
+
+            val amount = item.amount ?: return@mapNotNull null
+            val normalizedDesc = item.desc?.trim().orEmpty().ifBlank { normalizeWriteDesc(userInput) }
+            val category = item.category?.trim().takeUnless { it.isNullOrBlank() }
+                ?: inferCategoryFromText(normalizedDesc, type = 0)
+                ?: inferCategoryFromText(userInput, type = 0)
+
+            AiReceiptDraft(
+                isReceipt = true,
+                action = ACTION_CREATE,
+                amount = amount,
+                category = category,
+                desc = normalizedDesc,
+                recordTime = item.recordTime,
+                date = item.date,
+                transactionId = item.transactionId,
+            )
+        }
     }
 
     private suspend fun recordPlannerShadowFeedback(

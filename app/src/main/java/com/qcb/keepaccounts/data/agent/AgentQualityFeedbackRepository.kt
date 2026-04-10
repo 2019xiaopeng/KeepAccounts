@@ -6,6 +6,7 @@ import org.json.JSONObject
 
 enum class AgentRoutePath {
     AGENT_PRIMARY,
+    PLANNER_PRIMARY,
     PROMPT_FALLBACK,
     FALLBACK_BLOCKED,
 }

@@ -131,6 +131,9 @@ class DefaultAppContainer(context: Context) : AppContainer {
             qualityFeedbackRepository = agentQualityFeedbackRepository,
             agentPlanner = agentPlanner,
             plannerShadowEnabled = true,
+            plannerPrimaryEnabled = true,
+            plannerPrimaryRolloutPercent = 10,
+            plannerPrimaryMinConfidence = 0.75,
         )
     }
 

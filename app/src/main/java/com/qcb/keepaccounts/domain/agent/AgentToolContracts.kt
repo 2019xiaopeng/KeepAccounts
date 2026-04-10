@@ -45,6 +45,7 @@ data class IntentPlanV2(
     val missingSlots: List<String> = emptyList(),
     val queryArgs: AgentToolArgs.QueryTransactionsArgs? = null,
     val statsArgs: AgentToolArgs.QuerySpendingStatsArgs? = null,
+    val createItems: List<PreviewActionItem> = emptyList(),
 )
 
 data class ToolCallEnvelope(
