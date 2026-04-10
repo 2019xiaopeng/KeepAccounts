@@ -1,7 +1,7 @@
 # P3-S5 Agent Workflow 升级方案（LLM 规划优先 + 本地执行闭环）
 
 - 日期：2026-04-10
-- 状态：In Progress（PhaseA/PhaseB 已完成，PhaseC 进行中）
+- 状态：In Progress（PhaseA/PhaseB/PhaseC 已完成，PhaseD 待开始）
 - 适用范围：Phase3 后续迭代（承接 P3-S4）
 - 关联 ADR：ADR-033、ADR-041、ADR-042、ADR-043、ADR-044、ADR-045、ADR-046（拟）
 
@@ -210,3 +210,6 @@
 - 接入 PendingIntentState（TTL）支持多轮补全。
 - 接入放量双阈值门禁（misjudgeRate + mismatchSamples）。
 - 编译与全量单测通过。
+4. PhaseC（规范收口）：已完成两处一致性修复。
+- 删除确认规则收口为“仅显式 transactionId 且单条命中可单阶段删除，其余均需确认”。
+- update 执行与校验口径对齐，支持非金额字段修改（金额可不变）。

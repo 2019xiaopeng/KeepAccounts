@@ -33,6 +33,7 @@
 - [x] delete 统一走 preview 校验。
 - [x] 未确认时返回确认提示，不执行删除。
 - [x] 明确确认后再执行 commit。
+- [x] 规则收口：仅显式 `transactionId` 且单条命中允许单阶段删除，其余场景强制二次确认。
 
 ## C3. PendingIntentState（TTL）多轮补全
 
@@ -56,6 +57,8 @@
   - pending 多轮补全闭环；
   - misjudgeRate 门禁拦截；
   - mismatchSamples 门禁拦截。
+- [x] 新增回归：显式 `transactionId` 单条删除可直接执行，无需确认。
+- [x] 新增回归：planner primary update 在无金额 patch 时可更新非金额字段。
 - [x] `:app:compileDebugKotlin` 通过。
 - [x] 定向 `:app:testDebugUnitTest --tests ...` 通过。
 - [x] 全量 `:app:testDebugUnitTest` 通过。

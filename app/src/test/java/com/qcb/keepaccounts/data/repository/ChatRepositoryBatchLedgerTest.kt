@@ -686,6 +686,117 @@ class ChatRepositoryBatchLedgerTest {
     }
 
     @Test
+    fun sendMessage_plannerPrimaryUpdateWithoutAmount_updatesCategoryAndKeepsAmount() {
+        runBlocking {
+            val now = System.currentTimeMillis()
+            val gateway = CountingAiChatGateway(reply = "不应走到这里")
+            val transactionDao = FakeTransactionDao(
+                initialTransactions = listOf(
+                    TransactionEntity(
+                        id = 301L,
+                        type = 0,
+                        amount = 42.0,
+                        categoryName = "餐饮美食",
+                        categoryIcon = "",
+                        remark = "午饭",
+                        recordTimestamp = now - 1_000,
+                        createdTimestamp = now - 1_000,
+                    ),
+                ),
+            )
+            val planner = object : AgentPlanner {
+                override suspend fun plan(input: PlannerInputV2): IntentPlanV2 {
+                    return IntentPlanV2(
+                        intent = PlannerIntentType.UPDATE_TRANSACTIONS,
+                        confidence = 0.94,
+                        writeItems = listOf(
+                            PreviewActionItem(
+                                action = "update",
+                                amount = null,
+                                category = "交通出行",
+                                recordTime = null,
+                                desc = null,
+                                transactionId = 301L,
+                            ),
+                        ),
+                    )
+                }
+            }
+
+            val repository = ChatRepository(
+                chatMessageDao = FakeChatMessageDao(),
+                transactionDao = transactionDao,
+                aiChatGateway = gateway,
+                agentPlanner = planner,
+                plannerPrimaryEnabled = true,
+                plannerPrimaryRolloutPercent = 100,
+                plannerPrimaryMinConfidence = 0.75,
+            )
+
+            repository.sendMessage(
+                userInput = "把这笔改成交通出行",
+                aiConfig = AiAssistantConfig(),
+                userName = "测试用户",
+            )
+
+            val updated = transactionDao.getTransactionById(301L)
+            assertEquals(0, gateway.requestCount)
+            assertEquals("交通出行", updated?.categoryName)
+            assertEquals(42.0, updated?.amount ?: 0.0, 0.001)
+        }
+    }
+
+    @Test
+    fun sendMessage_deleteByExplicitTransactionId_skipsSecondConfirmation() {
+        runBlocking {
+            val now = System.currentTimeMillis()
+            val transactionDao = FakeTransactionDao(
+                initialTransactions = listOf(
+                    TransactionEntity(
+                        id = 401L,
+                        type = 0,
+                        amount = 30.0,
+                        categoryName = "餐饮美食",
+                        categoryIcon = "",
+                        remark = "午饭",
+                        recordTimestamp = now - 1_000,
+                        createdTimestamp = now - 1_000,
+                    ),
+                    TransactionEntity(
+                        id = 402L,
+                        type = 0,
+                        amount = 12.0,
+                        categoryName = "饮品",
+                        categoryIcon = "",
+                        remark = "奶茶",
+                        recordTimestamp = now - 2_000,
+                        createdTimestamp = now - 2_000,
+                    ),
+                ),
+            )
+            val repository = ChatRepository(
+                chatMessageDao = FakeChatMessageDao(),
+                transactionDao = transactionDao,
+                aiChatGateway = CountingAiChatGateway(),
+            )
+
+            repository.sendMessage(
+                userInput = "删除id 401",
+                aiConfig = AiAssistantConfig(),
+                userName = "测试用户",
+            )
+
+            assertEquals(1, transactionDao.countTransactions())
+            assertEquals(null, transactionDao.getTransactionById(401L))
+            assertEquals(true, transactionDao.getTransactionById(402L) != null)
+
+            val receipt = repository.observeChatRecords().first().last { it.role == "assistant" && it.isReceipt }
+            assertEquals(1, receipt.receiptSummary?.successCount)
+            assertEquals(0, receipt.receiptSummary?.failureCount)
+        }
+    }
+
+    @Test
     fun sendMessage_plannerPrimaryMissingSlot_usesPendingAndCompletesNextTurn() {
         runBlocking {
             val gateway = CountingAiChatGateway(reply = "不应走到这里")

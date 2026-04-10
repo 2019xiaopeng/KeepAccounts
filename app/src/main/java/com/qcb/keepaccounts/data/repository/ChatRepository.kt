@@ -707,15 +707,22 @@ class ChatRepository(
                 }
 
                 override suspend fun update(draft: AiReceiptDraft): LedgerAgentOrchestrator.WriteToolResult {
-                    val amount = draft.amount ?: return LedgerAgentOrchestrator.WriteToolResult.Failure(
-                        reason = "我知道你想改账单啦，告诉我改成多少金额就好。",
-                    )
+                    val hasPatch = draft.amount != null ||
+                        !draft.category.isNullOrBlank() ||
+                        !draft.recordTime.isNullOrBlank() ||
+                        !draft.date.isNullOrBlank() ||
+                        !draft.desc.isNullOrBlank()
+                    if (!hasPatch) {
+                        return LedgerAgentOrchestrator.WriteToolResult.Failure(
+                            reason = "我知道你想改账单啦，再告诉我想改哪一项（金额、分类、时间或备注）就好。",
+                        )
+                    }
 
                     val updated = tryUpdateTransaction(
                         draft = draft,
                         assistantText = assistantText,
                         userInput = userInput,
-                        rawAmount = amount,
+                        rawAmount = draft.amount,
                     ) ?: return LedgerAgentOrchestrator.WriteToolResult.Failure(
                         reason = "我暂时没定位到要修改的那笔记录，你可以补一句“哪一天/哪一笔”。",
                     )
@@ -2445,9 +2452,11 @@ class ChatRepository(
         userInput: String,
     ): DeletePlan {
         val targets = resolveDeleteTargets(draft, userInput)
-        val totalAmount = targets.sumOf { it.amount }
-        val highRisk = targets.size >= highRiskDeleteCountThreshold || totalAmount >= highRiskDeleteAmountThreshold
-        val requiresConfirmation = targets.size > 1 || highRisk
+        val explicitTransactionId = draft.transactionId?.takeIf { it > 0L }
+        val hasExplicitSingleIdTarget = explicitTransactionId != null &&
+            targets.size == 1 &&
+            targets.first().id == explicitTransactionId
+        val requiresConfirmation = !hasExplicitSingleIdTarget
         val isConfirmed = isDeleteConfirmationInput(userInput)
         val previewMessage = buildDeletePreviewMessage(
             targets = targets,
@@ -2677,20 +2686,25 @@ class ChatRepository(
         draft: AiReceiptDraft,
         assistantText: String,
         userInput: String,
-        rawAmount: Double,
+        rawAmount: Double?,
     ): AppliedTransaction? {
         val target = resolveUpdateTargetTransaction(draft, userInput) ?: return null
 
-        val amount = abs(rawAmount)
+        val amount = rawAmount?.let(::abs) ?: target.amount
         if (amount <= 0.0) return null
 
-        val parsedType = resolveTransactionType(draft, rawAmount)
-        val hasTypeCue = hasTypeCue(userInput, draft, rawAmount)
-        val type = if (hasTypeCue) parsedType else target.type
+        val parsedType = rawAmount?.let { resolveTransactionType(draft, it) }
+        val hasTypeCue = rawAmount?.let { hasTypeCue(userInput, draft, it) } == true
+        val explicitTypeHint = inferTypeHint(userInput, draft)
+        val type = when {
+            hasTypeCue && parsedType != null -> parsedType
+            explicitTypeHint != null -> explicitTypeHint
+            else -> target.type
+        }
 
         val category = when {
             !draft.category.isNullOrBlank() -> normalizeCategory(draft.category, type)
-            else -> inferCategoryFromText(userInput, type) ?: target.categoryName
+            else -> target.categoryName
         }
 
         val updatedRecordTimestamp = resolveRecordTimestampForUpdate(
