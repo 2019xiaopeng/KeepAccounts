@@ -93,6 +93,72 @@ class AgentQualityFeedbackRepositoryTest {
             assertEquals(0.0, metrics.userCorrectionRate, 0.0001)
         }
     }
+
+    @Test
+    fun buildObservationReport_groupsByRouteStageIntent() {
+        runBlocking {
+            val dao = InMemoryAgentQualityFeedbackDao()
+            val repository = AgentQualityFeedbackRepository(dao)
+            val base = 1_700_000_000_000L
+
+            repository.record(
+                AgentQualityFeedbackInput(
+                    requestId = "req-11",
+                    routePath = AgentRoutePath.PLANNER_PRIMARY,
+                    stage = AgentQualityStage.TOOL_EXECUTION,
+                    userInput = "query",
+                    expectedAction = "QUERY_TRANSACTIONS",
+                    actualAction = "QUERY_TRANSACTIONS",
+                    runStatus = "SUCCESS",
+                    fallbackUsed = false,
+                    isMisjudged = false,
+                    createdAt = base,
+                ),
+            )
+            repository.record(
+                AgentQualityFeedbackInput(
+                    requestId = "req-12",
+                    routePath = AgentRoutePath.PLANNER_PRIMARY,
+                    stage = AgentQualityStage.TOOL_EXECUTION,
+                    userInput = "query fail",
+                    expectedAction = "QUERY_TRANSACTIONS",
+                    actualAction = "QUERY_SPENDING_STATS",
+                    runStatus = "FAILED",
+                    fallbackUsed = true,
+                    isMisjudged = true,
+                    createdAt = base + 1,
+                ),
+            )
+            repository.record(
+                AgentQualityFeedbackInput(
+                    requestId = "req-13",
+                    routePath = AgentRoutePath.AGENT_PRIMARY,
+                    stage = AgentQualityStage.TOOL_EXECUTION,
+                    userInput = "write",
+                    expectedAction = "CREATE_TRANSACTIONS",
+                    actualAction = "CREATE_TRANSACTIONS",
+                    runStatus = "SUCCESS",
+                    fallbackUsed = false,
+                    isMisjudged = false,
+                    createdAt = base + 2,
+                ),
+            )
+
+            val report = repository.buildObservationReport(base - 1)
+            val plannerBucket = report.buckets.firstOrNull {
+                it.routePath == AgentRoutePath.PLANNER_PRIMARY.name &&
+                    it.stage == AgentQualityStage.TOOL_EXECUTION.name &&
+                    it.intent == "QUERY_TRANSACTIONS"
+            }
+
+            assertEquals(3, report.buckets.sumOf { it.totalSamples })
+            assertEquals(2, plannerBucket?.totalSamples)
+            assertEquals(1, plannerBucket?.successSamples)
+            assertEquals(1, plannerBucket?.fallbackSamples)
+            assertEquals(1, plannerBucket?.misjudgedSamples)
+            assertEquals(1, plannerBucket?.mismatchSamples)
+        }
+    }
 }
 
 private class InMemoryAgentQualityFeedbackDao : AgentQualityFeedbackDao {

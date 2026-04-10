@@ -12,10 +12,10 @@ import com.qcb.keepaccounts.data.local.preferences.UserSettingsRepository
 import com.qcb.keepaccounts.data.remote.github.GitHubReleaseApi
 import com.qcb.keepaccounts.data.repository.AppUpdateRepository
 import com.qcb.keepaccounts.data.repository.ChatRepository
+import com.qcb.keepaccounts.data.repository.SiliconFlowPlannerGateway
 import com.qcb.keepaccounts.data.remote.siliconflow.SiliconFlowApi
 import com.qcb.keepaccounts.data.repository.SiliconFlowAiGateway
 import com.qcb.keepaccounts.data.repository.TransactionRepository
-import com.qcb.keepaccounts.domain.agent.NoOpAgentPlanner
 import com.qcb.keepaccounts.domain.contract.AiChatGateway
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
@@ -77,7 +77,9 @@ class DefaultAppContainer(context: Context) : AppContainer {
     }
 
     private val agentPlanner by lazy {
-        NoOpAgentPlanner
+        SiliconFlowPlannerGateway(
+            api = siliconFlowApi,
+        )
     }
 
     private val aiHttpClient: OkHttpClient by lazy {

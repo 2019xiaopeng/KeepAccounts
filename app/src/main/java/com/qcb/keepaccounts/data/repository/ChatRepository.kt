@@ -3,6 +3,7 @@ package com.qcb.keepaccounts.data.repository
 import com.qcb.keepaccounts.data.agent.AgentQualityFeedbackInput
 import com.qcb.keepaccounts.data.agent.AgentQualityFeedbackRepository
 import com.qcb.keepaccounts.data.agent.AgentQualityMetrics
+import com.qcb.keepaccounts.data.agent.AgentObservationReport
 import com.qcb.keepaccounts.data.agent.AgentQualityStage
 import com.qcb.keepaccounts.data.agent.AgentRoutePath
 import com.qcb.keepaccounts.data.agent.AgentReplayService
@@ -14,6 +15,7 @@ import com.qcb.keepaccounts.domain.agent.AgentReplayTrace
 import com.qcb.keepaccounts.domain.agent.AgentRequestContext
 import com.qcb.keepaccounts.domain.agent.AgentRunLogger
 import com.qcb.keepaccounts.domain.agent.AgentRunStatus
+import com.qcb.keepaccounts.domain.agent.AgentValidationIssue
 import com.qcb.keepaccounts.domain.agent.AgentToolArgs
 import com.qcb.keepaccounts.domain.agent.AgentToolCallRecord
 import com.qcb.keepaccounts.domain.agent.AgentToolName
@@ -29,6 +31,7 @@ import com.qcb.keepaccounts.domain.agent.NoOpAgentPlanner
 import com.qcb.keepaccounts.domain.agent.NoOpAgentRunLogger
 import com.qcb.keepaccounts.domain.agent.PlannerInputV2
 import com.qcb.keepaccounts.domain.agent.PlannerIntentType
+import com.qcb.keepaccounts.domain.agent.PlannerOutputValidator
 import com.qcb.keepaccounts.domain.agent.PreviewActionItem
 import com.qcb.keepaccounts.domain.agent.QueryInsightsToolExecutor
 import com.qcb.keepaccounts.domain.agent.QuerySpendingStatsResult
@@ -73,6 +76,7 @@ class ChatRepository(
     private val plannerPrimaryEnabled: Boolean = false,
     private val plannerPrimaryRolloutPercent: Int = 0,
     private val plannerPrimaryMinConfidence: Double = 0.75,
+    private val plannerOutputValidator: PlannerOutputValidator = PlannerOutputValidator(),
     private val agentDefaultPathEnabled: Boolean = true,
     private val promptFallbackEnabled: Boolean = true,
     private val agentOrchestrator: LedgerAgentOrchestrator = LedgerAgentOrchestrator(
@@ -1416,6 +1420,25 @@ class ChatRepository(
         if (plannerPlan == null) return null
         if (plannerPlan.confidence < plannerPrimaryMinConfidence) return null
 
+        val validationIssues = plannerOutputValidator.validate(plannerPlan)
+        if (validationIssues.isNotEmpty()) {
+            recordQualityFeedback(
+                requestId = requestId,
+                routePath = AgentRoutePath.PLANNER_PRIMARY,
+                stage = AgentQualityStage.INTENT_ROUTING,
+                userInput = userInput,
+                expectedAction = plannerPlan.intent.name,
+                actualAction = null,
+                runStatus = "VALIDATION_REJECTED",
+                fallbackUsed = true,
+                isMisjudged = true,
+                errorCode = validationIssues.firstOrNull()?.code?.name,
+                errorMessage = validationIssues.firstOrNull()?.message,
+                metadataJson = buildPlannerValidationIssuesJson(validationIssues),
+            )
+            return null
+        }
+
         return when (plannerPlan.intent) {
             PlannerIntentType.QUERY_TRANSACTIONS -> {
                 val execution = handleQueryIntent(
@@ -1481,6 +1504,25 @@ class ChatRepository(
 
             else -> null
         }
+    }
+
+    private fun buildPlannerValidationIssuesJson(issues: List<AgentValidationIssue>): String {
+        return JSONObject().apply {
+            put(
+                "issues",
+                JSONArray().apply {
+                    issues.forEach { issue ->
+                        put(
+                            JSONObject().apply {
+                                put("field", issue.field)
+                                put("code", issue.code.name)
+                                put("message", issue.message)
+                            },
+                        )
+                    }
+                },
+            )
+        }.toString()
     }
 
     private fun buildCreateDraftsFromPlannerPlan(
@@ -1612,6 +1654,11 @@ class ChatRepository(
     suspend fun getAgentQualityMetrics(windowDays: Int = 30): AgentQualityMetrics? {
         val sinceMillis = System.currentTimeMillis() - windowDays.coerceAtLeast(1) * oneDayMillis
         return qualityFeedbackRepository?.computeMetrics(sinceMillis)
+    }
+
+    suspend fun getPlannerObservationReport(windowDays: Int = 7): AgentObservationReport? {
+        val sinceMillis = System.currentTimeMillis() - windowDays.coerceAtLeast(1) * oneDayMillis
+        return qualityFeedbackRepository?.buildObservationReport(sinceMillis)
     }
 
     private fun isUserCorrectionInput(text: String): Boolean {

@@ -1,6 +1,7 @@
 package com.qcb.keepaccounts.data.repository
 
 import com.qcb.keepaccounts.data.remote.siliconflow.SiliconFlowApi
+import com.qcb.keepaccounts.data.remote.siliconflow.model.SiliconFlowChatResponseDto
 import com.qcb.keepaccounts.domain.contract.AiChatRequest
 import com.qcb.keepaccounts.domain.contract.AiStreamEvent
 import kotlinx.coroutines.flow.toList
@@ -113,6 +114,10 @@ class SiliconFlowAiGatewayTest {
 private class FakeSiliconFlowApi(
     private val sseBody: String,
 ) : SiliconFlowApi {
+    override suspend fun chatCompletions(request: com.qcb.keepaccounts.data.remote.siliconflow.model.SiliconFlowChatRequestDto): SiliconFlowChatResponseDto {
+        return SiliconFlowChatResponseDto()
+    }
+
     override suspend fun streamChatCompletions(request: com.qcb.keepaccounts.data.remote.siliconflow.model.SiliconFlowChatRequestDto): ResponseBody {
         return sseBody.toResponseBody("text/event-stream".toMediaType())
     }

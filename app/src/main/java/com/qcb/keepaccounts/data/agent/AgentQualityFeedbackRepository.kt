@@ -42,6 +42,25 @@ data class AgentQualityMetrics(
     val userCorrectionRate: Double,
 )
 
+data class AgentObservationBucket(
+    val routePath: String,
+    val stage: String,
+    val intent: String,
+    val totalSamples: Int,
+    val successSamples: Int,
+    val fallbackSamples: Int,
+    val misjudgedSamples: Int,
+    val mismatchSamples: Int,
+    val accuracyRate: Double,
+    val misjudgeRate: Double,
+)
+
+data class AgentObservationReport(
+    val sinceMillis: Long,
+    val generatedAt: Long,
+    val buckets: List<AgentObservationBucket>,
+)
+
 class AgentQualityFeedbackRepository(
     private val dao: AgentQualityFeedbackDao,
 ) {
@@ -108,6 +127,60 @@ class AgentQualityFeedbackRepository(
             fallbackRate = fallbackCount / total,
             misjudgeRate = misjudgedCount / total,
             userCorrectionRate = correctionCount / total,
+        )
+    }
+
+    suspend fun buildObservationReport(sinceMillis: Long): AgentObservationReport {
+        val entries = dao.listSince(sinceMillis)
+        if (entries.isEmpty()) {
+            return AgentObservationReport(
+                sinceMillis = sinceMillis,
+                generatedAt = System.currentTimeMillis(),
+                buckets = emptyList(),
+            )
+        }
+
+        val buckets = entries
+            .groupBy { entry ->
+                Triple(
+                    entry.routePath,
+                    entry.stage,
+                    entry.expectedAction ?: entry.actualAction ?: "UNKNOWN",
+                )
+            }
+            .map { (key, group) ->
+                val total = group.size
+                val successCount = group.count { it.runStatus == "SUCCESS" }
+                val fallbackCount = group.count { it.fallbackUsed }
+                val misjudgedCount = group.count { it.isMisjudged }
+                val mismatchCount = group.count { !it.expectedAction.isNullOrBlank() && !it.actualAction.isNullOrBlank() && it.expectedAction != it.actualAction }
+                val accurateCount = group.count { !it.fallbackUsed && !it.isMisjudged && it.runStatus == "SUCCESS" }
+                val totalDouble = total.toDouble()
+
+                AgentObservationBucket(
+                    routePath = key.first,
+                    stage = key.second,
+                    intent = key.third,
+                    totalSamples = total,
+                    successSamples = successCount,
+                    fallbackSamples = fallbackCount,
+                    misjudgedSamples = misjudgedCount,
+                    mismatchSamples = mismatchCount,
+                    accuracyRate = accurateCount / totalDouble,
+                    misjudgeRate = misjudgedCount / totalDouble,
+                )
+            }
+            .sortedWith(
+                compareByDescending<AgentObservationBucket> { it.totalSamples }
+                    .thenBy { it.routePath }
+                    .thenBy { it.stage }
+                    .thenBy { it.intent },
+            )
+
+        return AgentObservationReport(
+            sinceMillis = sinceMillis,
+            generatedAt = System.currentTimeMillis(),
+            buckets = buckets,
         )
     }
 }
