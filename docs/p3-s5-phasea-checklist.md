@@ -62,3 +62,7 @@
 1. 引入真实 `PlannerGateway`（Function Calling），替换 NoOp。
 2. 增加 shadow 对比离线报表（intent 一致率、缺槽率、误判率）。
 3. 以灰度开关切 query/stats 主路径，并保留一键回滚。
+
+## 衔接记录
+
+- PhaseB 执行清单：`docs/p3-s5-phaseb-checklist.md`
