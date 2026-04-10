@@ -1982,9 +1982,7 @@ class ChatRepository(
         val recent = transactionDao.getRecentTransactions(limit = 120)
         if (recent.isEmpty()) return null
 
-        if (recentTargetHints.any { hint -> userInput.contains(hint) }) {
-            return recent.firstOrNull()
-        }
+        val isRecentHint = recentTargetHints.any { hint -> userInput.contains(hint) }
 
         val now = Calendar.getInstance()
         val parsedDate = parseDateFromText(userInput, now)
@@ -2011,7 +2009,16 @@ class ChatRepository(
         ) ?: return null
 
         val hasAnyCue = parsedDate != null || parsedTime != null || categoryHint != null || typeHint != null
-        return if (!hasAnyCue || best.second > 0) best.first else null
+
+        if (best.second > 0) {
+            return best.first
+        }
+
+        if (isRecentHint || !hasAnyCue) {
+            return recent.firstOrNull()
+        }
+
+        return null
     }
 
     private fun scoreUpdateTarget(
@@ -3362,7 +3369,7 @@ class ChatRepository(
         )
         val monthWindowHints = listOf("最近一个月", "过去一个月", "本月", "这个月", "上个月", "月度", "30天", "近30天", "最近30天")
         val yearWindowHints = listOf("最近一年", "过去一年", "年度", "12个月")
-        val recentTargetHints = listOf("最近一笔", "最新一笔", "上一笔", "刚刚那笔", "刚才那笔")
+        val recentTargetHints = listOf("最近一笔", "最新一笔", "上一笔", "刚刚那笔", "刚才那笔", "刚刚", "刚才")
         val merchantHints = listOf("同一家", "商家", "店", "门店")
         val timeSlotHints = listOf("时段", "几点", "什么时候", "早上", "晚上", "中午")
         val trendHints = listOf("趋势", "变化", "走势")
