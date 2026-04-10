@@ -48,6 +48,24 @@
 - [x] `ChatRepositoryBatchLedgerTest` 通过。
 - [x] 全量 `:app:testDebugUnitTest` 通过。
 
+## B6. 真实 PlannerGateway（Function Calling）
+
+- [x] SiliconFlow API 增加非流式 `chatCompletions` 端点。
+- [x] 增加 function-calling 请求/响应 DTO（tools/tool_choice/tool_calls）。
+- [x] 新增 `SiliconFlowPlannerGateway` 并接入 `AppContainer`，替换 `NoOpAgentPlanner`。
+
+## B7. Planner 输出合法化校验
+
+- [x] 新增 `PlannerOutputValidator`。
+- [x] 覆盖非法 window、topN 越界、缺参数（queryArgs/statsArgs/createItems）校验。
+- [x] 主路径命中前先校验，失败写入 `VALIDATION_REJECTED` 并自动回落旧路径。
+
+## B8. 灰度观测聚合报表
+
+- [x] `AgentQualityFeedbackRepository` 新增 routePath/stage/intent 聚合报表。
+- [x] `ChatRepository` 暴露 `getPlannerObservationReport(windowDays)`。
+- [x] 新增聚合报表单测，验证 mismatch/misjudge/fallback 统计。
+
 ## 实时变更日志
 
 | 时间 | 变更 | 影响文件 | Commit |
@@ -55,6 +73,10 @@
 | 2026-04-10 | PhaseB 主路径灰度与执行逻辑 | `ChatRepository.kt` / `AgentToolContracts.kt` / `AgentQualityFeedbackRepository.kt` / `AppContainer.kt` | `31c87c9` |
 | 2026-04-10 | PhaseB 主路径回归测试 | `ChatRepositoryBatchLedgerTest.kt` | `31c87c9` |
 | 2026-04-10 | PhaseB 清单文档 | `p3-s5-phaseb-checklist.md` | 本提交 |
+| 2026-04-10 | 接入真实 PlannerGateway（Function Calling） | `SiliconFlowPlannerGateway.kt` / `SiliconFlowApi.kt` / `SiliconFlowDtos.kt` / `AppContainer.kt` | `fdba746` |
+| 2026-04-10 | planner 输出合法化校验与回落 | `PlannerOutputValidator.kt` / `ChatRepository.kt` / `PlannerOutputValidatorTest.kt` | `fdba746` |
+| 2026-04-10 | 灰度观测聚合报表与测试 | `AgentQualityFeedbackRepository.kt` / `AgentQualityFeedbackRepositoryTest.kt` / `ChatRepository.kt` | `fdba746` |
+| 2026-04-10 | PlannerGateway 与回归测试 | `SiliconFlowPlannerGatewayTest.kt` / `SiliconFlowAiGatewayTest.kt` / `ChatRepositoryBatchLedgerTest.kt` | `fdba746` |
 
 ## 下一步（PhaseB+）
 
