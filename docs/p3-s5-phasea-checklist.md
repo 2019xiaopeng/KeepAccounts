@@ -43,11 +43,11 @@
 
 ## A5. 测试与回归
 
-- [ ] 新增 planner contract/serialization 单测。
+- [x] 新增 planner contract/serialization 单测。
 - [x] 新增 shadow 记录行为单测。
 - [x] `:app:compileDebugKotlin` 通过。
 - [x] `ChatRepositoryBatchLedgerTest` 定向回归通过。
-- [ ] 跑全量 `:app:testDebugUnitTest`。
+- [x] 跑全量 `:app:testDebugUnitTest`。
 
 ## 实时变更日志
 
@@ -55,6 +55,7 @@
 | --- | --- | --- | --- |
 | 2026-04-10 | 创建 PhaseA 清单记录 | `docs/p3-s5-phasea-checklist.md` | `b0d6a55` |
 | 2026-04-10 | 接入 planner shadow 骨架（不改主执行） | `AgentToolContracts.kt` / `ChatRepository.kt` / `AgentQualityFeedbackRepository.kt` / `AppContainer.kt` | `12d616d` |
+| 2026-04-10 | 新增 planner 契约序列化单测并完成全量回归 | `AgentPlannerContractsTest.kt` / `p3-s5-phasea-checklist.md` | 待提交 |
 
 ## 后续（进入 PhaseB 前）
 
