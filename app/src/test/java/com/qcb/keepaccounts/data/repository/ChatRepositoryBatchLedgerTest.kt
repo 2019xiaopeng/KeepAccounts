@@ -653,6 +653,82 @@ class ChatRepositoryBatchLedgerTest {
     }
 
     @Test
+    fun sendMessage_updatePhraseDoesNotTreatAmountAsTransactionId() {
+        runBlocking {
+            val now = System.currentTimeMillis()
+            val gateway = CountingAiChatGateway()
+            val transactionDao = FakeTransactionDao(
+                initialTransactions = listOf(
+                    TransactionEntity(
+                        id = 15L,
+                        type = 0,
+                        amount = 99.0,
+                        categoryName = "购物消费",
+                        categoryIcon = "",
+                        remark = "旧记录",
+                        recordTimestamp = now - 100_000,
+                        createdTimestamp = now - 100_000,
+                    ),
+                    TransactionEntity(
+                        id = 42L,
+                        type = 0,
+                        amount = 50.0,
+                        categoryName = "交通出行",
+                        categoryIcon = "",
+                        remark = "打车",
+                        recordTimestamp = now - 1_000,
+                        createdTimestamp = now - 1_000,
+                    ),
+                ),
+            )
+            val repository = ChatRepository(
+                chatMessageDao = FakeChatMessageDao(),
+                transactionDao = transactionDao,
+                aiChatGateway = gateway,
+            )
+
+            repository.sendMessage(
+                userInput = "帮我把刚刚打车记录改成15",
+                aiConfig = AiAssistantConfig(),
+                userName = "测试用户",
+            )
+
+            val updatedRecent = transactionDao.getTransactionById(42L)
+            val untouchedOld = transactionDao.getTransactionById(15L)
+
+            assertEquals(0, gateway.requestCount)
+            assertEquals(2, transactionDao.countTransactions())
+            assertEquals(15.0, updatedRecent?.amount ?: 0.0, 0.001)
+            assertEquals(99.0, untouchedOld?.amount ?: 0.0, 0.001)
+        }
+    }
+
+    @Test
+    fun sendMessage_localWriteReplyWithParagraphsSplitsIntoMultipleBubbles() {
+        runBlocking {
+            val repository = ChatRepository(
+                chatMessageDao = FakeChatMessageDao(),
+                transactionDao = FakeTransactionDao(),
+                aiChatGateway = CountingAiChatGateway(),
+            )
+
+            repository.sendMessage(
+                userInput = "今天打车花了12",
+                aiConfig = AiAssistantConfig(),
+                userName = "测试用户",
+            )
+
+            val assistantMessages = repository.observeChatRecords()
+                .first()
+                .filter { it.role == "assistant" }
+
+            assertEquals(true, assistantMessages.size >= 2)
+            assertEquals(false, assistantMessages.first().isReceipt)
+            assertEquals(true, assistantMessages.last().isReceipt)
+        }
+    }
+
+    @Test
     fun sendMessage_statsPastWeekTotalSpendReturnsNaturalSummary() {
         runBlocking {
             val now = System.currentTimeMillis()
@@ -701,6 +777,7 @@ class ChatRepositoryBatchLedgerTest {
             assertEquals(0, gateway.requestCount)
             assertEquals(true, visibleAssistantText.contains("过去一周"))
             assertEquals(true, visibleAssistantText.contains("总共花了") || visibleAssistantText.contains("总花费"))
+            assertEquals(true, visibleAssistantText.contains("**交通出行**"))
             assertEquals(false, visibleAssistantText.contains("topAmount="))
             assertEquals(false, visibleAssistantText.contains("结构化结果"))
         }

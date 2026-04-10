@@ -1145,11 +1145,15 @@ class ChatRepository(
     }
 
     private fun parseTransactionIdHint(text: String): Long? {
-        return transactionIdRegex.find(text)
-            ?.groupValues
-            ?.getOrNull(1)
-            ?.toLongOrNull()
-            ?.takeIf { it > 0L }
+        transactionIdHintRegexes.forEach { regex ->
+            val candidate = regex.find(text)
+                ?.groupValues
+                ?.getOrNull(1)
+                ?.toLongOrNull()
+                ?.takeIf { it > 0L }
+            if (candidate != null) return candidate
+        }
+        return null
     }
 
     private fun resolveRelativeDateKeyword(text: String): String? {
@@ -1211,12 +1215,25 @@ class ChatRepository(
             requestId = requestId,
         )
 
-        val receiptContent = "${styleReply}\n${buildReceiptMetaTag(applyResult)}"
+        val receiptMeta = buildReceiptMetaTag(applyResult)
+        val replyChunks = splitAssistantReply(styleReply)
+        val defaultReceiptText = defaultReceiptMessage(applyResult)
+        val receiptText = replyChunks.lastOrNull()?.ifBlank { defaultReceiptText } ?: defaultReceiptText
+        val receiptContent = if (receiptMeta.isBlank()) {
+            receiptText
+        } else {
+            "$receiptText\n$receiptMeta"
+        }
+        val finalChunks = if (replyChunks.isEmpty()) {
+            listOf(receiptContent)
+        } else {
+            replyChunks.dropLast(1) + receiptContent
+        }
         applyHumanizedLocalDelay(userInput)
         val assistantMessageIds = mutableListOf<Long>()
         syncAssistantReplyChunks(
             messageIds = assistantMessageIds,
-            chunks = listOf(receiptContent),
+            chunks = finalChunks,
             baseTimestamp = System.currentTimeMillis() + 1,
             isReceiptLast = true,
             receiptTransactionId = applyResult.primaryAppliedTransaction?.transactionId,
@@ -1528,10 +1545,11 @@ class ChatRepository(
         val top = payload.buckets.first()
         val totalAmount = payload.buckets.sumOf { it.value }
         val windowLabel = resolveFriendlyWindowLabel(args.window)
+        val highlightedTopKey = "**${top.key}**"
 
         if (isTotalSpendQuestion(userInput)) {
             val summary = "${windowLabel}你总共花了 ${formatReceiptAmount(totalAmount)}。"
-            val detail = "其中 ${top.key} 最多，大约 ${formatReceiptAmount(top.value)}。"
+            val detail = "其中 ${highlightedTopKey} 最多，大约 ${formatReceiptAmount(top.value)}。"
             return styleFormatter.formatStats(
                 structuredFacts = summary,
                 explainabilityLine = detail,
@@ -1541,24 +1559,24 @@ class ChatRepository(
 
         val summary = when {
             args.groupBy == "merchant" && args.metric == "frequency" -> {
-                "${windowLabel}出现最频繁的是 ${top.key}，一共 ${top.value.toInt()} 次。"
+                "${windowLabel}出现最频繁的是 ${highlightedTopKey}，一共 ${top.value.toInt()} 次。"
             }
 
             args.groupBy == "timeslot" && args.metric == "frequency" -> {
-                "${windowLabel}消费最集中的时段是 ${top.key}，出现 ${top.value.toInt()} 次。"
+                "${windowLabel}消费最集中的时段是 ${highlightedTopKey}，出现 ${top.value.toInt()} 次。"
             }
 
             args.metric == "category_ratio" -> {
                 val percent = String.format(Locale.CHINA, "%.1f%%", top.value * 100.0)
-                "${windowLabel}占比最高的是 ${top.key}，约 $percent。"
+                "${windowLabel}占比最高的是 ${highlightedTopKey}，约 $percent。"
             }
 
             args.metric == "frequency" -> {
-                "${windowLabel}出现最频繁的是 ${top.key}，共 ${top.value.toInt()} 次。"
+                "${windowLabel}出现最频繁的是 ${highlightedTopKey}，共 ${top.value.toInt()} 次。"
             }
 
             else -> {
-                "${windowLabel}花得最多的是 ${top.key}，金额约 ${formatReceiptAmount(top.value)}。"
+                "${windowLabel}花得最多的是 ${highlightedTopKey}，金额约 ${formatReceiptAmount(top.value)}。"
             }
         }
 
@@ -3359,7 +3377,10 @@ class ChatRepository(
         val writeIntentHints = updateIntentHints + deleteIntentHints + incomeKeywordHints + expenseKeywordHints + listOf("记账", "入账")
         val amountWithCurrencyRegex = Regex("(\\d+(?:\\.\\d+)?)\\s*(?:元|块|人民币|RMB|rmb|￥|¥)")
         val plainAmountRegex = Regex("(?<!\\d)(\\d{1,6}(?:\\.\\d{1,2})?)(?!\\d)")
-        val transactionIdRegex = Regex("(?:交易|账单|记录)?\\s*(?:ID|id|Id|编号|号)?\\s*[:：#]?\\s*(\\d{1,18})")
+        val transactionIdHintRegexes = listOf(
+            Regex("(?:交易|账单|记录)\\s*(?:id|ID|Id|编号|号)?\\s*[:：#]?\\s*(\\d{1,18})"),
+            Regex("(?:id|ID|Id|编号|记录号|账单号|交易号)\\s*[:：#]?\\s*(\\d{1,18})"),
+        )
 
         val queryStrongIntentHints = listOf(
             "最近一笔", "最新一笔", "查询", "查一下", "看看记录", "最高", "花得最多",
@@ -3383,7 +3404,7 @@ class ChatRepository(
         )
         val monthWindowHints = listOf("最近一个月", "过去一个月", "本月", "这个月", "上个月", "月度", "30天", "近30天", "最近30天")
         val yearWindowHints = listOf("最近一年", "过去一年", "年度", "12个月")
-        val recentTargetHints = listOf("最近一笔", "最新一笔", "上一笔", "刚刚那笔", "刚才那笔")
+        val recentTargetHints = listOf("最近一笔", "最新一笔", "上一笔", "刚刚那笔", "刚才那笔", "刚刚", "刚才")
         val merchantHints = listOf("同一家", "商家", "店", "门店")
         val timeSlotHints = listOf("时段", "几点", "什么时候", "早上", "晚上", "中午")
         val trendHints = listOf("趋势", "变化", "走势")

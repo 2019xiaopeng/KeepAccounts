@@ -56,7 +56,10 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
@@ -728,6 +731,35 @@ private fun toInsightLabel(key: String): String {
     }
 }
 
+private fun renderMarkdownWithBoldHighlight(text: String) = buildAnnotatedString {
+    val boldRegex = Regex("\\*\\*(.+?)\\*\\*")
+    var cursor = 0
+
+    boldRegex.findAll(text).forEach { match ->
+        val start = match.range.first
+        val endExclusive = match.range.last + 1
+
+        if (start > cursor) {
+            append(text.substring(cursor, start))
+        }
+
+        val content = match.groupValues.getOrNull(1).orEmpty()
+        withStyle(
+            SpanStyle(
+                color = Color(0xFF4860A8),
+                fontWeight = FontWeight.ExtraBold,
+            ),
+        ) {
+            append(content)
+        }
+        cursor = endExclusive
+    }
+
+    if (cursor < text.length) {
+        append(text.substring(cursor))
+    }
+}
+
 private fun stripReceiptPayload(text: String): String {
     val stripped = text
         .replace(dataPayloadRegex, "")
@@ -1085,7 +1117,7 @@ private fun MessageRow(
                 } else {
                     SelectionContainer {
                         Text(
-                            text = message.text,
+                            text = renderMarkdownWithBoldHighlight(message.text),
                             color = WarmBrown,
                             fontWeight = FontWeight.Medium,
                             fontSize = 14.sp,
