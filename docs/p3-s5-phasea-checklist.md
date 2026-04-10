@@ -55,7 +55,7 @@
 | --- | --- | --- | --- |
 | 2026-04-10 | 创建 PhaseA 清单记录 | `docs/p3-s5-phasea-checklist.md` | `b0d6a55` |
 | 2026-04-10 | 接入 planner shadow 骨架（不改主执行） | `AgentToolContracts.kt` / `ChatRepository.kt` / `AgentQualityFeedbackRepository.kt` / `AppContainer.kt` | `12d616d` |
-| 2026-04-10 | 新增 planner 契约序列化单测并完成全量回归 | `AgentPlannerContractsTest.kt` / `p3-s5-phasea-checklist.md` | 待提交 |
+| 2026-04-10 | 新增 planner 契约序列化单测并完成全量回归 | `AgentPlannerContractsTest.kt` / `p3-s5-phasea-checklist.md` | `70ab395` |
 
 ## 后续（进入 PhaseB 前）
 
