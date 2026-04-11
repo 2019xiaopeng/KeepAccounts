@@ -273,7 +273,7 @@ class SiliconFlowPlannerGateway(
     }
 
     companion object {
-        private const val DEFAULT_MODEL = "Pro/moonshotai/Kimi-K2.5"
+        private const val DEFAULT_MODEL = "deepseek-ai/DeepSeek-V3"
         private const val PLANNER_FUNCTION_NAME = "submit_intent_plan_v2"
     }
 }

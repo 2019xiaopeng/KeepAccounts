@@ -25,7 +25,7 @@
 
 ```json
 {
-  "model": "Pro/moonshotai/Kimi-K2.5",
+  "model": "deepseek-ai/DeepSeek-V3",
   "messages": [
     {
       "role": "system",

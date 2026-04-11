@@ -23,6 +23,7 @@ import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
 import java.io.File
+import java.util.concurrent.TimeUnit
 
 interface AppContainer {
     val transactionRepository: TransactionRepository
@@ -36,6 +37,7 @@ class DefaultAppContainer(context: Context) : AppContainer {
 
     private val apiKey = normalizeApiKey(BuildConfig.SILICONFLOW_API_KEY)
     private val apiBaseUrl = normalizeBaseUrl(BuildConfig.SILICONFLOW_API_URL)
+    private val modelName = normalizeModel(BuildConfig.SILICONFLOW_MODEL)
     private val githubOwner = BuildConfig.GITHUB_OWNER
     private val githubRepo = BuildConfig.GITHUB_REPO
 
@@ -79,11 +81,16 @@ class DefaultAppContainer(context: Context) : AppContainer {
     private val agentPlanner by lazy {
         SiliconFlowPlannerGateway(
             api = siliconFlowApi,
+            model = modelName,
         )
     }
 
     private val aiHttpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
+            .connectTimeout(60, TimeUnit.SECONDS)
+            .readTimeout(60, TimeUnit.SECONDS)
+            .writeTimeout(60, TimeUnit.SECONDS)
+            .callTimeout(75, TimeUnit.SECONDS)
             .addInterceptor { chain ->
                 val builder = chain.request().newBuilder()
                     .header("Content-Type", "application/json")
@@ -128,6 +135,7 @@ class DefaultAppContainer(context: Context) : AppContainer {
             chatMessageDao = database.chatMessageDao(),
             transactionDao = database.transactionDao(),
             aiChatGateway = aiChatGateway,
+            aiModel = modelName,
             agentRunLogger = agentRunLogger,
             agentReplayService = agentReplayService,
             qualityFeedbackRepository = agentQualityFeedbackRepository,
@@ -181,4 +189,8 @@ private fun normalizeApiKey(raw: String): String {
     return raw.trim()
         .replace(Regex("^Bearer\\s+", RegexOption.IGNORE_CASE), "")
         .trim()
+}
+
+private fun normalizeModel(raw: String): String {
+    return raw.trim().ifBlank { "deepseek-ai/DeepSeek-V3" }
 }

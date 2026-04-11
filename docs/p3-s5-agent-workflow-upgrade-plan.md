@@ -3,7 +3,7 @@
 - 日期：2026-04-10
 - 状态：In Progress（PhaseA/PhaseB/PhaseC 已完成，PhaseD 待开始）
 - 适用范围：Phase3 后续迭代（承接 P3-S4）
-- 关联 ADR：ADR-033、ADR-041、ADR-042、ADR-043、ADR-044、ADR-045、ADR-046（拟）
+- 关联 ADR：ADR-033、ADR-041、ADR-042、ADR-043、ADR-044、ADR-045、ADR-046、ADR-047
 
 ## 1. 背景与结论
 
@@ -223,3 +223,8 @@
 - 助手分句入库增加节奏延时，避免气泡与卡片同毫秒同时出现。
 - 统计类跟进问句可继承上一轮窗口语义（如“统计一下吧”承接“这周”）。
 - UI 隐藏负载消息过滤增强，修复 `<NOTE>...</NOTE>` 原文裸露问题。
+7. PhaseC（稳定性与模型配置修复）：已完成统计卡片与超时问题收口。
+- 修复统计 `<NOTE>` 元数据在多气泡分段时被截断的问题，恢复 InsightCard 稳定渲染。
+- 查询失败结果改为 `JSONObject` 安全构造，避免异常信息中的特殊字符导致 JSON 损坏。
+- `AppContainer` 为 AI 网络客户端增加 `connect/read/write/call timeout`（60s/60s/60s/75s），降低流式响应超时概率。
+- 默认模型切换到 `deepseek-ai/DeepSeek-V3`，并新增 `SILICONFLOW_MODEL` 配置项支持集中配置。

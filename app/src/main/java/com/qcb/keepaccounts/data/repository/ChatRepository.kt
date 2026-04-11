@@ -72,6 +72,7 @@ class ChatRepository(
     private val chatMessageDao: ChatMessageDao,
     private val transactionDao: TransactionDao,
     private val aiChatGateway: AiChatGateway,
+    private val aiModel: String = "deepseek-ai/DeepSeek-V3",
     private val agentRunLogger: AgentRunLogger = NoOpAgentRunLogger,
     private val agentReplayService: AgentReplayService? = null,
     private val qualityFeedbackRepository: AgentQualityFeedbackRepository? = null,
@@ -445,7 +446,7 @@ class ChatRepository(
 
         aiChatGateway.streamReply(
             AiChatRequest(
-                model = "Pro/moonshotai/Kimi-K2.5",
+                model = aiModel,
                 messages = requestMessages,
                 temperature = resolveTemperature(aiConfig.tone),
                 stream = true,
@@ -1016,7 +1017,7 @@ class ChatRepository(
                 } else {
                     plan.statsArgs?.toStatsArgsJson().orEmpty()
                 },
-                resultJson = "{\"status\":\"failure\",\"message\":\"${error.message.orEmpty()}\"}",
+                resultJson = buildFailureResultJson(error.message.orEmpty()),
                 assistantReply = "我这次查询遇到点小问题，稍后再试一次就好。",
                 errorCode = AgentErrorCode.UNEXPECTED_ERROR,
                 errorMessage = error.message,
@@ -1062,16 +1063,16 @@ class ChatRepository(
             toolName = execution.toolName,
             resultJson = execution.resultJson,
         )
-        val visibleReply = mergeAssistantText(
-            baseText = execution.assistantReply,
-            extraText = insightMeta,
-            fallbackText = execution.assistantReply.ifBlank { "我已经帮你查好了。" },
+        val visibleReply = execution.assistantReply.ifBlank { "我已经帮你查好了。" }
+        val replyChunks = appendInsightTagToLastChunk(
+            chunks = splitAssistantReply(visibleReply),
+            insightTag = insightMeta,
         )
 
         val assistantMessageIds = mutableListOf<Long>()
         syncAssistantReplyChunks(
             messageIds = assistantMessageIds,
-            chunks = splitAssistantReply(visibleReply),
+            chunks = replyChunks,
             baseTimestamp = System.currentTimeMillis() + 1,
             isReceiptLast = false,
             receiptTransactionId = null,
@@ -1119,7 +1120,7 @@ class ChatRepository(
                     toolName = plan.toolName,
                     status = AgentToolStatus.FAILURE,
                     argsJson = "{}",
-                    resultJson = "{\"status\":\"failure\",\"message\":\"tool not implemented\"}",
+                    resultJson = buildFailureResultJson("tool not implemented"),
                     assistantReply = "当前这类查询工具还没接好，我先记下你的需求。",
                     errorCode = AgentErrorCode.TOOL_NOT_IMPLEMENTED,
                     errorMessage = "tool not implemented",
@@ -2376,12 +2377,47 @@ class ChatRepository(
         toolName: AgentToolName,
         resultJson: String,
     ): String? {
-        val resultObject = runCatching { JSONObject(resultJson) }.getOrNull() ?: return null
+        val normalizedResult = resultJson.trim()
+        val resultObject = runCatching { JSONObject(normalizedResult) }.getOrElse {
+            JSONObject().apply {
+                put("status", "failure")
+                put("message", if (normalizedResult.isBlank()) "empty_result_json" else "invalid_result_json")
+            }
+        }
         val payload = JSONObject().apply {
             put("toolName", toolName.name.lowercase(Locale.ROOT))
             put("result", resultObject)
         }
         return "<NOTE>$payload</NOTE>"
+    }
+
+    private fun appendInsightTagToLastChunk(
+        chunks: List<String>,
+        insightTag: String?,
+    ): List<String> {
+        val normalizedChunks = chunks
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .ifEmpty { listOf("我已经帮你查好了。") }
+
+        if (insightTag.isNullOrBlank()) {
+            return normalizedChunks
+        }
+
+        val updatedChunks = normalizedChunks.toMutableList()
+        updatedChunks[updatedChunks.lastIndex] = mergeAssistantText(
+            baseText = updatedChunks.last(),
+            extraText = insightTag,
+            fallbackText = updatedChunks.last(),
+        )
+        return updatedChunks
+    }
+
+    private fun buildFailureResultJson(message: String): String {
+        return JSONObject().apply {
+            put("status", "failure")
+            put("message", message)
+        }.toString()
     }
 
     private suspend fun applyHumanizedLocalDelay(userInput: String) {

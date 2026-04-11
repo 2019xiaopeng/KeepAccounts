@@ -80,10 +80,19 @@
 - [x] Chat UI 对隐藏负载消息增加过滤，避免 `<NOTE>` 原文泄漏。
 - [x] 回归覆盖：`ChatRepositoryBatchLedgerTest` 新增对应场景断言。
 
+## C8. 统计卡片与网关稳定性修复
+
+- [x] 修复统计场景 `<NOTE>` 在多气泡分段时可能被截断的问题，确保 InsightCard 可渲染。
+- [x] 查询异常 `resultJson` 改为 `JSONObject` 构造，避免字符串拼接导致的 JSON 转义风险。
+- [x] AI 网络客户端新增 `connect/read/write/call timeout` 参数，降低“AI 服务响应超时”频率。
+- [x] 默认模型由 `Pro/moonshotai/Kimi-K2.5` 切换为 `deepseek-ai/DeepSeek-V3`。
+- [x] 新增 `SILICONFLOW_MODEL` 配置项，支持通过配置文件统一切换模型。
+
 ## 本轮关键改动文件
 
 - `app/src/main/java/com/qcb/keepaccounts/data/repository/ChatRepository.kt`
 - `app/src/main/java/com/qcb/keepaccounts/data/repository/SiliconFlowPlannerGateway.kt`
+- `app/src/main/java/com/qcb/keepaccounts/data/AppContainer.kt`
 - `app/src/main/java/com/qcb/keepaccounts/domain/agent/AgentToolContracts.kt`
 - `app/src/main/java/com/qcb/keepaccounts/domain/agent/PlannerOutputValidator.kt`
 - `app/src/main/java/com/qcb/keepaccounts/domain/agent/PendingIntentStateStore.kt`
@@ -99,6 +108,9 @@
 - `app/src/test/java/com/qcb/keepaccounts/domain/agent/AmountNormalizerTest.kt`
 - `app/src/test/java/com/qcb/keepaccounts/domain/agent/CountNormalizerTest.kt`
 - `app/src/test/java/com/qcb/keepaccounts/domain/agent/TemporalResolverV2Test.kt`
+- `app/build.gradle.kts`
+- `README.md`
+- `docs/API_Docs.md`
 
 ## 下一步（PhaseC 后续）
 

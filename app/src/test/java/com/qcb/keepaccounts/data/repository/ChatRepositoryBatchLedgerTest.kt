@@ -1492,6 +1492,8 @@ class ChatRepositoryBatchLedgerTest {
             assertEquals(true, visibleAssistantText.contains("过去一周"))
             assertEquals(true, visibleAssistantText.contains("总共花了") || visibleAssistantText.contains("总花费"))
             assertEquals(false, visibleAssistantText.contains("结构化结果"))
+            assertEquals(true, assistantText.contains("<NOTE>"))
+            assertEquals(true, assistantText.contains("\"toolName\":\"query_spending_stats\""))
         }
     }
 
