@@ -1071,6 +1071,39 @@ class ChatRepositoryBatchLedgerTest {
     }
 
     @Test
+    fun sendMessage_lifeShareWithWrite_acknowledgesEmotionAndKeepsCleanRemark() {
+        runBlocking {
+            val gateway = CountingAiChatGateway()
+            val transactionDao = FakeTransactionDao()
+            val repository = ChatRepository(
+                chatMessageDao = FakeChatMessageDao(),
+                transactionDao = transactionDao,
+                aiChatGateway = gateway,
+            )
+
+            repository.sendMessage(
+                userInput = "今天去比赛了，中午吃饭花了10块钱",
+                aiConfig = AiAssistantConfig(),
+                userName = "测试用户",
+            )
+
+            val latest = transactionDao.getRecentTransactions(limit = 1).firstOrNull()
+            val assistantText = repository.observeChatRecords()
+                .first()
+                .filter { it.role == "assistant" }
+                .joinToString("\n") { it.content }
+            val visibleAssistantText = stripHiddenPayloads(assistantText)
+
+            assertEquals(0, gateway.requestCount)
+            assertEquals(1, transactionDao.countTransactions())
+            assertEquals(10.0, latest?.amount ?: 0.0, 0.001)
+            assertEquals(true, latest?.remark?.contains("中午吃饭") == true)
+            assertEquals(false, latest?.remark?.contains("中午钱") == true)
+            assertEquals(true, visibleAssistantText.contains("比赛") || visibleAssistantText.contains("辛苦"))
+        }
+    }
+
+    @Test
     fun sendMessage_colloquialRelativeMealRoutesToLocalWriteAndInfersCategory() {
         runBlocking {
             val gateway = CountingAiChatGateway()
@@ -1348,6 +1381,64 @@ class ChatRepositoryBatchLedgerTest {
             assertEquals(true, visibleAssistantText.contains("**交通出行**"))
             assertEquals(false, visibleAssistantText.contains("topAmount="))
             assertEquals(false, visibleAssistantText.contains("结构化结果"))
+        }
+    }
+
+    @Test
+    fun sendMessage_statsFollowUpInheritsPreviousWeekContext() {
+        runBlocking {
+            val now = System.currentTimeMillis()
+            val gateway = CountingAiChatGateway()
+            val repository = ChatRepository(
+                chatMessageDao = FakeChatMessageDao(),
+                transactionDao = FakeTransactionDao(
+                    initialTransactions = listOf(
+                        TransactionEntity(
+                            id = 71L,
+                            type = 0,
+                            amount = 10.0,
+                            categoryName = "餐饮美食",
+                            categoryIcon = "",
+                            remark = "午饭",
+                            recordTimestamp = now - 1_000,
+                            createdTimestamp = now - 1_000,
+                        ),
+                        TransactionEntity(
+                            id = 72L,
+                            type = 0,
+                            amount = 20.0,
+                            categoryName = "餐饮美食",
+                            categoryIcon = "",
+                            remark = "晚饭",
+                            recordTimestamp = now - 8L * 24 * 60 * 60 * 1000,
+                            createdTimestamp = now - 8L * 24 * 60 * 60 * 1000,
+                        ),
+                    ),
+                ),
+                aiChatGateway = gateway,
+            )
+
+            repository.sendMessage(
+                userInput = "中午吃饭花了10块钱",
+                aiConfig = AiAssistantConfig(),
+                userName = "测试用户",
+            )
+
+            repository.sendMessage(
+                userInput = "统计一下吧",
+                aiConfig = AiAssistantConfig(),
+                userName = "测试用户",
+            )
+
+            val assistantText = repository.observeChatRecords()
+                .first()
+                .filter { it.role == "assistant" }
+                .joinToString("\n") { it.content }
+            val visibleAssistantText = stripHiddenPayloads(assistantText)
+
+            assertEquals(0, gateway.requestCount)
+            assertEquals(true, visibleAssistantText.contains("过去一周"))
+            assertEquals(false, visibleAssistantText.contains("最近一个月"))
         }
     }
 

@@ -10,6 +10,7 @@ data class AgentWriteStyleFacts(
     val primaryAction: String? = null,
     val primaryCategory: String? = null,
     val primaryDesc: String? = null,
+    val userInput: String? = null,
 )
 
 class AgentStyleFormatter {
@@ -44,23 +45,27 @@ class AgentStyleFormatter {
     ): String {
         val action = facts.primaryAction.orEmpty().trim().lowercase()
         val sceneHint = listOfNotNull(facts.primaryCategory, facts.primaryDesc).joinToString(" ")
+        val empathyLine = buildLifeShareAck(facts.userInput.orEmpty())
 
         if (facts.failureCount == 0 && facts.successCount == 1) {
             return when (action) {
                 "update" -> listOf(
+                    empathyLine.orEmpty(),
                     "好嘞，这笔我已经帮你改好了。",
                     "你要是想改时间或分类，也可以继续告诉我。",
-                ).joinToString("\n\n")
+                ).filter { it.isNotBlank() }.joinToString("\n\n")
 
                 "delete" -> listOf(
+                    empathyLine.orEmpty(),
                     "收到，这条记录已经帮你删除。",
                     "如果删错了，我也可以帮你按条件重新补回去。",
-                ).joinToString("\n\n")
+                ).filter { it.isNotBlank() }.joinToString("\n\n")
 
                 else -> listOf(
+                    empathyLine.orEmpty(),
                     buildCreateSuccessLine(sceneHint),
                     buildCreateCareLine(sceneHint),
-                ).joinToString("\n\n")
+                ).filter { it.isNotBlank() }.joinToString("\n\n")
             }
         }
 
@@ -116,6 +121,21 @@ class AgentStyleFormatter {
                 sceneHint.contains("夜宵") || sceneHint.contains("宵夜") -> "记得按时吃饭呀，要不要我顺便统计下这周餐饮花费？"
             sceneHint.contains("药") || sceneHint.contains("医疗") || sceneHint.contains("健康") -> "要照顾好自己，我也可以帮你盯着这类支出变化。"
             else -> "后面有新账单也直接告诉我，我会继续帮你整理。"
+        }
+    }
+
+    private fun buildLifeShareAck(userInput: String): String? {
+        val input = userInput.trim()
+        if (input.isBlank()) return null
+
+        return when {
+            input.contains("比赛") || input.contains("训练") -> "比赛辛苦啦，先把这笔记好给你稳稳托住。"
+            input.contains("考试") || input.contains("面试") -> "辛苦啦，这种时刻我先帮你把账记稳。"
+            input.contains("加班") || input.contains("熬夜") -> "今天真的不容易，我先帮你把这笔整理好。"
+            input.contains("出差") || input.contains("通勤") -> "在外面奔波辛苦了，这笔我先帮你记上。"
+            input.contains("生病") || input.contains("感冒") || input.contains("医院") -> "先照顾好自己，这笔我已经帮你盯住了。"
+            input.contains("旅行") || input.contains("旅游") -> "旅途开心也辛苦，这笔我先给你记清楚。"
+            else -> null
         }
     }
 }

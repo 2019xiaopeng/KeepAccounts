@@ -277,6 +277,7 @@ class ChatRepository(
         }
 
         if (agentDefaultPathEnabled) {
+            val followUpStatsWindowHint = resolveFollowUpStatsWindowHint(userInput)
             if (shouldTryPlannerPrimary) {
                 val plannerPrimaryHandled = tryHandlePlannerPrimaryIntent(
                     requestId = requestId,
@@ -289,7 +290,10 @@ class ChatRepository(
                 }
             }
 
-            val queryPlan = buildQueryIntentPlan(userInput)
+            val queryPlan = buildQueryIntentPlan(
+                userInput = userInput,
+                followUpStatsWindowHint = followUpStatsWindowHint,
+            )
             if (queryPlan != null) {
                 val execution = handleQueryIntent(
                     requestId = requestId,
@@ -590,6 +594,10 @@ class ChatRepository(
                     ),
                 )
                 messageIds += insertedId
+            }
+
+            if (isLikelyAndroidRuntime() && index < normalizedChunks.lastIndex) {
+                delay(assistantChunkStaggerDelayMs)
             }
         }
 
@@ -1120,7 +1128,10 @@ class ChatRepository(
         }
     }
 
-    private fun buildQueryIntentPlan(userInput: String): QueryIntentPlan? {
+    private fun buildQueryIntentPlan(
+        userInput: String,
+        followUpStatsWindowHint: String? = null,
+    ): QueryIntentPlan? {
         val input = userInput.trim()
         if (input.isBlank()) return null
 
@@ -1153,7 +1164,10 @@ class ChatRepository(
         return if (statsIntent) {
             QueryIntentPlan(
                 toolName = AgentToolName.QUERY_SPENDING_STATS,
-                statsArgs = buildStatsArgsFromText(input),
+                statsArgs = buildStatsArgsFromText(
+                    userInput = input,
+                    fallbackWindow = followUpStatsWindowHint,
+                ),
             )
         } else {
             QueryIntentPlan(
@@ -1289,17 +1303,24 @@ class ChatRepository(
     }
 
     private fun normalizeWriteDesc(text: String): String {
-        return text
-            .replace(amountWithCurrencyRegex, "")
+        val normalized = text
+            .replace(amountDescRegex, "")
             .replace("记一笔", "")
             .replace("记账", "")
             .replace("花了", "")
             .replace("消费", "")
-            .replace("吃中饭", "")
-            .replace("吃饭", "")
             .replace("吃了", "")
             .replace("买了", "")
+            .replace("块钱", "")
+            .replace("元钱", "")
+            .replace("块", "")
+            .replace("元", "")
+            .replace("钱", "")
+            .replace(Regex("[，,。！？!；;]+"), "")
+            .replace(Regex("\\s+"), "")
             .trim()
+
+        return normalized
             .ifBlank { text.trim() }
             .take(24)
     }
@@ -1333,6 +1354,7 @@ class ChatRepository(
                 primaryAction = applyResult.primaryAppliedTransaction?.action,
                 primaryCategory = applyResult.primaryAppliedTransaction?.draft?.category,
                 primaryDesc = applyResult.primaryAppliedTransaction?.draft?.desc,
+                userInput = userInput,
             ),
             requestId = requestId,
         )
@@ -2037,8 +2059,11 @@ class ChatRepository(
         )
     }
 
-    private fun buildStatsArgsFromText(userInput: String): AgentToolArgs.QuerySpendingStatsArgs {
-        val (window, startAt, endAt) = resolveWindowAndRange(userInput)
+    private fun buildStatsArgsFromText(
+        userInput: String,
+        fallbackWindow: String? = null,
+    ): AgentToolArgs.QuerySpendingStatsArgs {
+        val (window, startAt, endAt) = resolveWindowAndRange(userInput, fallbackWindow)
         val groupBy = inferStatsGroupBy(userInput, window)
         val metric = inferStatsMetric(userInput)
         val sortKey = if (metric == "frequency") "frequency_desc" else "value_desc"
@@ -2059,7 +2084,10 @@ class ChatRepository(
         )
     }
 
-    private fun resolveWindowAndRange(userInput: String): Triple<String, Long?, Long?> {
+    private fun resolveWindowAndRange(
+        userInput: String,
+        fallbackWindow: String? = null,
+    ): Triple<String, Long?, Long?> {
         val now = System.currentTimeMillis()
 
         val explicitDayCount = parseRecentDayCount(userInput)
@@ -2084,7 +2112,60 @@ class ChatRepository(
             weekWindowHints.any { hint -> userInput.contains(hint) } -> Triple("last7days", null, null)
             monthWindowHints.any { hint -> userInput.contains(hint) } -> Triple("last30days", null, null)
             yearWindowHints.any { hint -> userInput.contains(hint) } -> Triple("last12months", null, null)
-            else -> Triple("last30days", null, null)
+            else -> Triple(fallbackWindow ?: "last30days", null, null)
+        }
+    }
+
+    private suspend fun resolveFollowUpStatsWindowHint(userInput: String): String? {
+        val input = userInput.trim()
+        if (input.isBlank()) return null
+        if (explicitWindowHints.any { hint -> input.contains(hint) }) return null
+
+        val followUp = followUpStatsHints.any { hint -> input.contains(hint) }
+        if (!followUp) return null
+
+        val recentMessages = chatMessageDao.getRecentMessages(limit = 8)
+        val latestAssistant = recentMessages.firstOrNull { it.role == "assistant" || it.role == "ai" } ?: return null
+
+        extractWindowFromNotePayload(latestAssistant.content)?.let { return it }
+
+        val visible = stripReceiptPayload(latestAssistant.content)
+        return inferWindowByText(visible)
+    }
+
+    private fun extractWindowFromNotePayload(content: String): String? {
+        val notePayload = findPayload(content, "NOTE") ?: return null
+        val noteJson = runCatching { JSONObject(notePayload) }.getOrNull() ?: return null
+        val result = noteJson.optJSONObject("result") ?: return null
+        val timeWindow = result.optString("timeWindow").takeIf { it.isNotBlank() } ?: return null
+        return normalizeTimeWindow(timeWindow)
+    }
+
+    private fun inferWindowByText(text: String): String? {
+        val normalized = text.trim()
+        if (normalized.isBlank()) return null
+        return when {
+            weekWindowHints.any { hint -> normalized.contains(hint) } || normalized.contains("这周") || normalized.contains("本周") -> "last7days"
+            monthWindowHints.any { hint -> normalized.contains(hint) } || normalized.contains("这月") -> "last30days"
+            normalized.contains("今天") || normalized.contains("今日") -> "today"
+            normalized.contains("昨天") || normalized.contains("昨日") -> "yesterday"
+            yearWindowHints.any { hint -> normalized.contains(hint) } -> "last12months"
+            else -> null
+        }
+    }
+
+    private fun normalizeTimeWindow(raw: String): String? {
+        val normalized = raw.trim().lowercase(Locale.ROOT)
+        return when {
+            normalized == "today" -> "today"
+            normalized == "yesterday" -> "yesterday"
+            normalized == "last7days" -> "last7days"
+            normalized == "last30days" -> "last30days"
+            normalized == "last12months" -> "last12months"
+            normalized.contains("7") && normalized.contains("day") -> "last7days"
+            normalized.contains("30") && normalized.contains("day") -> "last30days"
+            normalized.contains("12") && normalized.contains("month") -> "last12months"
+            else -> null
         }
     }
 
@@ -3222,7 +3303,7 @@ class ChatRepository(
     ): List<AiMessage> {
         val normalized = recentMessages.mapNotNull { message ->
             val role = if (message.role == "assistant" || message.role == "ai") "assistant" else "user"
-            val content = stripReceiptPayload(message.content).trim()
+            val content = buildGatewayHistoryContent(message.content)
             if (content.isBlank()) {
                 null
             } else {
@@ -3245,6 +3326,55 @@ class ChatRepository(
             add(AiMessage(role = "system", content = systemPrompt))
             addAll(cappedTurns)
         }
+    }
+
+    private fun buildGatewayHistoryContent(content: String): String {
+        val visible = stripReceiptPayload(content).trim()
+        val payloadHint = buildPayloadContextHint(content)
+        return listOf(visible, payloadHint)
+            .filter { it.isNotBlank() }
+            .joinToString("\n")
+            .trim()
+    }
+
+    private fun buildPayloadContextHint(content: String): String {
+        val notePayload = findPayload(content, "NOTE")
+        if (!notePayload.isNullOrBlank()) {
+            val noteJson = runCatching { JSONObject(notePayload) }.getOrNull()
+            val toolName = noteJson?.optString("toolName")?.trim().orEmpty()
+            val result = noteJson?.optJSONObject("result")
+            val window = result?.optString("timeWindow")?.takeIf { it.isNotBlank() }
+            val keyword = result?.optJSONObject("filters")?.optString("keyword")?.takeIf { it.isNotBlank() }
+
+            val contextParts = mutableListOf<String>()
+            if (toolName.isNotBlank()) contextParts += "tool=$toolName"
+            if (!window.isNullOrBlank()) contextParts += "window=$window"
+            if (!keyword.isNullOrBlank()) contextParts += "keyword=$keyword"
+            if (contextParts.isNotEmpty()) {
+                return "上轮工具上下文：${contextParts.joinToString(", ")}"
+            }
+        }
+
+        val receiptPayload = findPayload(content, "RECEIPT") ?: findPayload(content, "DATA")
+        if (!receiptPayload.isNullOrBlank()) {
+            val receiptJson = runCatching { JSONObject(receiptPayload) }.getOrNull()
+            val action = receiptJson?.optString("action")?.takeIf { it.isNotBlank() }
+            val category = receiptJson?.optString("category")?.takeIf { it.isNotBlank() }
+            val amount = if (receiptJson != null && receiptJson.has("amount") && !receiptJson.isNull("amount")) {
+                receiptJson.optDouble("amount")
+            } else {
+                null
+            }
+            val parts = mutableListOf<String>()
+            action?.let { parts += "action=$it" }
+            category?.let { parts += "category=$it" }
+            amount?.let { parts += "amount=${kotlin.math.abs(it)}" }
+            if (parts.isNotEmpty()) {
+                return "上轮记账上下文：${parts.joinToString(", ")}"
+            }
+        }
+
+        return ""
     }
 
     private fun buildSystemPrompt(
@@ -3278,6 +3408,7 @@ class ChatRepository(
                         【AI_Humanized 交互规则】
                         - 最小打扰：只有关键信息缺失时才追问，每次最多1个问题。
                         - 一次说清优先：信息足够时直接执行，不要反复确认。
+                        - 如果用户在记账语句里同时分享生活内容（如比赛、加班、出差、考试、生病），先给1句共情回应，再给记账确认。
                         - 可解释建议：建议场景只给1个事实+1个可执行动作。
                         - 纠错低成本：用户说“记错了/改成/不对/修改”时，优先理解为 update，而不是 create。
                         - 不要给用户起外号，不要臆造账单数据。
@@ -4079,6 +4210,7 @@ class ChatRepository(
         val expenseKeywordHints = listOf("花了", "花费", "支出", "消费", "买了", "付款", "付了")
         val writeIntentHints = updateIntentHints + deleteIntentHints + incomeKeywordHints + expenseKeywordHints + listOf("记账", "入账")
         val amountWithCurrencyRegex = Regex("(\\d+(?:\\.\\d+)?)\\s*(?:元|块|人民币|RMB|rmb|￥|¥)")
+        val amountDescRegex = Regex("(?:[零一二两三四五六七八九十百千万亿点\\d.]+)\\s*(?:元钱|块钱|元|块|人民币|RMB|rmb|￥|¥)")
         val plainAmountRegex = Regex("(?<!\\d)(\\d{1,6}(?:\\.\\d{1,2})?)(?!\\d)")
         val transactionIdHintRegexes = listOf(
             Regex("(?:交易|账单|记录)\\s*(?:id|ID|Id|编号|号)?\\s*[:：#]?\\s*(\\d{1,18})"),
@@ -4117,6 +4249,13 @@ class ChatRepository(
         val queryKeywordHints = listOf(
             "餐饮", "奶茶", "咖啡", "打车", "地铁", "公交", "购物", "外卖", "房租", "工资", "账单",
             "瑞幸", "星巴克", "麦当劳", "肯德基",
+        )
+        val followUpStatsHints = listOf(
+            "统计一下", "统计下", "算一下", "算下", "看一下", "看下", "继续", "来吧", "行", "好的", "好呀", "可以", "嗯", "嗯嗯",
+        )
+        val explicitWindowHints = listOf(
+            "今天", "今日", "昨天", "昨日", "前天", "大前天", "本周", "这周", "最近一周", "过去一周", "近7天", "最近7天",
+            "本月", "这个月", "这月", "最近一个月", "近30天", "最近30天", "最近一年", "过去一年", "12个月",
         )
         val amountMinRegexes = listOf(
             Regex("(?:超过|大于|至少|不低于)\\s*(\\d+(?:\\.\\d+)?)"),
@@ -4199,6 +4338,7 @@ class ChatRepository(
         val majorSentenceRegex = Regex("(?<=[。！？!?])")
         const val oneDayMillis = 24L * 60L * 60L * 1000L
         const val defaultPendingIntentTtlMillis = 5L * 60L * 1000L
+        const val assistantChunkStaggerDelayMs = 220L
         const val localReplyMinDelayMs = 520L
         const val localReplyMaxDelayMs = 980L
         const val highRiskDeleteCountThreshold = 3

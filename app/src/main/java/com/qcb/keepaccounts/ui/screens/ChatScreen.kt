@@ -141,7 +141,13 @@ fun ChatScreen(
     onOpenAiSettings: () -> Unit = {},
     onOpenManualEntry: (ManualEntryPrefill) -> Unit = {},
 ) {
-    val chronologicalMessages = remember(chatRecords) { chatRecords.map { it.toDemoMessage() } }
+    val chronologicalMessages = remember(chatRecords) {
+        chatRecords
+            .map { it.toDemoMessage() }
+            .filterNot { message ->
+                message.text.isBlank() && !message.isReceipt && message.insightCard == null
+            }
+    }
     val displayMessages = remember(chronologicalMessages) { chronologicalMessages.asReversed() }
     var inputText by rememberSaveable { mutableStateOf("") }
     var topTip by remember { mutableStateOf("") }
@@ -350,8 +356,13 @@ private fun AiChatRecord.toDemoMessage(): DemoMessage {
         ?: payload?.action?.takeIf { it.isNotBlank() }
         ?: "create"
     val pureText = stripReceiptPayload(content)
+    val hiddenOnlyPayload = pureText.isBlank() && containsHiddenPayload(content)
     val visibleText = pureText.ifBlank {
-        if (isReceipt || resolvedReceiptSummary != null || payload != null) "已经帮主人记好啦，要好好照顾自己哦" else content.trim()
+        when {
+            isReceipt || resolvedReceiptSummary != null || payload != null -> "已经帮主人记好啦，要好好照顾自己哦"
+            hiddenOnlyPayload -> ""
+            else -> content.trim()
+        }
     }
     val parsedAmount = primaryReceiptItem?.amount?.takeIf { it.isNotBlank() }
         ?: payload?.amount?.takeIf { it.isNotBlank() }
@@ -400,6 +411,14 @@ private fun AiChatRecord.toDemoMessage(): DemoMessage {
         receiptPrimaryAction = primaryAction,
         insightCard = insightCard,
     )
+}
+
+private fun containsHiddenPayload(text: String): Boolean {
+    return text.contains("<NOTE>", ignoreCase = true) ||
+        text.contains("<RECEIPT>", ignoreCase = true) ||
+        text.contains("<DATA>", ignoreCase = true) ||
+        text.contains("<THINK>", ignoreCase = true) ||
+        text.contains("```", ignoreCase = true)
 }
 
 private fun parseAmount(text: String): String? {

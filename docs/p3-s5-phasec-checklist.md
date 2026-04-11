@@ -71,6 +71,15 @@
 - [x] `ChatRepository` 已接入上述组件（金额解析、删除数量解析、时间解析入口）。
 - [x] 新增单测：`AmountNormalizerTest`、`CountNormalizerTest`、`TemporalResolverV2Test`。
 
+## C7. 对话体验与上下文稳定性修复
+
+- [x] 记账回复加入生活内容共情（示例：比赛/加班/出差场景）。
+- [x] 备注提取规则修正，避免金额单位残留导致备注脏词（如“中午钱”）。
+- [x] 助手多气泡回复增加间隔写入策略，改善“同时砸屏”体验。
+- [x] 统计跟进问句支持继承上一轮窗口上下文（如“统计一下吧”承接“这周”）。
+- [x] Chat UI 对隐藏负载消息增加过滤，避免 `<NOTE>` 原文泄漏。
+- [x] 回归覆盖：`ChatRepositoryBatchLedgerTest` 新增对应场景断言。
+
 ## 本轮关键改动文件
 
 - `app/src/main/java/com/qcb/keepaccounts/data/repository/ChatRepository.kt`
@@ -81,6 +90,8 @@
 - `app/src/main/java/com/qcb/keepaccounts/domain/agent/AmountNormalizer.kt`
 - `app/src/main/java/com/qcb/keepaccounts/domain/agent/CountNormalizer.kt`
 - `app/src/main/java/com/qcb/keepaccounts/domain/agent/TemporalResolverV2.kt`
+- `app/src/main/java/com/qcb/keepaccounts/domain/agent/AgentStyleFormatter.kt`
+- `app/src/main/java/com/qcb/keepaccounts/ui/screens/ChatScreen.kt`
 - `app/src/test/java/com/qcb/keepaccounts/data/repository/ChatRepositoryBatchLedgerTest.kt`
 - `app/src/test/java/com/qcb/keepaccounts/data/repository/SiliconFlowPlannerGatewayTest.kt`
 - `app/src/test/java/com/qcb/keepaccounts/domain/agent/PlannerOutputValidatorTest.kt`
