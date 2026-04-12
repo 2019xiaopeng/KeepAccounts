@@ -70,4 +70,28 @@ class AgentStyleFormatterTest {
         assertTrue(result.contains("差一点点信息") || result.contains("马上帮你补上"))
         assertTrue(result.contains(rawError) == false)
     }
+
+    @Test
+    fun formatWrite_updateSingle_includesDynamicDescAndAmount() {
+        val formatter = AgentStyleFormatter()
+
+        val result = formatter.formatWrite(
+            facts = AgentWriteStyleFacts(
+                successCount = 1,
+                failureCount = 0,
+                createCount = 0,
+                updateCount = 1,
+                deleteCount = 0,
+                errors = emptyList(),
+                primaryAction = "update",
+                primaryCategory = "餐饮美食",
+                primaryDesc = "辣椒炒肉",
+                primaryAmount = 14.0,
+            ),
+            requestId = "req-003",
+        )
+
+        assertTrue(result.contains("辣椒炒肉"))
+        assertTrue(result.contains("14元"))
+    }
 }

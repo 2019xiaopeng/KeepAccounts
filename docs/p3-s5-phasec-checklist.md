@@ -88,6 +88,13 @@
 - [x] 默认模型由 `Pro/moonshotai/Kimi-K2.5` 切换为 `deepseek-ai/DeepSeek-V3`。
 - [x] 新增 `SILICONFLOW_MODEL` 配置项，支持通过配置文件统一切换模型。
 
+## C9. 更新纠错链路修复（命中目标 / 备注保护 / 动态确认）
+
+- [x] `resolveUpdateTargetTransaction` 在缺少时间/分类线索时，不再对 120 条记录盲目平分择优；优先回溯最近回执绑定的 transaction。
+- [x] update 备注写入增加显式意图门禁：仅当用户明确提到“备注/描述/说明”时才允许 patch，避免“不对不对，是14块”覆盖原备注。
+- [x] update 成功文案改为动态变量注入，支持“已将{desc}修改为{amount}元”确认表达。
+- [x] 新增回归：`ChatRepositoryBatchLedgerTest` 与 `AgentStyleFormatterTest` 覆盖上述场景。
+
 ## 本轮关键改动文件
 
 - `app/src/main/java/com/qcb/keepaccounts/data/repository/ChatRepository.kt`
@@ -102,6 +109,7 @@
 - `app/src/main/java/com/qcb/keepaccounts/domain/agent/AgentStyleFormatter.kt`
 - `app/src/main/java/com/qcb/keepaccounts/ui/screens/ChatScreen.kt`
 - `app/src/test/java/com/qcb/keepaccounts/data/repository/ChatRepositoryBatchLedgerTest.kt`
+- `app/src/test/java/com/qcb/keepaccounts/domain/agent/AgentStyleFormatterTest.kt`
 - `app/src/test/java/com/qcb/keepaccounts/data/repository/SiliconFlowPlannerGatewayTest.kt`
 - `app/src/test/java/com/qcb/keepaccounts/domain/agent/PlannerOutputValidatorTest.kt`
 - `app/src/test/java/com/qcb/keepaccounts/domain/agent/PendingIntentStateStoreTest.kt`

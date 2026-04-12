@@ -228,3 +228,7 @@
 - 查询失败结果改为 `JSONObject` 安全构造，避免异常信息中的特殊字符导致 JSON 损坏。
 - `AppContainer` 为 AI 网络客户端增加 `connect/read/write/call timeout`（60s/60s/60s/75s），降低流式响应超时概率。
 - 默认模型切换到 `deepseek-ai/DeepSeek-V3`，并新增 `SILICONFLOW_MODEL` 配置项支持集中配置。
+8. PhaseC（更新纠错链路修复）：已完成无提示纠错与备注覆盖问题收口。
+- `resolveUpdateTargetTransaction` 在无时间/分类线索时优先回溯最近回执绑定 transaction，避免平分场景误命中旧记录。
+- update 备注写入增加显式意图门禁，只有“备注/描述/说明”意图才允许 patch，避免金额纠错语句覆盖原备注。
+- `AgentStyleFormatter` update 文案改为动态确认，支持“已将{desc}修改为{amount}元”。

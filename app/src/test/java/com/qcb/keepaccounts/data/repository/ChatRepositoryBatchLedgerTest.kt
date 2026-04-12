@@ -1305,6 +1305,124 @@ class ChatRepositoryBatchLedgerTest {
     }
 
     @Test
+    fun sendMessage_amountCorrectionWithoutCue_prefersRecentReceiptBindingAndKeepsRemark() {
+        runBlocking {
+            val now = System.currentTimeMillis()
+            val gateway = CountingAiChatGateway()
+            val transactionDao = FakeTransactionDao(
+                initialTransactions = listOf(
+                    TransactionEntity(
+                        id = 501L,
+                        type = 0,
+                        amount = 35.0,
+                        categoryName = "交通出行",
+                        categoryIcon = "",
+                        remark = "打车",
+                        recordTimestamp = now - 1_000,
+                        createdTimestamp = now - 1_000,
+                    ),
+                ),
+            )
+            val repository = ChatRepository(
+                chatMessageDao = FakeChatMessageDao(),
+                transactionDao = transactionDao,
+                aiChatGateway = gateway,
+            )
+
+            repository.sendMessage(
+                userInput = "前天晚饭辣椒炒肉20",
+                aiConfig = AiAssistantConfig(),
+                userName = "测试用户",
+            )
+
+            val created = transactionDao.getRecentTransactions(limit = 10)
+                .firstOrNull { tx -> tx.remark.contains("辣椒炒肉") }
+            assertNotNull(created)
+
+            repository.sendMessage(
+                userInput = "不对不对，是14块",
+                aiConfig = AiAssistantConfig(),
+                userName = "测试用户",
+            )
+
+            val corrected = transactionDao.getTransactionById(created!!.id)
+            val untouchedRecent = transactionDao.getTransactionById(501L)
+            val assistantText = repository.observeChatRecords()
+                .first()
+                .filter { it.role == "assistant" }
+                .joinToString("\n") { it.content }
+            val visibleAssistantText = stripHiddenPayloads(assistantText)
+
+            assertEquals(0, gateway.requestCount)
+            assertEquals(14.0, corrected?.amount ?: 0.0, 0.001)
+            assertEquals(35.0, untouchedRecent?.amount ?: 0.0, 0.001)
+            assertEquals(true, corrected?.remark?.contains("辣椒炒肉") == true)
+            assertEquals(false, corrected?.remark?.contains("不对不对") == true)
+            assertEquals(true, visibleAssistantText.contains("已将") && visibleAssistantText.contains("14元"))
+        }
+    }
+
+    @Test
+    fun sendMessage_plannerPrimaryUpdateAmountOnly_doesNotOverwriteRemarkWithoutRemarkIntent() {
+        runBlocking {
+            val now = System.currentTimeMillis()
+            val gateway = CountingAiChatGateway(reply = "不应走到这里")
+            val transactionDao = FakeTransactionDao(
+                initialTransactions = listOf(
+                    TransactionEntity(
+                        id = 601L,
+                        type = 0,
+                        amount = 20.0,
+                        categoryName = "餐饮美食",
+                        categoryIcon = "",
+                        remark = "辣椒炒肉",
+                        recordTimestamp = now - 1_000,
+                        createdTimestamp = now - 1_000,
+                    ),
+                ),
+            )
+            val planner = object : AgentPlanner {
+                override suspend fun plan(input: PlannerInputV2): IntentPlanV2 {
+                    return IntentPlanV2(
+                        intent = PlannerIntentType.UPDATE_TRANSACTIONS,
+                        confidence = 0.95,
+                        writeItems = listOf(
+                            PreviewActionItem(
+                                action = "update",
+                                amount = 14.0,
+                                category = null,
+                                recordTime = null,
+                                desc = null,
+                                transactionId = 601L,
+                            ),
+                        ),
+                    )
+                }
+            }
+            val repository = ChatRepository(
+                chatMessageDao = FakeChatMessageDao(),
+                transactionDao = transactionDao,
+                aiChatGateway = gateway,
+                agentPlanner = planner,
+                plannerPrimaryEnabled = true,
+                plannerPrimaryRolloutPercent = 100,
+                plannerPrimaryMinConfidence = 0.75,
+            )
+
+            repository.sendMessage(
+                userInput = "不对不对，是14块",
+                aiConfig = AiAssistantConfig(),
+                userName = "测试用户",
+            )
+
+            val updated = transactionDao.getTransactionById(601L)
+            assertEquals(0, gateway.requestCount)
+            assertEquals(14.0, updated?.amount ?: 0.0, 0.001)
+            assertEquals("辣椒炒肉", updated?.remark)
+        }
+    }
+
+    @Test
     fun sendMessage_localWriteReplyWithParagraphsSplitsIntoMultipleBubbles() {
         runBlocking {
             val repository = ChatRepository(

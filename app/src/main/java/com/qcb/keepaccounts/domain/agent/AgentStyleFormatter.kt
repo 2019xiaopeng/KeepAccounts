@@ -1,5 +1,7 @@
 package com.qcb.keepaccounts.domain.agent
 
+import java.util.Locale
+
 data class AgentWriteStyleFacts(
     val successCount: Int,
     val failureCount: Int,
@@ -10,6 +12,7 @@ data class AgentWriteStyleFacts(
     val primaryAction: String? = null,
     val primaryCategory: String? = null,
     val primaryDesc: String? = null,
+    val primaryAmount: Double? = null,
     val userInput: String? = null,
 )
 
@@ -51,7 +54,7 @@ class AgentStyleFormatter {
             return when (action) {
                 "update" -> listOf(
                     empathyLine.orEmpty(),
-                    "好嘞，这笔我已经帮你改好了。",
+                    buildUpdateSuccessLine(facts),
                     "你要是想改时间或分类，也可以继续告诉我。",
                 ).filter { it.isNotBlank() }.joinToString("\n\n")
 
@@ -122,6 +125,38 @@ class AgentStyleFormatter {
             sceneHint.contains("药") || sceneHint.contains("医疗") || sceneHint.contains("健康") -> "要照顾好自己，我也可以帮你盯着这类支出变化。"
             else -> "后面有新账单也直接告诉我，我会继续帮你整理。"
         }
+    }
+
+    private fun buildUpdateSuccessLine(facts: AgentWriteStyleFacts): String {
+        val desc = facts.primaryDesc
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+            ?.take(24)
+        val category = facts.primaryCategory
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+        val amountText = facts.primaryAmount
+            ?.takeIf { it > 0.0 }
+            ?.let(::formatAmountForWrite)
+
+        return when {
+            !desc.isNullOrBlank() && !amountText.isNullOrBlank() -> "好嘞，已将${desc}修改为${amountText}。"
+            !category.isNullOrBlank() && !amountText.isNullOrBlank() -> "好嘞，已将这笔${category}修改为${amountText}。"
+            !amountText.isNullOrBlank() -> "好嘞，这笔我已经改成${amountText}。"
+            !desc.isNullOrBlank() -> "好嘞，${desc}这笔我已经帮你改好了。"
+            else -> "好嘞，这笔我已经帮你改好了。"
+        }
+    }
+
+    private fun formatAmountForWrite(amount: Double): String {
+        val number = if (amount % 1.0 == 0.0) {
+            amount.toLong().toString()
+        } else {
+            String.format(Locale.CHINA, "%.2f", amount)
+                .trimEnd('0')
+                .trimEnd('.')
+        }
+        return "${number}元"
     }
 
     private fun buildLifeShareAck(userInput: String): String? {

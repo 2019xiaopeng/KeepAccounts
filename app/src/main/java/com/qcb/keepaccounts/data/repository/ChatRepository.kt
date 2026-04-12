@@ -106,6 +106,9 @@ class ChatRepository(
         val type: Int,
         val action: String,
         val draft: AiReceiptDraft,
+        val resolvedAmount: Double? = null,
+        val resolvedCategory: String? = null,
+        val resolvedDesc: String? = null,
         val index: Int = 0,
     )
 
@@ -804,12 +807,16 @@ class ChatRepository(
                         )
                     }
                     affected.forEach { target ->
+                        val resolved = transactionDao.getTransactionById(target.transactionId)
                         add(
                             AppliedTransaction(
                                 transactionId = target.transactionId,
                                 type = target.type,
                                 action = success.action,
                                 draft = success.draft,
+                                resolvedAmount = resolved?.amount,
+                                resolvedCategory = resolved?.categoryName,
+                                resolvedDesc = resolved?.remark,
                                 index = appliedIndex,
                             ),
                         )
@@ -1227,7 +1234,11 @@ class ChatRepository(
                         action = ACTION_UPDATE,
                         amount = amount,
                         category = inferCategoryFromText(input, type = 0),
-                        desc = input.take(24),
+                        desc = resolveDraftDescForAction(
+                            action = ACTION_UPDATE,
+                            userInput = input,
+                            plannerDesc = null,
+                        ),
                         recordTime = null,
                         date = dateHint,
                         transactionId = transactionId,
@@ -1326,6 +1337,47 @@ class ChatRepository(
             .take(24)
     }
 
+    private fun resolveDraftDescForAction(
+        action: String,
+        userInput: String,
+        plannerDesc: String?,
+    ): String? {
+        val normalizedAction = action.trim().lowercase(Locale.ROOT)
+        val normalizedPlannerDesc = plannerDesc
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+            ?.take(24)
+
+        if (normalizedAction != ACTION_UPDATE) {
+            return normalizedPlannerDesc ?: normalizeWriteDesc(userInput)
+        }
+
+        val explicitRemark = extractExplicitRemarkPatch(userInput)
+        return when {
+            !explicitRemark.isNullOrBlank() -> explicitRemark
+            hasExplicitRemarkPatchIntent(userInput) -> normalizedPlannerDesc
+            else -> null
+        }
+    }
+
+    private fun hasExplicitRemarkPatchIntent(userInput: String): Boolean {
+        if (userInput.isBlank()) return false
+        return remarkPatchIntentHints.any { hint -> userInput.contains(hint) }
+    }
+
+    private fun extractExplicitRemarkPatch(userInput: String): String? {
+        explicitRemarkPatchPatterns.forEach { pattern ->
+            val value = pattern.find(userInput)
+                ?.groupValues
+                ?.getOrNull(1)
+                ?.trim()
+                ?.take(24)
+                ?.takeIf { it.isNotBlank() }
+            if (value != null) return value
+        }
+        return null
+    }
+
     private suspend fun handleWriteIntent(
         requestId: String,
         userInput: String,
@@ -1337,6 +1389,7 @@ class ChatRepository(
             assistantText = "",
             userInput = userInput,
         )
+        val primaryApplied = applyResult.primaryAppliedTransaction
 
         val status = when {
             applyResult.hasSuccess && applyResult.failedTransactions.isEmpty() -> AgentToolStatus.SUCCESS
@@ -1352,9 +1405,10 @@ class ChatRepository(
                 updateCount = applyResult.updateCount,
                 deleteCount = applyResult.deleteCount,
                 errors = applyResult.errors,
-                primaryAction = applyResult.primaryAppliedTransaction?.action,
-                primaryCategory = applyResult.primaryAppliedTransaction?.draft?.category,
-                primaryDesc = applyResult.primaryAppliedTransaction?.draft?.desc,
+                primaryAction = primaryApplied?.action,
+                primaryCategory = primaryApplied?.resolvedCategory ?: primaryApplied?.draft?.category,
+                primaryDesc = primaryApplied?.resolvedDesc ?: primaryApplied?.draft?.desc,
+                primaryAmount = primaryApplied?.resolvedAmount ?: primaryApplied?.draft?.amount,
                 userInput = userInput,
             ),
             requestId = requestId,
@@ -1724,13 +1778,22 @@ class ChatRepository(
         val dateHint = resolveRelativeDateKeyword(userInput)
         val transactionIdHint = parseTransactionIdHint(userInput)
         val descHint = normalizeWriteDesc(userInput)
+        val resolvedDescHint = resolveDraftDescForAction(
+            action = base.action,
+            userInput = userInput,
+            plannerDesc = null,
+        )
 
         return base.copy(
             amount = amountHint ?: base.amount,
             category = categoryHint ?: base.category,
             date = dateHint ?: base.date,
             transactionId = transactionIdHint ?: base.transactionId,
-            desc = if (descHint.isNotBlank()) descHint else base.desc,
+            desc = if (base.action.equals(ACTION_UPDATE, ignoreCase = true)) {
+                resolvedDescHint ?: base.desc
+            } else {
+                resolvedDescHint ?: if (descHint.isNotBlank()) descHint else base.desc
+            },
         )
     }
 
@@ -1792,7 +1855,11 @@ class ChatRepository(
             amount = sourceItem.amount,
             category = sourceItem.category?.trim().takeUnless { it.isNullOrBlank() }
                 ?: inferCategoryFromText(userInput, type = 0),
-            desc = sourceItem.desc?.trim().orEmpty().ifBlank { normalizeWriteDesc(userInput) },
+            desc = resolveDraftDescForAction(
+                action = normalizedAction,
+                userInput = userInput,
+                plannerDesc = sourceItem.desc,
+            ),
             recordTime = sourceItem.recordTime,
             date = sourceItem.date,
             transactionId = sourceItem.transactionId,
@@ -1900,9 +1967,13 @@ class ChatRepository(
                 .ifBlank { fallbackAction }
 
             val amount = item.amount
-            val normalizedDesc = item.desc?.trim().orEmpty().ifBlank { normalizeWriteDesc(userInput) }
+            val normalizedDesc = resolveDraftDescForAction(
+                action = normalizedAction,
+                userInput = userInput,
+                plannerDesc = item.desc,
+            )
             val category = item.category?.trim().takeUnless { it.isNullOrBlank() }
-                ?: inferCategoryFromText(normalizedDesc, type = 0)
+                ?: inferCategoryFromText(normalizedDesc.orEmpty(), type = 0)
                 ?: inferCategoryFromText(userInput, type = 0)
 
             AiReceiptDraft(
@@ -2789,8 +2860,11 @@ class ChatRepository(
             originalRecordTimestamp = target.recordTimestamp,
         )
 
-        val remark = draft.desc?.takeIf { it.isNotBlank() }
-            ?: target.remark.ifBlank { assistantText.take(24) }
+        val remarkPatch = resolveUpdateRemarkPatch(
+            draft = draft,
+            userInput = userInput,
+        )
+        val remark = remarkPatch ?: target.remark.ifBlank { assistantText.take(24) }
 
         transactionDao.updateTransactionById(
             id = target.id,
@@ -2807,7 +2881,23 @@ class ChatRepository(
             type = type,
             action = ACTION_UPDATE,
             draft = draft,
+            resolvedAmount = amount,
+            resolvedCategory = category,
+            resolvedDesc = remark,
         )
+    }
+
+    private fun resolveUpdateRemarkPatch(
+        draft: AiReceiptDraft,
+        userInput: String,
+    ): String? {
+        val explicitPatch = extractExplicitRemarkPatch(userInput)
+        if (!explicitPatch.isNullOrBlank()) return explicitPatch
+        if (!hasExplicitRemarkPatchIntent(userInput)) return null
+        return draft.desc
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+            ?.take(24)
     }
 
     private suspend fun resolveUpdateTargetTransaction(
@@ -2819,10 +2909,10 @@ class ChatRepository(
         }
 
         val recent = transactionDao.getRecentTransactions(limit = 120)
-        if (recent.isEmpty()) return null
+        if (recent.isEmpty()) return resolveConversationBoundUpdateTarget()
 
         if (recentTargetHints.any { hint -> userInput.contains(hint) }) {
-            return recent.firstOrNull()
+            return resolveConversationBoundUpdateTarget() ?: recent.firstOrNull()
         }
 
         val now = Calendar.getInstance()
@@ -2844,13 +2934,41 @@ class ChatRepository(
             )
         }
 
+        val hasAnyCue = parsedDate != null || parsedTime != null || categoryHint != null || typeHint != null
+        if (!hasAnyCue) {
+            return resolveConversationBoundUpdateTarget()
+        }
+
         val best = scored.maxWithOrNull(
             compareBy<Pair<TransactionEntity, Int>> { it.second }
-                .thenByDescending { it.first.recordTimestamp },
+                .thenByDescending { it.first.recordTimestamp }
+                .thenByDescending { it.first.createdTimestamp },
         ) ?: return null
 
-        val hasAnyCue = parsedDate != null || parsedTime != null || categoryHint != null || typeHint != null
-        return if (!hasAnyCue || best.second > 0) best.first else null
+        return if (best.second > 0) best.first else null
+    }
+
+    private suspend fun resolveConversationBoundUpdateTarget(): TransactionEntity? {
+        val recentMessages = chatMessageDao.getRecentMessages(limit = 24)
+        for (message in recentMessages) {
+            if (message.role != "assistant" || !message.isReceipt) continue
+
+            val candidateIds = buildList {
+                message.transactionId?.takeIf { it > 0L }?.let(::add)
+                parseTransactionBindings(message.transactionBindings)
+                    .filter { binding ->
+                        val action = binding.action.trim().lowercase(Locale.ROOT)
+                        action == ACTION_CREATE || action == ACTION_UPDATE
+                    }
+                    .map { it.transactionId }
+                    .forEach(::add)
+            }.distinct()
+
+            for (transactionId in candidateIds) {
+                transactionDao.getTransactionById(transactionId)?.let { return it }
+            }
+        }
+        return null
     }
 
     private fun scoreUpdateTarget(
@@ -2864,8 +2982,6 @@ class ChatRepository(
 
         if (parsedDate != null) {
             if (isSameDate(transaction.recordTimestamp, parsedDate)) score += 6
-        } else {
-            score += 1
         }
 
         if (!categoryHint.isNullOrBlank()) {
@@ -4323,6 +4439,11 @@ class ChatRepository(
             "医疗", "健康", "药", "医院", "体检",
             "人情", "交际", "礼", "社交", "红包",
             "收入", "工资", "奖金",
+        )
+        val remarkPatchIntentHints = listOf("备注", "描述", "说明")
+        val explicitRemarkPatchPatterns = listOf(
+            Regex("(?:把|将)?\\s*(?:备注|描述|说明)\\s*(?:改成|改为|写成|写为|设置为|设为|是|为|[:：])\\s*([^，,。！？!；;]{1,24})"),
+            Regex("改\\s*(?:一下)?\\s*(?:备注|描述|说明)\\s*(?:为|成)?\\s*([^，,。！？!；;]{1,24})"),
         )
         val dateOrTimeKeywordHints = listOf(
             "昨天", "前天", "大前天", "今天", "明天", "后天",
