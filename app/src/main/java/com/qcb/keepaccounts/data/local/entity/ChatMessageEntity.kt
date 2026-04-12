@@ -24,5 +24,6 @@ data class ChatMessageEntity(
     val content: String,
     val isReceipt: Boolean,
     val transactionId: Long? = null,
+    val transactionBindings: String? = null,
     val timestamp: Long,
 )

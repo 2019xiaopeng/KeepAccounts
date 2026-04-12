@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.qcb.keepaccounts.data.local.entity.TransactionEntity
 import com.qcb.keepaccounts.data.repository.TransactionRepository
+import com.qcb.keepaccounts.ui.format.applyCurrentTimeToDate
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -96,7 +97,8 @@ class MainViewModel(
         _ledgerFilterMode.value = mode
     }
 
-    fun addManualTransaction(
+    fun saveManualTransaction(
+        transactionId: Long?,
         type: Int,
         amount: Double,
         categoryName: String,
@@ -106,17 +108,30 @@ class MainViewModel(
     ) {
         viewModelScope.launch {
             val now = System.currentTimeMillis()
-            transactionRepository.insertTransaction(
-                TransactionEntity(
+            val effectiveRecordTimestamp = applyCurrentTimeToDate(recordTimestamp, now)
+            if (transactionId != null && transactionId > 0L) {
+                transactionRepository.updateTransactionById(
+                    id = transactionId,
                     type = type,
                     amount = amount,
                     categoryName = categoryName,
                     categoryIcon = categoryIcon,
                     remark = remark,
-                    recordTimestamp = recordTimestamp,
-                    createdTimestamp = now,
-                ),
-            )
+                    recordTimestamp = effectiveRecordTimestamp,
+                )
+            } else {
+                transactionRepository.insertTransaction(
+                    TransactionEntity(
+                        type = type,
+                        amount = amount,
+                        categoryName = categoryName,
+                        categoryIcon = categoryIcon,
+                        remark = remark,
+                        recordTimestamp = effectiveRecordTimestamp,
+                        createdTimestamp = now,
+                    ),
+                )
+            }
         }
     }
 

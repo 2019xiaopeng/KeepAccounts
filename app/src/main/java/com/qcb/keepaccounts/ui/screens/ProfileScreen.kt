@@ -21,6 +21,7 @@ import androidx.compose.material.icons.rounded.Category
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.DeleteSweep
 import androidx.compose.material.icons.rounded.ImportExport
+import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.MenuBook
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.RecordVoiceOver
@@ -271,7 +272,7 @@ fun ProfileScreen(
                         KeepAccountsDestination.settingsRoute(KeepAccountsDestination.SETTINGS_TYPE_AI_CAPABILITIES),
                     ),
                     MenuEntry(
-                        Icons.Rounded.SmartToy,
+                        Icons.Rounded.Info,
                         "帮助与反馈中心",
                         null,
                         null,

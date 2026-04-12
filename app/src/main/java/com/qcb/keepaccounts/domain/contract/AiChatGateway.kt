@@ -18,6 +18,7 @@ data class AiChatRequest(
     val messages: List<AiMessage>,
     val temperature: Double = 0.3,
     val stream: Boolean = true,
+    val requestId: String? = null,
 )
 
 data class AiMessage(
@@ -33,15 +34,13 @@ data class AiReceiptDraft(
     val desc: String?,
     val recordTime: String?,
     val date: String?,
+    val transactionId: Long? = null,
 )
 
 sealed interface AiStreamEvent {
     data class TextDelta(val text: String) : AiStreamEvent
 
-    /**
-     * Emitted once a <DATA>...</DATA> payload is fully parsed.
-     */
-    data class ReceiptParsed(val draft: AiReceiptDraft) : AiStreamEvent
+    data class ReceiptParsed(val drafts: List<AiReceiptDraft>) : AiStreamEvent
 
     data class Error(val message: String) : AiStreamEvent
 

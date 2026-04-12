@@ -70,6 +70,7 @@ import com.qcb.keepaccounts.ui.components.glassCard
 import com.qcb.keepaccounts.ui.components.rememberTopBarCollapseProgress
 import com.qcb.keepaccounts.ui.format.formatCurrency
 import com.qcb.keepaccounts.ui.format.formatSignedCurrency
+import com.qcb.keepaccounts.ui.format.semanticDateTimeText
 import com.qcb.keepaccounts.ui.icons.resolveCategoryIcon
 import com.qcb.keepaccounts.ui.model.ManualEntryPrefill
 import com.qcb.keepaccounts.ui.theme.IncomeGreen
@@ -318,6 +319,7 @@ fun LedgerScreen(
                                 val isIncome = tx.type == 1
                                 onEditRecord(
                                     ManualEntryPrefill(
+                                        transactionId = tx.id,
                                         type = if (isIncome) "income" else "expense",
                                         category = tx.categoryName,
                                         desc = tx.remark,
@@ -1285,7 +1287,7 @@ private fun PaginationButton(
 }
 
 private fun formatDate(timestamp: Long): String {
-    return SimpleDateFormat("MM-dd HH:mm", Locale.CHINA).format(Date(timestamp))
+    return semanticDateTimeText(timestamp).dateTimeText
 }
 
 private fun metricValue(list: List<TransactionEntity>, metric: TrendMetric): Double {
@@ -1412,5 +1414,5 @@ private fun trimNumber(value: Double): String {
 }
 
 private fun formatLedgerTime(timestamp: Long): String {
-    return SimpleDateFormat("HH:mm", Locale.CHINA).format(Date(timestamp))
+    return semanticDateTimeText(timestamp).timeText
 }

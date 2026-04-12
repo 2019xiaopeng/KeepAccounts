@@ -50,6 +50,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.paging.PagingData
 import androidx.navigation.NavType
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
@@ -83,6 +84,7 @@ import com.qcb.keepaccounts.ui.screens.SearchScreen
 import com.qcb.keepaccounts.ui.theme.KeepAccountsTheme
 import com.qcb.keepaccounts.ui.viewmodel.ChatViewModel
 import com.qcb.keepaccounts.ui.viewmodel.MainViewModel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import java.util.Calendar
@@ -192,6 +194,7 @@ fun KeepAccountsApp() {
     val appUpdateRepository = appContainer.appUpdateRepository
     val transactions by mainViewModel.transactions.collectAsStateWithLifecycle()
     val aiChatRecords by chatViewModel.chatRecords.collectAsStateWithLifecycle()
+    val pagedAiChatRecords = chatViewModel.pagedMessages
     val aiIsSending by chatViewModel.isSending.collectAsStateWithLifecycle()
     val systemUiController = rememberSystemUiController()
     val usedCategoryCount = remember(transactions) {
@@ -392,6 +395,7 @@ fun KeepAccountsApp() {
                             scaffoldPadding = innerPadding,
                             palette = palette,
                             aiChatRecords = aiChatRecords,
+                            pagedAiChatRecords = pagedAiChatRecords,
                             aiIsSending = aiIsSending,
                             initialChatInput = chatInitialInput,
                             onConsumedInitialInput = { chatInitialInput = null },
@@ -403,6 +407,8 @@ fun KeepAccountsApp() {
                                 )
                             },
                             onDeleteChatMessage = { id -> chatViewModel.deleteMessage(id) },
+                            onDeleteSelectedChatMessages = { ids -> chatViewModel.deleteSelectedMessages(ids) },
+                            onClearChat = { chatViewModel.clearChat() },
                             onSearchClick = { navigateToSubPage(KeepAccountsDestination.SEARCH) },
                             onManualRecordClick = {
                                 manualEntryPrefill = null
@@ -630,11 +636,14 @@ private fun MainTabsPager(
     scaffoldPadding: PaddingValues,
     palette: ThemePalette,
     aiChatRecords: List<AiChatRecord>,
+    pagedAiChatRecords: Flow<PagingData<AiChatRecord>>,
     aiIsSending: Boolean,
     initialChatInput: String?,
     onConsumedInitialInput: () -> Unit,
     onSendChatMessage: (String) -> Unit,
     onDeleteChatMessage: (Long) -> Unit,
+    onDeleteSelectedChatMessages: (Set<Long>) -> Unit,
+    onClearChat: () -> Unit,
     onSearchClick: () -> Unit,
     onManualRecordClick: () -> Unit,
     onAiRecordClick: () -> Unit,
@@ -675,12 +684,14 @@ private fun MainTabsPager(
                 userAvatarUri = userAvatarUri,
                 palette = palette,
                 paddingValues = chatPadding,
-                chatRecords = aiChatRecords,
+                pagedChatRecords = pagedAiChatRecords,
                 isSending = aiIsSending,
                 initialInput = initialChatInput,
                 onConsumedInitialInput = onConsumedInitialInput,
                 onSendMessage = onSendChatMessage,
                 onDeleteMessage = onDeleteChatMessage,
+                onDeleteSelectedMessages = onDeleteSelectedChatMessages,
+                onClearChat = onClearChat,
                 onBack = {},
                 onOpenAiSettings = onOpenAiSettings,
                 onOpenManualEntry = onEditRecord,

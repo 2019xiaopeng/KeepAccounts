@@ -25,8 +25,25 @@ interface TransactionDao {
     @Query("SELECT * FROM transactions ORDER BY recordTimestamp DESC LIMIT :limit")
     suspend fun getRecentTransactions(limit: Int): List<TransactionEntity>
 
+    @Query(
+        """
+        SELECT * FROM transactions
+        WHERE recordTimestamp BETWEEN :startAtMillis AND :endAtMillis
+        ORDER BY recordTimestamp DESC
+        LIMIT :limit
+        """,
+    )
+    suspend fun getTransactionsInRange(
+        startAtMillis: Long,
+        endAtMillis: Long,
+        limit: Int,
+    ): List<TransactionEntity>
+
     @Query("SELECT * FROM transactions WHERE id = :id LIMIT 1")
     fun observeTransactionById(id: Long): Flow<TransactionEntity?>
+
+    @Query("SELECT * FROM transactions WHERE id = :id LIMIT 1")
+    suspend fun getTransactionById(id: Long): TransactionEntity?
 
     @Query(
         """
