@@ -1206,12 +1206,16 @@ private fun MessageRow(
             if (message.isReceipt) {
                 ReceiptCard(
                     message = message,
+                    palette = palette,
                     onDelete = onDelete,
                     onEdit = onEdit,
                 )
             } else if (!isUser) {
                 message.insightCard?.let { insight ->
-                    InsightCard(insight = insight)
+                    InsightCard(
+                        insight = insight,
+                        palette = palette,
+                    )
                 }
             }
         }
@@ -1286,6 +1290,7 @@ private fun UserAvatarBubble(
 @Composable
 private fun ReceiptCard(
     message: DemoMessage,
+    palette: ThemePalette,
     onDelete: () -> Unit,
     onEdit: () -> Unit,
 ) {
@@ -1330,14 +1335,14 @@ private fun ReceiptCard(
             .glassCard(
                 shape = RoundedCornerShape(24.dp),
                 backgroundColor = Color.White.copy(alpha = 0.80f),
-                glowColor = MintGreen.copy(alpha = 0.18f),
+                glowColor = palette.primaryDark.copy(alpha = 0.22f),
             )
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(
             text = receiptTitle,
-            color = MintGreen,
+            color = palette.primaryDark,
             fontWeight = FontWeight.ExtraBold,
             fontSize = 13.sp,
             modifier = Modifier.align(Alignment.CenterHorizontally),
@@ -1449,13 +1454,13 @@ private fun ReceiptCard(
                         modifier = Modifier
                             .weight(1f)
                             .clip(RoundedCornerShape(999.dp))
-                            .background(Color(0xFFEAF4FF))
+                            .background(palette.secondary.copy(alpha = 0.75f))
                             .appPressable { onEdit() }
                             .padding(vertical = 8.dp),
                         horizontalArrangement = Arrangement.Center,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                            Text(text = "🧩 去手动补全", color = Color(0xFF4860A8), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            Text(text = "🧩 去手动补全", color = palette.primaryDark, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                     }
                 } else {
                     Box(
@@ -1603,7 +1608,10 @@ private fun buildBatchReceiptAmount(item: AiChatReceiptItem): String {
 }
 
 @Composable
-private fun InsightCard(insight: ParsedInsightCard) {
+private fun InsightCard(
+    insight: ParsedInsightCard,
+    palette: ThemePalette,
+) {
     Column(
         modifier = Modifier
             .padding(top = 8.dp)
@@ -1611,14 +1619,14 @@ private fun InsightCard(insight: ParsedInsightCard) {
             .glassCard(
                 shape = RoundedCornerShape(20.dp),
                 backgroundColor = Color.White.copy(alpha = 0.84f),
-                glowColor = Color(0xFFAED3FF).copy(alpha = 0.22f),
+                glowColor = palette.primaryDark.copy(alpha = 0.24f),
             )
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(
             text = "🔎 ${insight.title}",
-            color = Color(0xFF4A5D8E),
+            color = palette.primaryDark,
             fontWeight = FontWeight.ExtraBold,
             fontSize = 12.sp,
         )
@@ -1636,18 +1644,21 @@ private fun InsightCard(insight: ParsedInsightCard) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(12.dp))
-                    .background(Color(0xFFF4F8FF))
+                    .background(palette.secondary.copy(alpha = 0.62f))
                     .padding(horizontal = 8.dp, vertical = 7.dp),
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text(
                         text = "分类占比",
-                        color = Color(0xFF6B7BAA),
+                        color = palette.primaryDark.copy(alpha = 0.80f),
                         fontWeight = FontWeight.Bold,
                         fontSize = 10.sp,
                     )
                     insight.buckets.forEach { bucket ->
-                        InsightBucketRow(bucket = bucket)
+                        InsightBucketRow(
+                            bucket = bucket,
+                            palette = palette,
+                        )
                     }
                 }
             }
@@ -1658,13 +1669,13 @@ private fun InsightCard(insight: ParsedInsightCard) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(12.dp))
-                    .background(Color(0xFFF4F8FF))
+                    .background(palette.secondary.copy(alpha = 0.62f))
                     .padding(horizontal = 8.dp, vertical = 6.dp),
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(
                         text = "依据",
-                        color = Color(0xFF6B7BAA),
+                        color = palette.primaryDark.copy(alpha = 0.80f),
                         fontWeight = FontWeight.Bold,
                         fontSize = 10.sp,
                     )
@@ -1683,7 +1694,10 @@ private fun InsightCard(insight: ParsedInsightCard) {
 }
 
 @Composable
-private fun InsightBucketRow(bucket: InsightBucket) {
+private fun InsightBucketRow(
+    bucket: InsightBucket,
+    palette: ThemePalette,
+) {
     val ratio = bucket.ratio.coerceIn(0f, 1f)
     val ratioText = "${(ratio * 100f).roundToInt()}%"
     val indicatorRatio = if (ratio <= 0f) 0.05f else ratio
@@ -1712,7 +1726,7 @@ private fun InsightBucketRow(bucket: InsightBucket) {
                 .fillMaxWidth()
                 .height(6.dp)
                 .clip(RoundedCornerShape(999.dp))
-                .background(Color(0xFFDDE7FA)),
+                .background(palette.secondaryDark.copy(alpha = 0.42f)),
         ) {
             Box(
                 modifier = Modifier
@@ -1720,7 +1734,7 @@ private fun InsightBucketRow(bucket: InsightBucket) {
                     .fillMaxHeight()
                     .background(
                         Brush.horizontalGradient(
-                            listOf(Color(0xFF85A9F9), Color(0xFFAED3FF)),
+                            listOf(palette.primaryDark, palette.primary),
                         ),
                     ),
             )

@@ -3455,7 +3455,11 @@ class ChatRepository(
     ): List<AiMessage> {
         val normalized = recentMessages.mapNotNull { message ->
             val role = if (message.role == "assistant" || message.role == "ai") "assistant" else "user"
-            val content = buildGatewayHistoryContent(message.content, message.timestamp)
+            val content = buildGatewayHistoryContent(
+                role = role,
+                content = message.content,
+                timestamp = message.timestamp,
+            )
             if (content.isBlank()) {
                 null
             } else {
@@ -3489,10 +3493,23 @@ class ChatRepository(
         }
     }
 
-    private fun buildGatewayHistoryContent(content: String, timestamp: Long): String {
+    private fun buildGatewayHistoryContent(
+        role: String,
+        content: String,
+        timestamp: Long,
+    ): String {
         val visible = stripReceiptPayload(content).trim()
-        val timestampHint = buildHistoryTimestampHint(timestamp)
-        return listOf(timestampHint, visible)
+        val sanitizedVisible = if (role == "assistant") {
+            stripLeakedInternalContextLines(visible).trim()
+        } else {
+            visible
+        }
+        val timestampHint = if (role == "user") {
+            buildHistoryTimestampHint(timestamp)
+        } else {
+            ""
+        }
+        return listOf(timestampHint, sanitizedVisible)
             .filter { it.isNotBlank() }
             .joinToString("\n")
             .trim()
@@ -3618,6 +3635,7 @@ class ChatRepository(
                         - 不要给用户起外号，不要臆造账单数据。
                         - 如果没有可用账单数据或工具结果，必须明确说明“当前无法直接查看到完整账本数据”，并引导用户补充条件；禁止编造金额、分类、条数。
                         - 禁止在对用户可见回复里输出内部上下文字段，例如“上轮记账上下文”“上轮工具上下文”或 action=、amount= 这类调试片段。
+                        - 聊天语气要像微信对话：标点自然，不要每句都用句号收尾；在表达情绪时可适度加入 0~2 个贴合语境的 Emoji（如 😊、🤔、✨、😭），避免堆砌或重复。
 
                         普通聊天时，尽量像真人发消息，可以分成2到4句短消息，每句不超过40字，避免长篇大论。
             如果要连发多条独立消息，请使用双换行分隔（\n\n），不要用单换行硬拆句。
@@ -4562,10 +4580,10 @@ class ChatRepository(
         val lineNullRegex = Regex("(?im)^\\s*null\\s*$")
         val repeatedNullRegex = Regex("(?i)(?:null\\s*){4,}")
         val internalContextLeakLineRegex = Regex(
-            "(?im)^\\s*(?:上轮记账上下文|上轮工具上下文|上一轮账单结果|上一轮工具调用|结构化结果|追踪ID|traceId|requestId)[:：].*$",
+            "(?im)^\\s*(?:上轮记账上下文|上轮工具上下文|上一轮账单结果|上一轮工具调用|结构化结果|追踪ID|traceId|requestId|消息时间|message\\s*time|timestamp)[:：].*$",
         )
         val internalContextLeakInlineRegex = Regex(
-            "(?i)(?:上轮记账上下文|上轮工具上下文|上一轮账单结果|上一轮工具调用)[:：][^\\n]*",
+            "(?i)(?:上轮记账上下文|上轮工具上下文|上一轮账单结果|上一轮工具调用|消息时间|message\\s*time|timestamp)[:：][^\\n]*",
         )
         val conversationDelimiterRegex = Regex("\\n\\s*\\n+|\\\\n\\s*\\\\n+|<MSG>|\\|\\|\\|", setOf(RegexOption.IGNORE_CASE))
         val majorSentenceRegex = Regex("(?<=[。！？!?])")

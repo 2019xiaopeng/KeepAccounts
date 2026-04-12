@@ -61,8 +61,11 @@ class ChatRepositoryTimeSemanticsTest {
             val messages = request?.messages.orEmpty()
             val systemMessages = messages.filter { it.role == "system" }
             val dialogueMessages = messages.filter { it.role != "system" }
+            val userDialogueMessages = dialogueMessages.filter { it.role == "user" }
+            val assistantDialogueMessages = dialogueMessages.filter { it.role == "assistant" }
 
-            assertTrue(dialogueMessages.any { it.content.contains("消息时间：") })
+            assertTrue(userDialogueMessages.any { it.content.contains("消息时间：") })
+            assertFalse(assistantDialogueMessages.any { it.content.contains("消息时间：") })
             assertTrue(
                 systemMessages.any {
                     it.content.contains("内部上下文") &&
@@ -106,7 +109,7 @@ class ChatRepositoryTimeSemanticsTest {
     fun sendMessage_removesLeakedInternalContextLinesFromVisibleReply() {
         runBlocking {
             val gateway = TimeSemanticsFakeAiChatGateway(
-                reply = "好的好的，改成15块。\\n\\n现在是更正好的记录了。\\n上轮记账上下文：action=update, amount=15.0",
+                reply = "好的好的，改成15块。\\n\\n现在是更正好的记录了。\\n消息时间：2026-04-12 14:19（时区 Asia/Shanghai / UTC+08:00）\\n上轮记账上下文：action=update, amount=15.0",
             )
             val repository = ChatRepository(
                 chatMessageDao = TimeSemanticsFakeChatMessageDao(),
@@ -129,6 +132,7 @@ class ChatRepositoryTimeSemanticsTest {
             assertTrue(assistantText.contains("改成15块"))
             assertFalse(assistantText.contains("上轮记账上下文"))
             assertFalse(assistantText.contains("action=update"))
+            assertFalse(assistantText.contains("消息时间："))
         }
     }
 
