@@ -154,9 +154,20 @@ git push -u origin feat/p3-agent-tools
 
 ## Phase 4（P4）Android 16 Rich Ongoing Notifications + 全链路收口
 
+### P4 启动评估（2026-04-12）
+
+1. 启动结论：可进入 Phase4。
+2. 依据：
+   - Phase3 收尾完成，状态已进入观测维护期（见 `docs/p3-phase3-closure-report-2026-04-12.md`）。
+   - Agent 主链能力已具备：工具编排、双模型路由、可观测元数据落盘。
+   - 对话 UI 基线已升级：多选删除聊天气泡、分页时间线、微信风格分割时间文案。
+3. 文档动作：
+   - 本手册已补充 P4 承接约束与验收细化。
+   - 新增 P4 启动文档：`docs/p4-kickoff-2026-04-12.md`。
+
 ### 开发目标
 
-支持后台持续处理与可见状态，形成端到端可恢复体验。
+支持后台持续处理与可见状态，形成端到端可恢复体验；同时承接 Phase3 的 Agent 能力与 UI 基线，确保通知链路和对话链路口径一致。
 
 ### 开发任务
 
@@ -165,6 +176,8 @@ git push -u origin feat/p3-agent-tools
 3. 通知点击进入“本次 AI 执行详情页”。
 4. Android 16 用 Rich Ongoing Notifications，低版本降级普通前台通知。
 5. 对齐聊天结果卡片与通知文案口径。
+6. 详情页展示 Phase3 关键观测字段（如 `plannerModelUsed`、`chatModelUsed`、`routeReason`、`escalatedToPro`）。
+7. 与 P3-S6 UI 规范对齐：状态词、时间语义、批量/失败信息表达保持一致。
 
 ### 阶段测试 T4（后台稳定性与状态可见性）
 
@@ -172,7 +185,8 @@ git push -u origin feat/p3-agent-tools
 2. 预期：通知状态持续可见，回到应用后结果可追溯。
 3. 断网重连测试：处理中断网再恢复。
 4. 预期：最终状态正确（成功/部分成功/失败）且不丢失处理摘要。
-5. 通过标准：Android 16 与 Android 16 以下均可正常工作（高版本增强、低版本降级）。
+5. 预期：详情页可查看本次执行的关键路由与执行摘要，字段不缺失。
+6. 通过标准：Android 16 与 Android 16 以下均可正常工作（高版本增强、低版本降级），且通知链路与聊天链路结果口径一致。
 
 ### P4 提交与推送
 
