@@ -1,9 +1,9 @@
 # P3-S5 Agent Workflow 升级方案（LLM 规划优先 + 本地执行闭环）
 
 - 日期：2026-04-10
-- 状态：In Progress（PhaseA/PhaseB/PhaseC 已完成，PhaseD 待开始）
+- 状态：In Progress（PhaseA/PhaseB/PhaseC 已完成，PhaseD 待开始，PhaseE 设计已立项）
 - 适用范围：Phase3 后续迭代（承接 P3-S4）
-- 关联 ADR：ADR-033、ADR-041、ADR-042、ADR-043、ADR-044、ADR-045、ADR-046、ADR-047
+- 关联 ADR：ADR-033、ADR-041、ADR-042、ADR-043、ADR-044、ADR-045、ADR-046、ADR-047、ADR-048
 
 ## 1. 背景与结论
 
@@ -232,3 +232,7 @@
 - `resolveUpdateTargetTransaction` 在无时间/分类线索时优先回溯最近回执绑定 transaction，避免平分场景误命中旧记录。
 - update 备注写入增加显式意图门禁，只有“备注/描述/说明”意图才允许 patch，避免金额纠错语句覆盖原备注。
 - `AgentStyleFormatter` update 文案改为动态确认，支持“已将{desc}修改为{amount}元”。
+9. PhaseE（双模型分层路由提速）：方案已完成，待开发落地。
+- 目标：引入 Lite 模型（候选 Qwen2.5-7B）承接低风险请求，复杂/高风险场景继续由 DeepSeek-V3 保底。
+- 路径：先 Shadow 再灰度，Lite 低置信度或校验失败自动升级 Pro。
+- 文档：`docs/p3-s5-phasee-tiered-model-routing-plan.md`。
