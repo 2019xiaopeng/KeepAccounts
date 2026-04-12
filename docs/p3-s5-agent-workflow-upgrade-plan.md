@@ -1,7 +1,7 @@
 # P3-S5 Agent Workflow 升级方案（LLM 规划优先 + 本地执行闭环）
 
 - 日期：2026-04-10
-- 状态：In Progress（PhaseA/PhaseB/PhaseC 已完成，PhaseD 待开始，PhaseE 设计已立项）
+- 状态：Completed（PhaseA~PhaseE 已完成，进入观测维护期）
 - 适用范围：Phase3 后续迭代（承接 P3-S4）
 - 关联 ADR：ADR-033、ADR-041、ADR-042、ADR-043、ADR-044、ADR-045、ADR-046、ADR-047、ADR-048
 
@@ -232,7 +232,12 @@
 - `resolveUpdateTargetTransaction` 在无时间/分类线索时优先回溯最近回执绑定 transaction，避免平分场景误命中旧记录。
 - update 备注写入增加显式意图门禁，只有“备注/描述/说明”意图才允许 patch，避免金额纠错语句覆盖原备注。
 - `AgentStyleFormatter` update 文案改为动态确认，支持“已将{desc}修改为{amount}元”。
-9. PhaseE（双模型分层路由提速）：方案已完成，待开发落地。
-- 目标：引入 Lite 模型（候选 Qwen2.5-7B）承接低风险请求，复杂/高风险场景继续由 DeepSeek-V3 保底。
-- 路径：先 Shadow 再灰度，Lite 低置信度或校验失败自动升级 Pro。
+9. PhaseE（双模型分层路由提速）：已完成落地与调优收尾。
+- 路由主链：Lite/Pro 双层路由、低置信度自动升级、复杂/高风险直达 Pro。
+- 运营参数：Planner Primary 放量与阈值改为 BuildConfig 可配置。
+- 观测字段：`plannerModelUsed/chatModelUsed/routeReason/escalatedToPro/liteConfidence` 已落盘。
 - 文档：`docs/p3-s5-phasee-tiered-model-routing-plan.md`。
+10. PhaseD（规则收敛与治理）：已完成收尾。
+- ADR-046 状态收口为 Accepted，决策状态与代码状态保持一致。
+- Phase3 计划与里程碑状态同步更新为 Completed。
+- 现阶段进入“观测维护 + 小步调参”，不再阻塞 Phase4 启动。

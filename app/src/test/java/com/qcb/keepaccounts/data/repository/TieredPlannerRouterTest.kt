@@ -1,14 +1,18 @@
 package com.qcb.keepaccounts.data.repository
 
 import com.qcb.keepaccounts.domain.agent.AgentPlanner
+import com.qcb.keepaccounts.domain.agent.AgentRoutingTraceStore
 import com.qcb.keepaccounts.domain.agent.IntentPlanV2
 import com.qcb.keepaccounts.domain.agent.ModelRoutingPolicy
+import com.qcb.keepaccounts.domain.agent.ModelTier
 import com.qcb.keepaccounts.domain.agent.PlannerInputV2
 import com.qcb.keepaccounts.domain.agent.PlannerIntentType
 import com.qcb.keepaccounts.domain.agent.PreviewActionItem
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TieredPlannerRouterTest {
@@ -103,6 +107,42 @@ class TieredPlannerRouterTest {
             assertEquals(1, litePlanner.callCount)
             assertEquals(0, proPlanner.callCount)
             assertSame(litePlan, result)
+        }
+    }
+
+    @Test
+    fun plan_liteEscalation_writesRoutingTrace() {
+        runBlocking {
+            val traceStore = AgentRoutingTraceStore()
+            val litePlanner = RecordingPlanner { validCreatePlan(confidence = 0.64) }
+            val proPlan = validCreatePlan(confidence = 0.92)
+            val proPlanner = RecordingPlanner { proPlan }
+            val router = TieredPlannerRouter(
+                litePlanner = litePlanner,
+                proPlanner = proPlanner,
+                policy = ModelRoutingPolicy(
+                    enabled = true,
+                    liteRolloutPercent = 100,
+                    liteMinConfidence = 0.80,
+                ),
+                routingTraceStore = traceStore,
+            )
+
+            router.plan(
+                PlannerInputV2(
+                    requestId = "req-route-trace",
+                    userInput = "早餐 18 元",
+                    nowMillis = 1_700_000_000_000,
+                    timezoneId = "Asia/Shanghai",
+                ),
+            )
+
+            val trace = traceStore.peekPlannerTrace("req-route-trace")
+            assertNotNull(trace)
+            assertEquals(ModelTier.LITE, trace?.initialTier)
+            assertEquals(ModelTier.PRO, trace?.finalTier)
+            assertTrue(trace?.escalatedToPro == true)
+            assertEquals("lite_confidence_low", trace?.escalationReason)
         }
     }
 

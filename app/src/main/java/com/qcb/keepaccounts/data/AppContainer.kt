@@ -18,6 +18,7 @@ import com.qcb.keepaccounts.data.repository.SiliconFlowAiGateway
 import com.qcb.keepaccounts.data.repository.TieredAiChatGateway
 import com.qcb.keepaccounts.data.repository.TieredPlannerRouter
 import com.qcb.keepaccounts.data.repository.TransactionRepository
+import com.qcb.keepaccounts.domain.agent.AgentRoutingTraceStore
 import com.qcb.keepaccounts.domain.agent.ModelRoutingPolicy
 import com.qcb.keepaccounts.domain.agent.PlannerOutputValidator
 import com.qcb.keepaccounts.domain.agent.PlannerPromptProfile
@@ -62,6 +63,9 @@ class DefaultAppContainer(context: Context) : AppContainer {
     private val modelRouterEnabled = BuildConfig.MODEL_ROUTER_ENABLED
     private val modelLiteRolloutPercent = BuildConfig.MODEL_LITE_ROLLOUT_PERCENT.coerceIn(0, 100)
     private val modelLiteMinConfidence = BuildConfig.MODEL_LITE_MIN_CONFIDENCE.coerceIn(0.0, 1.0)
+    private val plannerPrimaryEnabled = BuildConfig.PLANNER_PRIMARY_ENABLED
+    private val plannerPrimaryRolloutPercent = BuildConfig.PLANNER_PRIMARY_ROLLOUT_PERCENT.coerceIn(0, 100)
+    private val plannerPrimaryMinConfidence = BuildConfig.PLANNER_PRIMARY_MIN_CONFIDENCE.coerceIn(0.0, 1.0)
     private val githubOwner = BuildConfig.GITHUB_OWNER
     private val githubRepo = BuildConfig.GITHUB_REPO
 
@@ -110,6 +114,10 @@ class DefaultAppContainer(context: Context) : AppContainer {
         )
     }
 
+    private val routingTraceStore by lazy {
+        AgentRoutingTraceStore()
+    }
+
     private val plannerLite by lazy {
         SiliconFlowPlannerGateway(
             api = siliconFlowApi,
@@ -132,6 +140,7 @@ class DefaultAppContainer(context: Context) : AppContainer {
             proPlanner = plannerPro,
             policy = modelRoutingPolicy,
             validator = PlannerOutputValidator(),
+            routingTraceStore = routingTraceStore,
         )
     }
 
@@ -195,9 +204,14 @@ class DefaultAppContainer(context: Context) : AppContainer {
             qualityFeedbackRepository = agentQualityFeedbackRepository,
             agentPlanner = agentPlanner,
             plannerShadowEnabled = true,
-            plannerPrimaryEnabled = true,
-            plannerPrimaryRolloutPercent = 10,
-            plannerPrimaryMinConfidence = 0.75,
+            plannerPrimaryEnabled = plannerPrimaryEnabled,
+            plannerPrimaryRolloutPercent = plannerPrimaryRolloutPercent,
+            plannerPrimaryMinConfidence = plannerPrimaryMinConfidence,
+            routingTraceStore = routingTraceStore,
+            plannerLiteModel = plannerLiteModelName,
+            plannerProModel = plannerProModelName,
+            chatLiteModel = chatLiteModelName,
+            chatProModel = chatProModelName,
         )
     }
 
@@ -208,6 +222,7 @@ class DefaultAppContainer(context: Context) : AppContainer {
             policy = modelRoutingPolicy,
             liteModel = chatLiteModelName,
             proModel = chatProModelName,
+            routingTraceStore = routingTraceStore,
         )
     }
 

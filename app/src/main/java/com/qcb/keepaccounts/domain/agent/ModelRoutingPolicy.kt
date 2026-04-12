@@ -61,15 +61,22 @@ class ModelRoutingPolicy(
         plan: IntentPlanV2?,
         issues: List<AgentValidationIssue>,
     ): Boolean {
-        if (plan == null) return true
-        if (plan.confidence < minConfidence) return true
-        if (issues.isNotEmpty()) return true
+        return resolveLitePlannerEscalationReason(plan, issues) != null
+    }
 
-        if (plan.intent == PlannerIntentType.DELETE_TRANSACTIONS) return true
-        if (plan.intent == PlannerIntentType.UNKNOWN) return true
-        if (plan.targetMode != PlannerTargetMode.SINGLE) return true
+    fun resolveLitePlannerEscalationReason(
+        plan: IntentPlanV2?,
+        issues: List<AgentValidationIssue>,
+    ): String? {
+        if (plan == null) return "lite_plan_null"
+        if (plan.confidence < minConfidence) return "lite_confidence_low"
+        if (issues.isNotEmpty()) return "lite_validation_issues"
 
-        return false
+        if (plan.intent == PlannerIntentType.DELETE_TRANSACTIONS) return "delete_intent_high_risk"
+        if (plan.intent == PlannerIntentType.UNKNOWN) return "unknown_intent"
+        if (plan.targetMode != PlannerTargetMode.SINGLE) return "non_single_target_mode"
+
+        return null
     }
 
     private fun isPlannerLiteCandidate(input: String): Boolean {

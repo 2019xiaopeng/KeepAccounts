@@ -18,6 +18,7 @@ data class AiChatRequest(
     val messages: List<AiMessage>,
     val temperature: Double = 0.3,
     val stream: Boolean = true,
+    val requestId: String? = null,
 )
 
 data class AiMessage(

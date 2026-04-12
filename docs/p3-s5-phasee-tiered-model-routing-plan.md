@@ -1,7 +1,7 @@
 # P3-S5 PhaseE 方案：双模型分层路由（DeepSeek-V3 + Qwen2.5-7B）
 
 - 日期：2026-04-12
-- 状态：In Progress（PR-1~PR-4 已落地，PR-5 待调优）
+- 状态：Completed（PR-1~PR-5 已落地，进入观测维护期）
 - 适用分支：`feat/p3-agent-tools`
 - 关联文档：`docs/p3-s5-agent-workflow-upgrade-plan.md`、`docs/adr/048-phase3-tiered-model-routing-strategy.md`
 
@@ -190,16 +190,20 @@ Lite 任一条件触发即升级到 Pro：
 2. [x] PR-2：TieredPlannerRouter（低风险 Lite 尝试 + 校验/低置信度自动升级 Pro）。
 3. [x] PR-3：Lite 执行灰度（按 rollout 百分比）+ 自动升级 Pro。
 4. [x] PR-4：TieredAiChatGateway + fallback chat 分层。
-5. [ ] PR-5：提示词 A/B 与阈值调优。
+5. [x] PR-5：提示词与阈值调优（Lite/Pro prompt profile 收口、Planner primary 阈值外置、路由观测字段落盘）。
 
 ## 10. 实施进展（2026-04-12）
 
 1. 代码改动：`AppContainer`、`SiliconFlowPlannerGateway`、`app/build.gradle.kts` 已接入 PhaseE 路由主链。
 2. 新增模块：`ModelRoutingPolicy`、`ModelRouteDecision`、`TieredPlannerRouter`、`TieredAiChatGateway`、`PlannerPromptProfile`。
-3. 回归结果：目标回归（`ChatRepositoryBatchLedgerTest`、`AgentStyleFormatterTest`）与全量 `:app:testDebugUnitTest` 通过。
+3. 路由观测：质量反馈 `metadataJson` 已写入 `plannerModelUsed/chatModelUsed/routeReason/escalatedToPro/liteConfidence`。
+4. 配置收口：`PLANNER_PRIMARY_ENABLED/ROLLOUT_PERCENT/MIN_CONFIDENCE` 已改为 BuildConfig 可配置。
+5. 回归结果：目标回归（`ChatRepositoryTimeSemanticsTest`、`TieredPlannerRouterTest`、`TieredAiChatGatewayTest`）与全量 `:app:testDebugUnitTest` 通过。
 
 ## 9. 结论
 
 在 KeepAccounts 的现有 Agent 架构下，引入 Qwen2.5-7B 作为 Lite 层最合适的切入点是“低风险规划 + fallback chat”。
 
 这样可以在不牺牲安全边界与可回放能力的前提下，获得可观的延迟优化与成本弹性；复杂与高风险场景继续由 DeepSeek-V3 保底。
+
+PhaseE 已完成既定开发目标，后续转入运营观测与阈值细调（不再阻塞 Phase4 启动）。

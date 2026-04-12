@@ -1,6 +1,6 @@
 # ADR-046: Phase3 Agent Workflow 升级为 LLM 规划优先 + 本地执行闭环
 
-- 状态：Proposed
+- 状态：Accepted
 - 日期：2026-04-10
 - 决策者：KeepAccounts 团队
 - 关联阶段：Phase3 Step5 (P3-S5)

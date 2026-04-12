@@ -13,6 +13,7 @@ import com.qcb.keepaccounts.data.local.entity.ChatMessageEntity
 import com.qcb.keepaccounts.data.local.entity.TransactionEntity
 import com.qcb.keepaccounts.domain.agent.AgentReplayTrace
 import com.qcb.keepaccounts.domain.agent.AgentRequestContext
+import com.qcb.keepaccounts.domain.agent.AgentRoutingTraceStore
 import com.qcb.keepaccounts.domain.agent.AgentRunLogger
 import com.qcb.keepaccounts.domain.agent.AgentRunStatus
 import com.qcb.keepaccounts.domain.agent.AgentValidationIssue
@@ -33,6 +34,7 @@ import com.qcb.keepaccounts.domain.agent.NoOpAgentPlanner
 import com.qcb.keepaccounts.domain.agent.NoOpAgentRunLogger
 import com.qcb.keepaccounts.domain.agent.PlannerInputV2
 import com.qcb.keepaccounts.domain.agent.PlannerIntentType
+import com.qcb.keepaccounts.domain.agent.ModelTier
 import com.qcb.keepaccounts.domain.agent.PlannerOutputValidator
 import com.qcb.keepaccounts.domain.agent.PendingIntentState
 import com.qcb.keepaccounts.domain.agent.PendingIntentStateStore
@@ -83,6 +85,11 @@ class ChatRepository(
     private val plannerPrimaryEnabled: Boolean = false,
     private val plannerPrimaryRolloutPercent: Int = 0,
     private val plannerPrimaryMinConfidence: Double = 0.75,
+    private val routingTraceStore: AgentRoutingTraceStore? = null,
+    private val plannerLiteModel: String = "",
+    private val plannerProModel: String = "deepseek-ai/DeepSeek-V3",
+    private val chatLiteModel: String = "",
+    private val chatProModel: String = "deepseek-ai/DeepSeek-V3",
     private val plannerOutputValidator: PlannerOutputValidator = PlannerOutputValidator(),
     private val pendingIntentStateStore: PendingIntentStateStore = InMemoryPendingIntentStateStore(),
     private val pendingIntentTtlMillis: Long = defaultPendingIntentTtlMillis,
@@ -241,6 +248,7 @@ class ChatRepository(
         userName: String,
     ) {
         val requestId = requestIdProvider()
+        routingTraceStore?.clear(requestId)
         val now = System.currentTimeMillis()
         chatMessageDao.insertMessage(
             ChatMessageEntity(
@@ -407,20 +415,6 @@ class ChatRepository(
                 return
             }
 
-            recordQualityFeedback(
-                requestId = requestId,
-                routePath = AgentRoutePath.PROMPT_FALLBACK,
-                stage = AgentQualityStage.INTENT_ROUTING,
-                userInput = userInput,
-                expectedAction = null,
-                actualAction = null,
-                runStatus = "FALLBACK",
-                fallbackUsed = true,
-                isMisjudged = isCorrectionInput,
-                errorCode = null,
-                errorMessage = null,
-                metadataJson = null,
-            )
             recordPlannerShadowFeedback(
                 requestId = requestId,
                 userInput = userInput,
@@ -453,6 +447,7 @@ class ChatRepository(
                 messages = requestMessages,
                 temperature = resolveTemperature(aiConfig.tone),
                 stream = true,
+                requestId = requestId,
             ),
         ).collect { event ->
             when (event) {
@@ -512,6 +507,7 @@ class ChatRepository(
                 fallbackText = streamErrorMessage?.trim().takeUnless { it.isNullOrBlank() } ?: "收到，我在。",
             )
         }
+        val fallbackRoutingMetadata = buildPromptFallbackRouteMetadata(requestId)
 
         val shouldRenderReceiptCard = normalizedReceipts.isNotEmpty() &&
             (transactionApplyResult.hasSuccess || transactionApplyResult.failedTransactions.isNotEmpty())
@@ -545,6 +541,20 @@ class ChatRepository(
                 receiptTransactionId = linkedTransactionId,
                 receiptTransactionBindings = transactionBindings,
             )
+            recordQualityFeedback(
+                requestId = requestId,
+                routePath = AgentRoutePath.PROMPT_FALLBACK,
+                stage = AgentQualityStage.INTENT_ROUTING,
+                userInput = userInput,
+                expectedAction = null,
+                actualAction = null,
+                runStatus = "FALLBACK",
+                fallbackUsed = true,
+                isMisjudged = isCorrectionInput,
+                errorCode = null,
+                errorMessage = streamErrorMessage,
+                metadataJson = fallbackRoutingMetadata,
+            )
             return
         }
 
@@ -557,6 +567,20 @@ class ChatRepository(
             isReceiptLast = false,
             receiptTransactionId = null,
             receiptTransactionBindings = null,
+        )
+        recordQualityFeedback(
+            requestId = requestId,
+            routePath = AgentRoutePath.PROMPT_FALLBACK,
+            stage = AgentQualityStage.INTENT_ROUTING,
+            userInput = userInput,
+            expectedAction = null,
+            actualAction = null,
+            runStatus = "FALLBACK",
+            fallbackUsed = true,
+            isMisjudged = isCorrectionInput,
+            errorCode = null,
+            errorMessage = streamErrorMessage,
+            metadataJson = fallbackRoutingMetadata,
         )
     }
 
@@ -1913,6 +1937,10 @@ class ChatRepository(
             AgentToolStatus.SKIPPED -> "SKIPPED"
             else -> "FAILED"
         }
+        val metadataWithRoute = buildPlannerPrimaryRouteMetadata(
+            requestId = requestId,
+            sourceMetadataJson = result.metadataJson,
+        )
 
         recordQualityFeedback(
             requestId = requestId,
@@ -1926,8 +1954,53 @@ class ChatRepository(
             isMisjudged = result.isMisjudged || isCorrectionInput,
             errorCode = result.errorCode?.name,
             errorMessage = result.errorMessage,
-            metadataJson = result.metadataJson,
+            metadataJson = metadataWithRoute,
         )
+    }
+
+    private fun buildPlannerPrimaryRouteMetadata(
+        requestId: String,
+        sourceMetadataJson: String?,
+    ): String? {
+        val trace = routingTraceStore?.peekPlannerTrace(requestId)
+        if (trace == null) {
+            return sourceMetadataJson
+        }
+
+        val root = sourceMetadataJson
+            ?.takeIf { it.isNotBlank() }
+            ?.let { raw -> runCatching { JSONObject(raw) }.getOrNull() }
+            ?: JSONObject()
+
+        val plannerModelUsed = when (trace.finalTier) {
+            ModelTier.LITE -> plannerLiteModel.trim().ifBlank { plannerProModel.trim().ifBlank { aiModel } }
+            ModelTier.PRO -> plannerProModel.trim().ifBlank { aiModel }
+        }
+
+        root.put("plannerModelUsed", plannerModelUsed)
+        root.put("routeReason", trace.routeReason)
+        root.put("escalatedToPro", trace.escalatedToPro)
+        root.put("plannerInitialTier", trace.initialTier.name.lowercase(Locale.ROOT))
+        root.put("plannerFinalTier", trace.finalTier.name.lowercase(Locale.ROOT))
+        trace.liteConfidence?.let { root.put("liteConfidence", it) }
+        trace.escalationReason?.let { reason ->
+            if (reason.isNotBlank()) {
+                root.put("plannerEscalationReason", reason)
+            }
+        }
+        return root.toString()
+    }
+
+    private fun buildPromptFallbackRouteMetadata(requestId: String): String? {
+        val trace = routingTraceStore?.peekChatTrace(requestId) ?: return null
+        return JSONObject().apply {
+            put("chatModelUsed", trace.modelUsed)
+            put("routeReason", trace.routeReason)
+            put("escalatedToPro", false)
+            put("chatTier", trace.tier.name.lowercase(Locale.ROOT))
+            put("chatLiteCandidateModel", chatLiteModel.trim().ifBlank { chatProModel.trim().ifBlank { aiModel } })
+            put("chatProModel", chatProModel.trim().ifBlank { aiModel })
+        }.toString()
     }
 
     private fun buildPlannerValidationIssuesJson(issues: List<AgentValidationIssue>): String {

@@ -1,5 +1,7 @@
 package com.qcb.keepaccounts.data.repository
 
+import com.qcb.keepaccounts.domain.agent.AgentRoutingTraceStore
+import com.qcb.keepaccounts.domain.agent.ChatRoutingTrace
 import com.qcb.keepaccounts.domain.agent.ModelRoutingPolicy
 import com.qcb.keepaccounts.domain.agent.ModelTier
 import com.qcb.keepaccounts.domain.contract.AiChatGateway
@@ -13,13 +15,33 @@ class TieredAiChatGateway(
     private val policy: ModelRoutingPolicy,
     private val liteModel: String,
     private val proModel: String,
+    private val routingTraceStore: AgentRoutingTraceStore? = null,
 ) : AiChatGateway {
 
     override fun streamReply(request: AiChatRequest): Flow<AiStreamEvent> {
         val decision = policy.decideChatTier(request)
+        val selectedModel = when (decision.tier) {
+            ModelTier.LITE -> resolvedLiteModel()
+            ModelTier.PRO -> resolvedProModel()
+        }
+
+        request.requestId
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+            ?.let { reqId ->
+                routingTraceStore?.putChatTrace(
+                    ChatRoutingTrace(
+                        requestId = reqId,
+                        tier = decision.tier,
+                        routeReason = decision.reason,
+                        modelUsed = selectedModel,
+                    ),
+                )
+            }
+
         return when (decision.tier) {
-            ModelTier.LITE -> liteGateway.streamReply(request.copy(model = resolvedLiteModel()))
-            ModelTier.PRO -> proGateway.streamReply(request.copy(model = resolvedProModel()))
+            ModelTier.LITE -> liteGateway.streamReply(request.copy(model = selectedModel))
+            ModelTier.PRO -> proGateway.streamReply(request.copy(model = selectedModel))
         }
     }
 

@@ -1,5 +1,7 @@
 package com.qcb.keepaccounts.data.repository
 
+import com.qcb.keepaccounts.domain.agent.AgentRoutingTraceStore
+import com.qcb.keepaccounts.domain.agent.ModelTier
 import com.qcb.keepaccounts.domain.agent.ModelRoutingPolicy
 import com.qcb.keepaccounts.domain.contract.AiChatGateway
 import com.qcb.keepaccounts.domain.contract.AiChatRequest
@@ -10,6 +12,7 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -96,11 +99,46 @@ class TieredAiChatGatewayTest {
         }
     }
 
-    private fun requestOf(userInput: String): AiChatRequest {
+    @Test
+    fun streamReply_recordsRoutingTrace() {
+        runBlocking {
+            val traceStore = AgentRoutingTraceStore()
+            val liteGateway = RecordingAiGateway("lite")
+            val proGateway = RecordingAiGateway("pro")
+            val gateway = TieredAiChatGateway(
+                liteGateway = liteGateway,
+                proGateway = proGateway,
+                policy = ModelRoutingPolicy(
+                    enabled = true,
+                    liteRolloutPercent = 100,
+                    liteMinConfidence = 0.80,
+                ),
+                liteModel = "Qwen/Qwen2.5-7B-Instruct",
+                proModel = "deepseek-ai/DeepSeek-V3",
+                routingTraceStore = traceStore,
+            )
+
+            gateway.streamReply(
+                request = requestOf(
+                    userInput = "帮我记一笔午饭 20 元",
+                    requestId = "req-chat-route-trace",
+                ),
+            ).toList()
+
+            val trace = traceStore.peekChatTrace("req-chat-route-trace")
+            assertNotNull(trace)
+            assertEquals(ModelTier.LITE, trace?.tier)
+            assertEquals("Qwen/Qwen2.5-7B-Instruct", trace?.modelUsed)
+            assertEquals("lite_candidate", trace?.routeReason)
+        }
+    }
+
+    private fun requestOf(userInput: String, requestId: String? = null): AiChatRequest {
         return AiChatRequest(
             model = "deepseek-ai/DeepSeek-V3",
             messages = listOf(AiMessage(role = "user", content = userInput)),
             stream = true,
+            requestId = requestId,
         )
     }
 }

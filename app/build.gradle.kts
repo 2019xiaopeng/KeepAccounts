@@ -60,6 +60,9 @@ android {
         buildConfigField("boolean", "MODEL_ROUTER_ENABLED", localPropBoolean("MODEL_ROUTER_ENABLED", true).toString())
         buildConfigField("int", "MODEL_LITE_ROLLOUT_PERCENT", localPropInt("MODEL_LITE_ROLLOUT_PERCENT", 20).coerceIn(0, 100).toString())
         buildConfigField("double", "MODEL_LITE_MIN_CONFIDENCE", localPropDouble("MODEL_LITE_MIN_CONFIDENCE", 0.80).coerceIn(0.0, 1.0).toString())
+        buildConfigField("boolean", "PLANNER_PRIMARY_ENABLED", localPropBoolean("PLANNER_PRIMARY_ENABLED", true).toString())
+        buildConfigField("int", "PLANNER_PRIMARY_ROLLOUT_PERCENT", localPropInt("PLANNER_PRIMARY_ROLLOUT_PERCENT", 10).coerceIn(0, 100).toString())
+        buildConfigField("double", "PLANNER_PRIMARY_MIN_CONFIDENCE", localPropDouble("PLANNER_PRIMARY_MIN_CONFIDENCE", 0.75).coerceIn(0.0, 1.0).toString())
         buildConfigField("String", "GITHUB_OWNER", "\"${localProp("GITHUB_OWNER", "2019xiaopeng")}\"")
         buildConfigField("String", "GITHUB_REPO", "\"${localProp("GITHUB_REPO", "KeepAccounts")}\"")
     }
