@@ -15,7 +15,12 @@ import com.qcb.keepaccounts.data.repository.ChatRepository
 import com.qcb.keepaccounts.data.repository.SiliconFlowPlannerGateway
 import com.qcb.keepaccounts.data.remote.siliconflow.SiliconFlowApi
 import com.qcb.keepaccounts.data.repository.SiliconFlowAiGateway
+import com.qcb.keepaccounts.data.repository.TieredAiChatGateway
+import com.qcb.keepaccounts.data.repository.TieredPlannerRouter
 import com.qcb.keepaccounts.data.repository.TransactionRepository
+import com.qcb.keepaccounts.domain.agent.ModelRoutingPolicy
+import com.qcb.keepaccounts.domain.agent.PlannerOutputValidator
+import com.qcb.keepaccounts.domain.agent.PlannerPromptProfile
 import com.qcb.keepaccounts.domain.contract.AiChatGateway
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
@@ -37,7 +42,26 @@ class DefaultAppContainer(context: Context) : AppContainer {
 
     private val apiKey = normalizeApiKey(BuildConfig.SILICONFLOW_API_KEY)
     private val apiBaseUrl = normalizeBaseUrl(BuildConfig.SILICONFLOW_API_URL)
-    private val modelName = normalizeModel(BuildConfig.SILICONFLOW_MODEL)
+    private val defaultModelName = normalizeModel(BuildConfig.SILICONFLOW_MODEL)
+    private val plannerProModelName = normalizeModel(
+        BuildConfig.SILICONFLOW_MODEL_PLANNER_PRO,
+        fallback = defaultModelName,
+    )
+    private val plannerLiteModelName = normalizeModel(
+        BuildConfig.SILICONFLOW_MODEL_PLANNER_LITE,
+        fallback = plannerProModelName,
+    )
+    private val chatProModelName = normalizeModel(
+        BuildConfig.SILICONFLOW_MODEL_CHAT_PRO,
+        fallback = defaultModelName,
+    )
+    private val chatLiteModelName = normalizeModel(
+        BuildConfig.SILICONFLOW_MODEL_CHAT_LITE,
+        fallback = chatProModelName,
+    )
+    private val modelRouterEnabled = BuildConfig.MODEL_ROUTER_ENABLED
+    private val modelLiteRolloutPercent = BuildConfig.MODEL_LITE_ROLLOUT_PERCENT.coerceIn(0, 100)
+    private val modelLiteMinConfidence = BuildConfig.MODEL_LITE_MIN_CONFIDENCE.coerceIn(0.0, 1.0)
     private val githubOwner = BuildConfig.GITHUB_OWNER
     private val githubRepo = BuildConfig.GITHUB_REPO
 
@@ -78,11 +102,41 @@ class DefaultAppContainer(context: Context) : AppContainer {
         )
     }
 
-    private val agentPlanner by lazy {
+    private val modelRoutingPolicy by lazy {
+        ModelRoutingPolicy(
+            enabled = modelRouterEnabled,
+            liteRolloutPercent = modelLiteRolloutPercent,
+            liteMinConfidence = modelLiteMinConfidence,
+        )
+    }
+
+    private val plannerLite by lazy {
         SiliconFlowPlannerGateway(
             api = siliconFlowApi,
-            model = modelName,
+            model = plannerLiteModelName,
+            promptProfile = PlannerPromptProfile.LITE,
         )
+    }
+
+    private val plannerPro by lazy {
+        SiliconFlowPlannerGateway(
+            api = siliconFlowApi,
+            model = plannerProModelName,
+            promptProfile = PlannerPromptProfile.PRO,
+        )
+    }
+
+    private val agentPlanner by lazy {
+        TieredPlannerRouter(
+            litePlanner = plannerLite,
+            proPlanner = plannerPro,
+            policy = modelRoutingPolicy,
+            validator = PlannerOutputValidator(),
+        )
+    }
+
+    private val baseAiGateway by lazy {
+        SiliconFlowAiGateway(siliconFlowApi)
     }
 
     private val aiHttpClient: OkHttpClient by lazy {
@@ -135,7 +189,7 @@ class DefaultAppContainer(context: Context) : AppContainer {
             chatMessageDao = database.chatMessageDao(),
             transactionDao = database.transactionDao(),
             aiChatGateway = aiChatGateway,
-            aiModel = modelName,
+            aiModel = chatProModelName,
             agentRunLogger = agentRunLogger,
             agentReplayService = agentReplayService,
             qualityFeedbackRepository = agentQualityFeedbackRepository,
@@ -148,7 +202,13 @@ class DefaultAppContainer(context: Context) : AppContainer {
     }
 
     override val aiChatGateway: AiChatGateway by lazy {
-        SiliconFlowAiGateway(siliconFlowApi)
+        TieredAiChatGateway(
+            liteGateway = baseAiGateway,
+            proGateway = baseAiGateway,
+            policy = modelRoutingPolicy,
+            liteModel = chatLiteModelName,
+            proModel = chatProModelName,
+        )
     }
 
     override val userSettingsRepository: UserSettingsRepository by lazy {
@@ -191,6 +251,6 @@ private fun normalizeApiKey(raw: String): String {
         .trim()
 }
 
-private fun normalizeModel(raw: String): String {
-    return raw.trim().ifBlank { "deepseek-ai/DeepSeek-V3" }
+private fun normalizeModel(raw: String, fallback: String = "deepseek-ai/DeepSeek-V3"): String {
+    return raw.trim().ifBlank { fallback }
 }

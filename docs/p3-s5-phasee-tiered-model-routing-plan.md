@@ -1,7 +1,7 @@
 # P3-S5 PhaseE 方案：双模型分层路由（DeepSeek-V3 + Qwen2.5-7B）
 
 - 日期：2026-04-12
-- 状态：Proposed
+- 状态：In Progress（PR-1~PR-4 已落地，PR-5 待调优）
 - 适用分支：`feat/p3-agent-tools`
 - 关联文档：`docs/p3-s5-agent-workflow-upgrade-plan.md`、`docs/adr/048-phase3-tiered-model-routing-strategy.md`
 
@@ -186,11 +186,17 @@ Lite 任一条件触发即升级到 Pro：
 
 ## 8. 实施清单（建议拆分）
 
-1. PR-1：配置键与 DI 接线（不改行为，默认全 Pro）。
-2. PR-2：TieredPlannerRouter + Shadow 打点。
-3. PR-3：Lite 执行灰度 + 自动升级 Pro。
-4. PR-4：TieredAiChatGateway + fallback chat 分层。
-5. PR-5：提示词 A/B 与阈值调优。
+1. [x] PR-1：配置键与 DI 接线（新增 BuildConfig 路由键与双模型注入入口）。
+2. [x] PR-2：TieredPlannerRouter（低风险 Lite 尝试 + 校验/低置信度自动升级 Pro）。
+3. [x] PR-3：Lite 执行灰度（按 rollout 百分比）+ 自动升级 Pro。
+4. [x] PR-4：TieredAiChatGateway + fallback chat 分层。
+5. [ ] PR-5：提示词 A/B 与阈值调优。
+
+## 10. 实施进展（2026-04-12）
+
+1. 代码改动：`AppContainer`、`SiliconFlowPlannerGateway`、`app/build.gradle.kts` 已接入 PhaseE 路由主链。
+2. 新增模块：`ModelRoutingPolicy`、`ModelRouteDecision`、`TieredPlannerRouter`、`TieredAiChatGateway`、`PlannerPromptProfile`。
+3. 回归结果：目标回归（`ChatRepositoryBatchLedgerTest`、`AgentStyleFormatterTest`）与全量 `:app:testDebugUnitTest` 通过。
 
 ## 9. 结论
 

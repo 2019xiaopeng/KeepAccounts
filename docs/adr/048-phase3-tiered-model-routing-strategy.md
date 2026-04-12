@@ -1,6 +1,6 @@
 # ADR-048: Phase3 双模型分层路由策略（DeepSeek-V3 + Qwen2.5-7B）
 
-- 状态：Proposed
+- 状态：Accepted
 - 日期：2026-04-12
 - 决策者：KeepAccounts 团队
 - 关联阶段：Phase3 Step5 (P3-S5 / PhaseE)

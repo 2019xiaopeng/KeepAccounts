@@ -13,6 +13,7 @@ import com.qcb.keepaccounts.domain.agent.AgentToolArgs
 import com.qcb.keepaccounts.domain.agent.IntentPlanV2
 import com.qcb.keepaccounts.domain.agent.PlannerInputV2
 import com.qcb.keepaccounts.domain.agent.PlannerIntentType
+import com.qcb.keepaccounts.domain.agent.PlannerPromptProfile
 import com.qcb.keepaccounts.domain.agent.PlannerRiskLevel
 import com.qcb.keepaccounts.domain.agent.PlannerTargetMode
 import com.qcb.keepaccounts.domain.agent.PreviewActionItem
@@ -23,6 +24,7 @@ import org.json.JSONObject
 class SiliconFlowPlannerGateway(
     private val api: SiliconFlowApi,
     private val model: String = DEFAULT_MODEL,
+    private val promptProfile: PlannerPromptProfile = PlannerPromptProfile.PRO,
 ) : AgentPlanner {
 
     override suspend fun plan(input: PlannerInputV2): IntentPlanV2? {
@@ -44,11 +46,23 @@ class SiliconFlowPlannerGateway(
     }
 
     private fun buildPlannerMessages(input: PlannerInputV2): List<SiliconFlowMessageDto> {
-        val systemPrompt = """
-            你是 KeepAccounts 的 planner，只输出结构化函数参数，不输出额外解释。
-            你必须根据用户输入判断 intent，并尽量填充 queryArgs/statsArgs/writeItems。
-            如果无法确定，intent 填 unknown，confidence 低于 0.5。
-        """.trimIndent()
+        val systemPrompt = when (promptProfile) {
+            PlannerPromptProfile.LITE -> {
+                """
+                    你是 KeepAccounts 的轻量 planner，只输出结构化函数参数，不输出额外解释。
+                    你优先处理单动作、低歧义请求（create/update/query），并尽量填充 queryArgs 或 writeItems。
+                    遇到 delete、批量、多目标、复杂相对时间、统计趋势类请求时，intent 必须输出 unknown，confidence 低于 0.8。
+                """.trimIndent()
+            }
+
+            PlannerPromptProfile.PRO -> {
+                """
+                    你是 KeepAccounts 的 planner，只输出结构化函数参数，不输出额外解释。
+                    你必须根据用户输入判断 intent，并尽量填充 queryArgs/statsArgs/writeItems。
+                    如果无法确定，intent 填 unknown，confidence 低于 0.5。
+                """.trimIndent()
+            }
+        }
 
         val userPrompt = """
             请求ID: ${input.requestId}

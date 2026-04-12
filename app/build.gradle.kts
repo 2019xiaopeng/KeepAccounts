@@ -17,6 +17,22 @@ fun localProp(key: String, defaultValue: String = ""): String {
     return (localProperties.getProperty(key) ?: defaultValue).trim().removeSurrounding("\"")
 }
 
+fun localPropInt(key: String, defaultValue: Int): Int {
+    return localProp(key, defaultValue.toString()).toIntOrNull() ?: defaultValue
+}
+
+fun localPropDouble(key: String, defaultValue: Double): Double {
+    return localProp(key, defaultValue.toString()).toDoubleOrNull() ?: defaultValue
+}
+
+fun localPropBoolean(key: String, defaultValue: Boolean): Boolean {
+    return when (localProp(key, defaultValue.toString()).lowercase()) {
+        "1", "true", "yes", "y", "on" -> true
+        "0", "false", "no", "n", "off" -> false
+        else -> defaultValue
+    }
+}
+
 android {
     namespace = "com.qcb.keepaccounts"
     compileSdk {
@@ -37,6 +53,13 @@ android {
         buildConfigField("String", "SILICONFLOW_API_KEY", "\"${localProp("SILICONFLOW_API_KEY", "")}\"")
         buildConfigField("String", "SILICONFLOW_API_URL", "\"${localProp("SILICONFLOW_API_URL", "https://api.siliconflow.cn/v1")}\"")
         buildConfigField("String", "SILICONFLOW_MODEL", "\"${localProp("SILICONFLOW_MODEL", "deepseek-ai/DeepSeek-V3")}\"")
+        buildConfigField("String", "SILICONFLOW_MODEL_PLANNER_PRO", "\"${localProp("SILICONFLOW_MODEL_PLANNER_PRO", localProp("SILICONFLOW_MODEL", "deepseek-ai/DeepSeek-V3"))}\"")
+        buildConfigField("String", "SILICONFLOW_MODEL_PLANNER_LITE", "\"${localProp("SILICONFLOW_MODEL_PLANNER_LITE", "Qwen/Qwen2.5-7B-Instruct")}\"")
+        buildConfigField("String", "SILICONFLOW_MODEL_CHAT_PRO", "\"${localProp("SILICONFLOW_MODEL_CHAT_PRO", localProp("SILICONFLOW_MODEL", "deepseek-ai/DeepSeek-V3"))}\"")
+        buildConfigField("String", "SILICONFLOW_MODEL_CHAT_LITE", "\"${localProp("SILICONFLOW_MODEL_CHAT_LITE", "Qwen/Qwen2.5-7B-Instruct")}\"")
+        buildConfigField("boolean", "MODEL_ROUTER_ENABLED", localPropBoolean("MODEL_ROUTER_ENABLED", true).toString())
+        buildConfigField("int", "MODEL_LITE_ROLLOUT_PERCENT", localPropInt("MODEL_LITE_ROLLOUT_PERCENT", 20).coerceIn(0, 100).toString())
+        buildConfigField("double", "MODEL_LITE_MIN_CONFIDENCE", localPropDouble("MODEL_LITE_MIN_CONFIDENCE", 0.80).coerceIn(0.0, 1.0).toString())
         buildConfigField("String", "GITHUB_OWNER", "\"${localProp("GITHUB_OWNER", "2019xiaopeng")}\"")
         buildConfigField("String", "GITHUB_REPO", "\"${localProp("GITHUB_REPO", "KeepAccounts")}\"")
     }
