@@ -72,6 +72,29 @@ fun formatClockTime(timestamp: Long): String {
     return SimpleDateFormat("HH:mm", Locale.CHINA).format(Date(timestamp))
 }
 
+fun formatWeChatStyleTime(
+    timestamp: Long,
+    nowMillis: Long = System.currentTimeMillis(),
+): String {
+    val now = calendarOf(nowMillis)
+    val target = calendarOf(timestamp)
+    val dayDiff = ((startOfDay(now).timeInMillis - startOfDay(target).timeInMillis) / MILLIS_PER_DAY).toInt()
+    val clock = formatClockTime(timestamp)
+
+    return when {
+        dayDiff == 0 -> clock
+        dayDiff == 1 -> "昨天 $clock"
+        dayDiff in 2..6 -> "${weekDayLabel(target.get(Calendar.DAY_OF_WEEK))} $clock"
+        now.get(Calendar.YEAR) == target.get(Calendar.YEAR) -> {
+            "${target.get(Calendar.MONTH) + 1}月${target.get(Calendar.DAY_OF_MONTH)}日 $clock"
+        }
+
+        else -> {
+            "${target.get(Calendar.YEAR)}年${target.get(Calendar.MONTH) + 1}月${target.get(Calendar.DAY_OF_MONTH)}日 $clock"
+        }
+    }
+}
+
 fun buildSemanticDateSearchTexts(
     timestamp: Long,
     nowMillis: Long = System.currentTimeMillis(),
@@ -133,6 +156,18 @@ private fun startOfDay(calendar: Calendar): Calendar {
         set(Calendar.MINUTE, 0)
         set(Calendar.SECOND, 0)
         set(Calendar.MILLISECOND, 0)
+    }
+}
+
+private fun weekDayLabel(dayOfWeek: Int): String {
+    return when (dayOfWeek) {
+        Calendar.MONDAY -> "星期一"
+        Calendar.TUESDAY -> "星期二"
+        Calendar.WEDNESDAY -> "星期三"
+        Calendar.THURSDAY -> "星期四"
+        Calendar.FRIDAY -> "星期五"
+        Calendar.SATURDAY -> "星期六"
+        else -> "星期日"
     }
 }
 

@@ -1,6 +1,11 @@
 package com.qcb.keepaccounts.ui.screens
 import com.qcb.keepaccounts.ui.components.appPressable
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -8,6 +13,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,6 +26,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -35,13 +42,19 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.AttachMoney
 import androidx.compose.material.icons.rounded.Category
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Today
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -56,6 +69,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -63,8 +77,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.paging.PagingData
+import androidx.paging.compose.collectAsLazyPagingItems
 import coil.compose.AsyncImage
 import com.qcb.keepaccounts.ui.components.glassCard
+import com.qcb.keepaccounts.ui.format.formatWeChatStyleTime
 import com.qcb.keepaccounts.ui.format.semanticDateTimeText
 import com.qcb.keepaccounts.ui.model.AiAssistantConfig
 import com.qcb.keepaccounts.ui.model.AiChatRecord
@@ -78,6 +95,7 @@ import com.qcb.keepaccounts.ui.theme.MintGreen
 import com.qcb.keepaccounts.ui.theme.WarmBrown
 import com.qcb.keepaccounts.ui.theme.WarmBrownMuted
 import com.qcb.keepaccounts.ui.theme.WatermelonRed
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.delay
 import org.json.JSONArray
 import org.json.JSONObject
@@ -139,29 +157,28 @@ fun ChatScreen(
     userAvatarUri: String?,
     palette: ThemePalette,
     paddingValues: PaddingValues = PaddingValues(0.dp),
-    chatRecords: List<AiChatRecord>,
+    pagedChatRecords: Flow<PagingData<AiChatRecord>>,
     isSending: Boolean,
     modifier: Modifier = Modifier,
     initialInput: String? = null,
     onConsumedInitialInput: () -> Unit = {},
     onSendMessage: (String) -> Unit = {},
     onDeleteMessage: (Long) -> Unit = {},
+    onDeleteSelectedMessages: (Set<Long>) -> Unit = {},
+    onClearChat: () -> Unit = {},
     onBack: (() -> Unit)? = null,
     onOpenAiSettings: () -> Unit = {},
     onOpenManualEntry: (ManualEntryPrefill) -> Unit = {},
 ) {
-    val chronologicalMessages = remember(chatRecords) {
-        chatRecords
-            .map { it.toDemoMessage() }
-            .filterNot { message ->
-                message.text.isBlank() && !message.isReceipt && message.insightCard == null
-            }
-    }
-    val displayMessages = remember(chronologicalMessages) { chronologicalMessages.asReversed() }
+    val lazyPagingItems = pagedChatRecords.collectAsLazyPagingItems()
+    val latestLoadedMessage = lazyPagingItems.itemSnapshotList.items.firstOrNull()
     var inputText by rememberSaveable { mutableStateOf("") }
     var topTip by remember { mutableStateOf("") }
+    var isSelectionMode by rememberSaveable { mutableStateOf(false) }
+    var selectedMessageIds by rememberSaveable { mutableStateOf(emptySet<Long>()) }
+    var showClearConfirmDialog by rememberSaveable { mutableStateOf(false) }
     val listState = rememberLazyListState()
-    val showTypingDots = isSending && chronologicalMessages.lastOrNull()?.role == "user"
+    val showTypingDots = isSending && latestLoadedMessage?.role == "user"
     var hasAutoScrolledOnce by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(topTip) {
@@ -179,8 +196,9 @@ fun ChatScreen(
         }
     }
 
-    LaunchedEffect(displayMessages.firstOrNull()?.id, displayMessages.size, showTypingDots) {
-        if (displayMessages.isEmpty() && !showTypingDots) return@LaunchedEffect
+    LaunchedEffect(latestLoadedMessage?.id, lazyPagingItems.itemCount, showTypingDots, isSelectionMode) {
+        if (isSelectionMode) return@LaunchedEffect
+        if (lazyPagingItems.itemCount == 0 && !showTypingDots) return@LaunchedEffect
 
         if (!hasAutoScrolledOnce) {
             listState.scrollToItem(0)
@@ -188,6 +206,32 @@ fun ChatScreen(
         } else {
             listState.animateScrollToItem(0)
         }
+    }
+
+    if (showClearConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearConfirmDialog = false },
+            title = { Text(text = "清空聊天记录") },
+            text = { Text(text = "仅会清空聊天气泡，不会删除真实账单流水。") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showClearConfirmDialog = false
+                        onClearChat()
+                        selectedMessageIds = emptySet()
+                        isSelectionMode = false
+                        topTip = "已清空聊天记录"
+                    },
+                ) {
+                    Text(text = "确认", color = WatermelonRed)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearConfirmDialog = false }) {
+                    Text(text = "取消")
+                }
+            },
+        )
     }
 
     Box(
@@ -232,7 +276,14 @@ fun ChatScreen(
                 assistantAvatar = aiConfig.avatar,
                 assistantAvatarUri = aiConfig.avatarUri,
                 palette = palette,
-                lastMessageTimestamp = chronologicalMessages.lastOrNull()?.timestamp,
+                lastMessageTimestamp = latestLoadedMessage?.timestamp,
+                isSelectionMode = isSelectionMode,
+                selectedCount = selectedMessageIds.size,
+                onCancelSelection = {
+                    selectedMessageIds = emptySet()
+                    isSelectionMode = false
+                },
+                onRequestClearChat = { showClearConfirmDialog = true },
             )
 
             if (topTip.isNotBlank()) {
@@ -276,7 +327,23 @@ fun ChatScreen(
                     }
                 }
 
-                items(displayMessages, key = { it.id }) { message ->
+                items(
+                    count = lazyPagingItems.itemCount,
+                    key = { index -> lazyPagingItems[index]?.id ?: "placeholder-$index" },
+                ) { index ->
+                    val currentRecord = lazyPagingItems[index] ?: return@items
+                    val previousRecord = if (index + 1 < lazyPagingItems.itemCount) lazyPagingItems[index + 1] else null
+                    val message = currentRecord.toDemoMessage()
+                    val showDivider = previousRecord == null ||
+                        (currentRecord.timestamp - previousRecord.timestamp) > CHAT_TIME_DIVIDER_INTERVAL_MILLIS
+
+                    if (showDivider) {
+                        TimeDividerComponent(
+                            text = formatWeChatStyleTime(currentRecord.timestamp),
+                            palette = palette,
+                        )
+                    }
+
                     MessageRow(
                         message = message,
                         assistantAvatar = aiConfig.avatar,
@@ -284,9 +351,22 @@ fun ChatScreen(
                         userName = userName,
                         userAvatarUri = userAvatarUri,
                         palette = palette,
+                        isSelectionMode = isSelectionMode,
+                        isSelected = selectedMessageIds.contains(message.id),
+                        onLongPressSelect = { messageId ->
+                            isSelectionMode = true
+                            selectedMessageIds = selectedMessageIds + messageId
+                        },
+                        onToggleSelection = { messageId ->
+                            selectedMessageIds = if (selectedMessageIds.contains(messageId)) {
+                                selectedMessageIds - messageId
+                            } else {
+                                selectedMessageIds + messageId
+                            }
+                        },
                         onDelete = {
                             onDeleteMessage(message.id)
-                            topTip = "已删除这条回执"
+                            topTip = "已删除该聊天气泡"
                         },
                         onEdit = {
                             onOpenManualEntry(
@@ -305,24 +385,50 @@ fun ChatScreen(
                 }
             }
 
-            InputBar(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 2.dp),
-                input = inputText,
-                onInputChange = { inputText = it },
-                assistantHint = aiConfig.name + aiConfig.avatar,
-                accentColor = palette.primaryDark,
-                enabled = !isSending,
-                onSend = {
-                    if (isSending) return@InputBar
-                    val userText = inputText.trim()
-                    if (userText.isEmpty()) return@InputBar
+            AnimatedVisibility(
+                visible = !isSelectionMode,
+                enter = fadeIn() + slideInVertically(initialOffsetY = { it / 2 }),
+                exit = fadeOut() + slideOutVertically(targetOffsetY = { it / 2 }),
+            ) {
+                InputBar(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 2.dp),
+                    input = inputText,
+                    onInputChange = { inputText = it },
+                    assistantHint = aiConfig.name + aiConfig.avatar,
+                    accentColor = palette.primaryDark,
+                    enabled = !isSending,
+                    onSend = {
+                        if (isSending) return@InputBar
+                        val userText = inputText.trim()
+                        if (userText.isEmpty()) return@InputBar
 
-                    inputText = ""
-                    onSendMessage(userText)
-                },
-            )
+                        inputText = ""
+                        onSendMessage(userText)
+                    },
+                )
+            }
+
+            AnimatedVisibility(
+                visible = isSelectionMode,
+                enter = fadeIn() + slideInVertically(initialOffsetY = { it / 2 }),
+                exit = fadeOut() + slideOutVertically(targetOffsetY = { it / 2 }),
+            ) {
+                DeleteSelectionBar(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                    selectedCount = selectedMessageIds.size,
+                    onDelete = {
+                        if (selectedMessageIds.isEmpty()) return@DeleteSelectionBar
+                        onDeleteSelectedMessages(selectedMessageIds)
+                        topTip = "已删除 ${selectedMessageIds.size} 条聊天记录"
+                        selectedMessageIds = emptySet()
+                        isSelectionMode = false
+                    },
+                )
+            }
         }
     }
 }
@@ -1054,7 +1160,13 @@ private fun ChatHeader(
     assistantAvatarUri: String?,
     palette: ThemePalette,
     lastMessageTimestamp: Long?,
+    isSelectionMode: Boolean,
+    selectedCount: Int,
+    onCancelSelection: () -> Unit,
+    onRequestClearChat: () -> Unit,
 ) {
+    var menuExpanded by remember { mutableStateOf(false) }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -1078,46 +1190,94 @@ private fun ChatHeader(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(
-                modifier = Modifier
-                    .size(34.dp)
-                    .clip(CircleShape)
-                    .appPressable { onBack?.invoke() },
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "back",
-                    tint = WarmBrown,
-                    modifier = Modifier.size(20.dp),
+            if (isSelectionMode) {
+                Text(
+                    text = "取消",
+                    color = WarmBrown,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(999.dp))
+                        .appPressable { onCancelSelection() }
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
                 )
-            }
 
-            Text(
-                text = "$assistantName${if (assistantAvatarUri.isNullOrBlank() && !assistantAvatar.startsWith("http")) assistantAvatar else ""}",
-                color = WarmBrown,
-                fontWeight = FontWeight.ExtraBold,
-                fontSize = 17.sp,
-            )
-
-            Box(
-                modifier = Modifier
-                    .size(34.dp)
-                    .clip(CircleShape)
-                    .appPressable { onOpenAiSettings() },
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.MoreHoriz,
-                    contentDescription = "more",
-                    tint = WarmBrown,
-                    modifier = Modifier.size(20.dp),
+                Text(
+                    text = "已选择 $selectedCount 条",
+                    color = WarmBrown,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 17.sp,
                 )
+
+                Box(modifier = Modifier.size(34.dp))
+            } else {
+                Box(
+                    modifier = Modifier
+                        .size(34.dp)
+                        .clip(CircleShape)
+                        .appPressable { onBack?.invoke() },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "back",
+                        tint = WarmBrown,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+
+                Text(
+                    text = "$assistantName${if (assistantAvatarUri.isNullOrBlank() && !assistantAvatar.startsWith("http")) assistantAvatar else ""}",
+                    color = WarmBrown,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 17.sp,
+                )
+
+                Box {
+                    Box(
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(CircleShape)
+                            .appPressable { menuExpanded = true },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.MoreHoriz,
+                            contentDescription = "more",
+                            tint = WarmBrown,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+
+                    DropdownMenu(
+                        expanded = menuExpanded,
+                        onDismissRequest = { menuExpanded = false },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text(text = "AI 设置") },
+                            onClick = {
+                                menuExpanded = false
+                                onOpenAiSettings()
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(text = "清空聊天记录", color = WatermelonRed) },
+                            onClick = {
+                                menuExpanded = false
+                                onRequestClearChat()
+                            },
+                        )
+                    }
+                }
             }
         }
 
         Text(
-            text = formatHeaderSubtitle(lastMessageTimestamp),
+            text = if (isSelectionMode) {
+                "仅删除聊天气泡，不影响账单流水"
+            } else {
+                formatHeaderSubtitle(lastMessageTimestamp)
+            },
             color = WarmBrown.copy(alpha = 0.64f),
             fontWeight = FontWeight.Medium,
             fontSize = 11.sp,
@@ -1141,6 +1301,10 @@ private fun MessageRow(
     userName: String,
     userAvatarUri: String?,
     palette: ThemePalette,
+    isSelectionMode: Boolean,
+    isSelected: Boolean,
+    onLongPressSelect: (Long) -> Unit,
+    onToggleSelection: (Long) -> Unit,
     onDelete: () -> Unit,
     onEdit: () -> Unit,
 ) {
@@ -1152,37 +1316,71 @@ private fun MessageRow(
     }
 
     Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
+        modifier = Modifier
+            .fillMaxWidth()
+            .pointerInput(isSelectionMode, message.id) {
+                detectTapGestures(
+                    onLongPress = {
+                        onLongPressSelect(message.id)
+                    },
+                    onTap = {
+                        if (isSelectionMode) {
+                            onToggleSelection(message.id)
+                        }
+                    },
+                )
+            },
         verticalAlignment = Alignment.Top,
     ) {
-        if (!isUser) {
-            AssistantAvatarBubble(
-                assistantAvatar = assistantAvatar,
-                assistantAvatarUri = assistantAvatarUri,
-                palette = palette,
-                modifier = Modifier.padding(end = 8.dp),
-            )
-        }
-
-        Column(horizontalAlignment = if (isUser) Alignment.End else Alignment.Start) {
+        AnimatedVisibility(visible = isSelectionMode) {
             Box(
                 modifier = Modifier
-                    .widthIn(max = 288.dp)
-                    .clip(bubbleShape)
-                    .background(if (isUser) palette.primaryDark.copy(alpha = 0.86f) else Color.White.copy(alpha = 0.98f))
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                    .padding(top = 12.dp, end = 8.dp)
+                    .size(24.dp),
+                contentAlignment = Alignment.Center,
             ) {
-                if (isUser) {
-                    Text(
-                        text = message.text,
-                        color = Color.White,
-                        fontWeight = FontWeight.Medium,
-                        fontSize = 14.sp,
-                        lineHeight = 20.sp,
-                    )
-                } else {
-                    SelectionContainer {
+                Icon(
+                    imageVector = Icons.Rounded.CheckCircle,
+                    contentDescription = "selection",
+                    tint = if (isSelected) palette.primaryDark else WarmBrownMuted.copy(alpha = 0.35f),
+                    modifier = Modifier.size(22.dp),
+                )
+            }
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .offset(x = if (isSelectionMode) 6.dp else 0.dp),
+            horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
+            verticalAlignment = Alignment.Top,
+        ) {
+            if (!isUser) {
+                AssistantAvatarBubble(
+                    assistantAvatar = assistantAvatar,
+                    assistantAvatarUri = assistantAvatarUri,
+                    palette = palette,
+                    modifier = Modifier.padding(end = 8.dp),
+                )
+            }
+
+            Column(horizontalAlignment = if (isUser) Alignment.End else Alignment.Start) {
+                Box(
+                    modifier = Modifier
+                        .widthIn(max = 288.dp)
+                        .clip(bubbleShape)
+                        .background(if (isUser) palette.primaryDark.copy(alpha = 0.86f) else Color.White.copy(alpha = 0.98f))
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                ) {
+                    if (isUser) {
+                        Text(
+                            text = message.text,
+                            color = Color.White,
+                            fontWeight = FontWeight.Medium,
+                            fontSize = 14.sp,
+                            lineHeight = 20.sp,
+                        )
+                    } else if (isSelectionMode) {
                         Text(
                             text = renderMarkdownWithBoldHighlight(message.text),
                             color = WarmBrown,
@@ -1190,42 +1388,52 @@ private fun MessageRow(
                             fontSize = 14.sp,
                             lineHeight = 20.sp,
                         )
+                    } else {
+                        SelectionContainer {
+                            Text(
+                                text = renderMarkdownWithBoldHighlight(message.text),
+                                color = WarmBrown,
+                                fontWeight = FontWeight.Medium,
+                                fontSize = 14.sp,
+                                lineHeight = 20.sp,
+                            )
+                        }
+                    }
+                }
+
+                Text(
+                    text = formatBubbleTime(message.timestamp),
+                    fontSize = 10.sp,
+                    color = Color.Gray.copy(alpha = 0.6f),
+                    modifier = Modifier
+                        .padding(top = 4.dp, start = 4.dp, end = 4.dp)
+                        .align(if (isUser) Alignment.End else Alignment.Start),
+                )
+
+                if (!isSelectionMode && message.isReceipt) {
+                    ReceiptCard(
+                        message = message,
+                        palette = palette,
+                        onDelete = onDelete,
+                        onEdit = onEdit,
+                    )
+                } else if (!isSelectionMode && !isUser) {
+                    message.insightCard?.let { insight ->
+                        InsightCard(
+                            insight = insight,
+                            palette = palette,
+                        )
                     }
                 }
             }
 
-            Text(
-                text = formatBubbleTime(message.timestamp),
-                fontSize = 10.sp,
-                color = Color.Gray.copy(alpha = 0.6f),
-                modifier = Modifier
-                    .padding(top = 4.dp, start = 4.dp, end = 4.dp)
-                    .align(if (isUser) Alignment.End else Alignment.Start),
-            )
-
-            if (message.isReceipt) {
-                ReceiptCard(
-                    message = message,
-                    palette = palette,
-                    onDelete = onDelete,
-                    onEdit = onEdit,
+            if (isUser) {
+                UserAvatarBubble(
+                    name = userName,
+                    avatarUri = userAvatarUri,
+                    modifier = Modifier.padding(start = 8.dp),
                 )
-            } else if (!isUser) {
-                message.insightCard?.let { insight ->
-                    InsightCard(
-                        insight = insight,
-                        palette = palette,
-                    )
-                }
             }
-        }
-
-        if (isUser) {
-            UserAvatarBubble(
-                name = userName,
-                avatarUri = userAvatarUri,
-                modifier = Modifier.padding(start = 8.dp),
-            )
         }
     }
 }
@@ -1945,3 +2153,69 @@ private fun formatHeaderSubtitle(timestamp: Long?): String {
 private fun formatBubbleTime(timestamp: Long): String {
     return semanticDateTimeText(timestamp).timeText
 }
+
+@Composable
+private fun TimeDividerComponent(
+    text: String,
+    palette: ThemePalette,
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = text,
+            color = WarmBrownMuted.copy(alpha = 0.72f),
+            fontWeight = FontWeight.Medium,
+            fontSize = 11.sp,
+            modifier = Modifier
+                .clip(RoundedCornerShape(999.dp))
+                .background(palette.backgroundLight.copy(alpha = 0.62f))
+                .padding(horizontal = 10.dp, vertical = 4.dp),
+        )
+    }
+}
+
+@Composable
+private fun DeleteSelectionBar(
+    modifier: Modifier = Modifier,
+    selectedCount: Int,
+    onDelete: () -> Unit,
+) {
+    val enabled = selectedCount > 0
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(20.dp))
+            .background(Color.White.copy(alpha = 0.92f))
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Row(
+            modifier = Modifier
+                .clip(RoundedCornerShape(999.dp))
+                .background(if (enabled) WatermelonRed else Color(0xFFD7D7D7))
+                .appPressable(enabled = enabled) { onDelete() }
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.Delete,
+                contentDescription = "delete-selected",
+                tint = Color.White,
+                modifier = Modifier.size(18.dp),
+            )
+            Text(
+                text = "删除 ($selectedCount)",
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+                fontSize = 14.sp,
+            )
+        }
+    }
+}
+
+private const val CHAT_TIME_DIVIDER_INTERVAL_MILLIS = 5 * 60 * 1000L

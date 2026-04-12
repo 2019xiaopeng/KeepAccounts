@@ -56,6 +56,7 @@ import com.qcb.keepaccounts.ui.model.AiChatRecord
 import com.qcb.keepaccounts.ui.model.AiChatReceiptItem
 import com.qcb.keepaccounts.ui.model.AiChatReceiptSummary
 import com.qcb.keepaccounts.ui.model.AiTone
+import androidx.paging.PagingSource
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collect
@@ -231,15 +232,21 @@ class ChatRepository(
         }
     }
 
+    fun getPagedMessages(): PagingSource<Int, ChatMessageEntity> {
+        return chatMessageDao.getPagedMessages()
+    }
+
     suspend fun deleteMessage(messageId: Long) {
-        val message = chatMessageDao.getMessageById(messageId) ?: return
         chatMessageDao.deleteMessageById(messageId)
-        val boundCreateIds = parseTransactionBindings(message.transactionBindings)
-            .filter { it.action == ACTION_CREATE }
-            .map { it.transactionId }
-            .ifEmpty { listOfNotNull(message.transactionId) }
-            .distinct()
-        boundCreateIds.forEach { transactionDao.deleteTransactionById(it) }
+    }
+
+    suspend fun deleteSelectedMessages(ids: Set<Long>) {
+        if (ids.isEmpty()) return
+        chatMessageDao.deleteMessagesByIds(ids.toList())
+    }
+
+    suspend fun clearChat() {
+        chatMessageDao.clearMessages()
     }
 
     suspend fun sendMessage(

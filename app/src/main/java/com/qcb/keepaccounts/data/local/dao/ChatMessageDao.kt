@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.paging.PagingSource
 import com.qcb.keepaccounts.data.local.entity.ChatMessageEntity
 import kotlinx.coroutines.flow.Flow
 
@@ -18,6 +19,9 @@ interface ChatMessageDao {
 
     @Query("SELECT * FROM chat_messages ORDER BY timestamp DESC LIMIT :limit")
     suspend fun getRecentMessages(limit: Int): List<ChatMessageEntity>
+
+    @Query("SELECT * FROM chat_messages ORDER BY timestamp DESC")
+    fun getPagedMessages(): PagingSource<Int, ChatMessageEntity>
 
     @Query("SELECT * FROM chat_messages WHERE id = :id LIMIT 1")
     suspend fun getMessageById(id: Long): ChatMessageEntity?

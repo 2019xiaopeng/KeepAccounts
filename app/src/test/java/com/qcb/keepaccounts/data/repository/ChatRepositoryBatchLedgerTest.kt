@@ -22,6 +22,8 @@ import com.qcb.keepaccounts.domain.contract.AiChatGateway
 import com.qcb.keepaccounts.domain.contract.AiChatRequest
 import com.qcb.keepaccounts.domain.contract.AiStreamEvent
 import com.qcb.keepaccounts.ui.model.AiAssistantConfig
+import androidx.paging.PagingSource
+import androidx.paging.PagingState
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
@@ -1927,6 +1929,38 @@ private class FakeChatMessageDao : ChatMessageDao {
         return messages
             .sortedByDescending { it.timestamp }
             .take(limit)
+    }
+
+    override fun getPagedMessages(): PagingSource<Int, ChatMessageEntity> {
+        val snapshot = messages.sortedByDescending { it.timestamp }
+        return object : PagingSource<Int, ChatMessageEntity>() {
+            override suspend fun load(params: LoadParams<Int>): LoadResult<Int, ChatMessageEntity> {
+                val page = params.key ?: 0
+                val fromIndex = page * params.loadSize
+                if (fromIndex >= snapshot.size) {
+                    return LoadResult.Page(
+                        data = emptyList(),
+                        prevKey = if (page == 0) null else page - 1,
+                        nextKey = null,
+                    )
+                }
+
+                val toIndex = minOf(fromIndex + params.loadSize, snapshot.size)
+                val data = snapshot.subList(fromIndex, toIndex)
+                return LoadResult.Page(
+                    data = data,
+                    prevKey = if (page == 0) null else page - 1,
+                    nextKey = if (toIndex < snapshot.size) page + 1 else null,
+                )
+            }
+
+            override fun getRefreshKey(state: PagingState<Int, ChatMessageEntity>): Int? {
+                return state.anchorPosition?.let { anchor ->
+                    val closestPage = state.closestPageToPosition(anchor)
+                    closestPage?.prevKey?.plus(1) ?: closestPage?.nextKey?.minus(1)
+                }
+            }
+        }
     }
 
     override suspend fun getMessageById(id: Long): ChatMessageEntity? = messages.firstOrNull { it.id == id }
