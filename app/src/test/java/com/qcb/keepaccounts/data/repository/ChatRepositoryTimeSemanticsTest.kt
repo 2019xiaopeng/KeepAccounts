@@ -14,13 +14,123 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
 
 class ChatRepositoryTimeSemanticsTest {
+
+    @Test
+    fun sendMessage_gatewayHistoryIncludesTimestampAndUsesHiddenPayloadContext() {
+        runBlocking {
+            val chatMessageDao = TimeSemanticsFakeChatMessageDao()
+            val transactionDao = TimeSemanticsFakeTransactionDao()
+            val now = System.currentTimeMillis()
+
+            chatMessageDao.insertMessage(
+                ChatMessageEntity(
+                    role = "assistant",
+                    content = "已经记好了。<DATA>{\"isReceipt\":true,\"action\":\"update\",\"amount\":15.0,\"category\":\"餐饮美食\"}</DATA>",
+                    isReceipt = true,
+                    timestamp = now - 14 * 60 * 60 * 1000,
+                ),
+            )
+
+            val gateway = TimeSemanticsFakeAiChatGateway(reply = "收到啦。")
+            val repository = ChatRepository(
+                chatMessageDao = chatMessageDao,
+                transactionDao = transactionDao,
+                aiChatGateway = gateway,
+                agentDefaultPathEnabled = false,
+            )
+
+            repository.sendMessage(
+                userInput = "你好啊",
+                aiConfig = AiAssistantConfig(),
+                userName = "测试用户",
+            )
+
+            val request = gateway.lastRequest
+            assertNotNull(request)
+
+            val messages = request?.messages.orEmpty()
+            val systemMessages = messages.filter { it.role == "system" }
+            val dialogueMessages = messages.filter { it.role != "system" }
+
+            assertTrue(dialogueMessages.any { it.content.contains("消息时间：") })
+            assertTrue(
+                systemMessages.any {
+                    it.content.contains("内部上下文") &&
+                        it.content.contains("上一轮账单结果")
+                },
+            )
+            assertFalse(dialogueMessages.any { it.content.contains("上轮记账上下文") })
+            assertFalse(dialogueMessages.any { it.content.contains("action=") })
+        }
+    }
+
+    @Test
+    fun sendMessage_splitsLiteralEscapedNewlinesIntoMultipleBubbles() {
+        runBlocking {
+            val gateway = TimeSemanticsFakeAiChatGateway(
+                reply = "第一句\\n\\n第二句\\n\\n第三句\\n\\n第四句",
+            )
+            val repository = ChatRepository(
+                chatMessageDao = TimeSemanticsFakeChatMessageDao(),
+                transactionDao = TimeSemanticsFakeTransactionDao(),
+                aiChatGateway = gateway,
+                agentDefaultPathEnabled = false,
+            )
+
+            repository.sendMessage(
+                userInput = "测试切分",
+                aiConfig = AiAssistantConfig(),
+                userName = "测试用户",
+            )
+
+            val assistantChunks = repository.observeChatRecords()
+                .first()
+                .filter { it.role == "assistant" && !it.isReceipt }
+                .map { it.content }
+
+            assertEquals(listOf("第一句", "第二句", "第三句", "第四句"), assistantChunks)
+        }
+    }
+
+    @Test
+    fun sendMessage_removesLeakedInternalContextLinesFromVisibleReply() {
+        runBlocking {
+            val gateway = TimeSemanticsFakeAiChatGateway(
+                reply = "好的好的，改成15块。\\n\\n现在是更正好的记录了。\\n上轮记账上下文：action=update, amount=15.0",
+            )
+            val repository = ChatRepository(
+                chatMessageDao = TimeSemanticsFakeChatMessageDao(),
+                transactionDao = TimeSemanticsFakeTransactionDao(),
+                aiChatGateway = gateway,
+                agentDefaultPathEnabled = false,
+            )
+
+            repository.sendMessage(
+                userInput = "稍等，帮我改一下，是15块",
+                aiConfig = AiAssistantConfig(),
+                userName = "测试用户",
+            )
+
+            val assistantText = repository.observeChatRecords()
+                .first()
+                .filter { it.role == "assistant" && !it.isReceipt }
+                .joinToString("\n") { it.content }
+
+            assertTrue(assistantText.contains("改成15块"))
+            assertFalse(assistantText.contains("上轮记账上下文"))
+            assertFalse(assistantText.contains("action=update"))
+        }
+    }
 
     @Test
     fun sendMessage_updatesYesterdayLunchAmountAndKeepsSemanticTimestamp() {
@@ -170,7 +280,11 @@ private class TimeSemanticsFakeAiChatGateway(
     private val reply: String,
     private val draft: AiReceiptDraft? = null,
 ) : AiChatGateway {
+    var lastRequest: AiChatRequest? = null
+        private set
+
     override fun streamReply(request: AiChatRequest): Flow<AiStreamEvent> = flow {
+        lastRequest = request
         emit(AiStreamEvent.TextDelta(reply))
         draft?.let { emit(AiStreamEvent.ReceiptParsed(listOf(it))) }
         emit(AiStreamEvent.Completed)

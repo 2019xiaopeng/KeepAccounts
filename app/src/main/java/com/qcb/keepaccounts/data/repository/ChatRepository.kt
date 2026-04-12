@@ -3455,7 +3455,7 @@ class ChatRepository(
     ): List<AiMessage> {
         val normalized = recentMessages.mapNotNull { message ->
             val role = if (message.role == "assistant" || message.role == "ai") "assistant" else "user"
-            val content = buildGatewayHistoryContent(message.content)
+            val content = buildGatewayHistoryContent(message.content, message.timestamp)
             if (content.isBlank()) {
                 null
             } else {
@@ -3474,19 +3474,53 @@ class ChatRepository(
         }
 
         val cappedTurns = merged.takeLast(12)
+        val latestPayloadHint = buildRecentPayloadContextHint(recentMessages)
         return buildList {
             add(AiMessage(role = "system", content = systemPrompt))
+            if (latestPayloadHint.isNotBlank()) {
+                add(
+                    AiMessage(
+                        role = "system",
+                        content = "【内部上下文，仅用于多轮理解，禁止原样复述给用户】\n$latestPayloadHint",
+                    ),
+                )
+            }
             addAll(cappedTurns)
         }
     }
 
-    private fun buildGatewayHistoryContent(content: String): String {
+    private fun buildGatewayHistoryContent(content: String, timestamp: Long): String {
         val visible = stripReceiptPayload(content).trim()
-        val payloadHint = buildPayloadContextHint(content)
-        return listOf(visible, payloadHint)
+        val timestampHint = buildHistoryTimestampHint(timestamp)
+        return listOf(timestampHint, visible)
             .filter { it.isNotBlank() }
             .joinToString("\n")
             .trim()
+    }
+
+    private fun buildRecentPayloadContextHint(recentMessages: List<ChatMessageEntity>): String {
+        return recentMessages
+            .asReversed()
+            .asSequence()
+            .mapNotNull { message ->
+                buildPayloadContextHint(message.content)
+                    .takeIf { it.isNotBlank() }
+            }
+            .firstOrNull()
+            .orEmpty()
+    }
+
+    private fun buildHistoryTimestampHint(timestamp: Long): String {
+        if (timestamp <= 0L) return ""
+        val timezone = TimeZone.getDefault()
+        val date = Date(timestamp)
+        val dateText = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.CHINA).apply {
+            timeZone = timezone
+        }.format(date)
+        val offsetText = SimpleDateFormat("XXX", Locale.US).apply {
+            timeZone = timezone
+        }.format(date)
+        return "消息时间：$dateText（时区 ${timezone.id} / UTC$offsetText）"
     }
 
     private fun buildPayloadContextHint(content: String): String {
@@ -3499,11 +3533,11 @@ class ChatRepository(
             val keyword = result?.optJSONObject("filters")?.optString("keyword")?.takeIf { it.isNotBlank() }
 
             val contextParts = mutableListOf<String>()
-            if (toolName.isNotBlank()) contextParts += "tool=$toolName"
-            if (!window.isNullOrBlank()) contextParts += "window=$window"
-            if (!keyword.isNullOrBlank()) contextParts += "keyword=$keyword"
+            if (toolName.isNotBlank()) contextParts += "工具：$toolName"
+            if (!window.isNullOrBlank()) contextParts += "时间范围：$window"
+            if (!keyword.isNullOrBlank()) contextParts += "关键词：$keyword"
             if (contextParts.isNotEmpty()) {
-                return "上轮工具上下文：${contextParts.joinToString(", ")}"
+                return "上一轮工具调用：${contextParts.joinToString("；")}"
             }
         }
 
@@ -3518,11 +3552,19 @@ class ChatRepository(
                 null
             }
             val parts = mutableListOf<String>()
-            action?.let { parts += "action=$it" }
-            category?.let { parts += "category=$it" }
-            amount?.let { parts += "amount=${kotlin.math.abs(it)}" }
+            action?.let {
+                val actionText = when (it.trim().lowercase(Locale.ROOT)) {
+                    ACTION_CREATE -> "新增"
+                    ACTION_UPDATE -> "修改"
+                    ACTION_DELETE -> "删除"
+                    else -> it
+                }
+                parts += "动作：$actionText"
+            }
+            category?.let { parts += "分类：$it" }
+            amount?.let { parts += "金额：${kotlin.math.abs(it)}" }
             if (parts.isNotEmpty()) {
-                return "上轮记账上下文：${parts.joinToString(", ")}"
+                return "上一轮账单结果：${parts.joinToString("；")}"
             }
         }
 
@@ -3533,8 +3575,17 @@ class ChatRepository(
         aiConfig: AiAssistantConfig,
         userName: String,
     ): String {
-        val today = SimpleDateFormat("yyyy-MM-dd", Locale.CHINA).format(Date())
-        val nowDateTime = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.CHINA).format(Date())
+        val timezone = TimeZone.getDefault()
+        val now = Date()
+        val today = SimpleDateFormat("yyyy-MM-dd", Locale.CHINA).apply {
+            timeZone = timezone
+        }.format(now)
+        val nowDateTime = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.CHINA).apply {
+            timeZone = timezone
+        }.format(now)
+        val timezoneOffset = SimpleDateFormat("XXX", Locale.US).apply {
+            timeZone = timezone
+        }.format(now)
         val toneText = when (aiConfig.tone.name) {
             "TSUNDERE" -> "傲娇毒舌"
             "RATIONAL" -> "理智管家"
@@ -3550,6 +3601,7 @@ class ChatRepository(
         return """
             你是一个名为${aiConfig.name}的AI记账管家，性格是${toneText}。用户的名字是${userName}。
                         今天日期是${today}，当前系统准确时间是${nowDateTime}。
+                        当前系统时区是${timezone.id}（UTC${timezoneOffset}）。
             ${toneGuide}
                         你的任务是陪用户聊天，并在用户提到收支时完成记账动作。
 
@@ -3565,6 +3617,7 @@ class ChatRepository(
                         - 纠错低成本：用户说“记错了/改成/不对/修改”时，优先理解为 update，而不是 create。
                         - 不要给用户起外号，不要臆造账单数据。
                         - 如果没有可用账单数据或工具结果，必须明确说明“当前无法直接查看到完整账本数据”，并引导用户补充条件；禁止编造金额、分类、条数。
+                        - 禁止在对用户可见回复里输出内部上下文字段，例如“上轮记账上下文”“上轮工具上下文”或 action=、amount= 这类调试片段。
 
                         普通聊天时，尽量像真人发消息，可以分成2到4句短消息，每句不超过40字，避免长篇大论。
             如果要连发多条独立消息，请使用双换行分隔（\n\n），不要用单换行硬拆句。
@@ -3608,7 +3661,7 @@ class ChatRepository(
     }
 
     private fun splitAssistantReply(text: String): List<String> {
-        val normalized = text
+        val normalized = normalizeEscapedLineBreaks(text)
             .replace("\r", "")
             .trim()
 
@@ -3621,7 +3674,9 @@ class ChatRepository(
 
         // Keep a single continuous bubble unless caller explicitly separates paragraphs/messages.
         if (explicitParts.size <= 1) {
-            return listOf(normalized)
+            return splitByMajorSentences(normalized)
+                .ifEmpty { listOf(normalized) }
+                .take(maxAssistantReplyChunks)
         }
 
         val sourceParts = explicitParts
@@ -3633,7 +3688,14 @@ class ChatRepository(
 
         return splitParts
             .ifEmpty { listOf(normalized) }
-            .take(3)
+            .take(maxAssistantReplyChunks)
+    }
+
+    private fun normalizeEscapedLineBreaks(text: String): String {
+        if (!text.contains("\\n")) return text
+        return text
+            .replace("\\r\\n", "\n")
+            .replace("\\n", "\n")
     }
 
     private fun splitByMajorSentences(text: String, maxLen: Int = 42): List<String> {
@@ -3728,11 +3790,19 @@ class ChatRepository(
             .replace(unclosedMarkdownAnyCodeBlockRegex, "")
         val withoutJsonSegments = stripLikelyJsonSegments(withoutCodeBlocks)
         val withoutTrailingJson = stripTrailingJsonFragment(withoutJsonSegments)
-        return withoutTrailingJson
+        val withoutLeakContext = stripLeakedInternalContextLines(withoutTrailingJson)
+        return withoutLeakContext
             .replace(jsonKeyLineRegex, "")
             .replace(orphanJsonPunctuationLineRegex, "")
             .replace(Regex("\\n{3,}"), "\n\n")
             .trim()
+    }
+
+    private fun stripLeakedInternalContextLines(text: String): String {
+        if (text.isBlank()) return text
+        return text
+            .replace(internalContextLeakInlineRegex, "")
+            .replace(internalContextLeakLineRegex, "")
     }
 
     private fun stripLikelyJsonSegments(text: String): String {
@@ -4491,13 +4561,20 @@ class ChatRepository(
         val leadingNullRegex = Regex("(?is)^\\s*(?:null\\s*)+")
         val lineNullRegex = Regex("(?im)^\\s*null\\s*$")
         val repeatedNullRegex = Regex("(?i)(?:null\\s*){4,}")
-        val conversationDelimiterRegex = Regex("\\n\\s*\\n+|<MSG>|\\|\\|\\|", setOf(RegexOption.IGNORE_CASE))
+        val internalContextLeakLineRegex = Regex(
+            "(?im)^\\s*(?:上轮记账上下文|上轮工具上下文|上一轮账单结果|上一轮工具调用|结构化结果|追踪ID|traceId|requestId)[:：].*$",
+        )
+        val internalContextLeakInlineRegex = Regex(
+            "(?i)(?:上轮记账上下文|上轮工具上下文|上一轮账单结果|上一轮工具调用)[:：][^\\n]*",
+        )
+        val conversationDelimiterRegex = Regex("\\n\\s*\\n+|\\\\n\\s*\\\\n+|<MSG>|\\|\\|\\|", setOf(RegexOption.IGNORE_CASE))
         val majorSentenceRegex = Regex("(?<=[。！？!?])")
         const val oneDayMillis = 24L * 60L * 60L * 1000L
         const val defaultPendingIntentTtlMillis = 5L * 60L * 1000L
         const val assistantChunkStaggerDelayMs = 220L
         const val localReplyMinDelayMs = 520L
         const val localReplyMaxDelayMs = 980L
+        const val maxAssistantReplyChunks = 6
         const val highRiskDeleteCountThreshold = 3
         const val highRiskDeleteAmountThreshold = 300.0
         val draftDateTimePatterns = listOf(

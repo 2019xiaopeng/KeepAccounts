@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -84,6 +85,7 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import kotlin.math.roundToInt
 
 private data class DemoMessage(
     val id: Long,
@@ -117,10 +119,17 @@ private data class InsightEntry(
     val value: String,
 )
 
+private data class InsightBucket(
+    val label: String,
+    val amount: String,
+    val ratio: Float,
+)
+
 private data class ParsedInsightCard(
     val title: String,
     val primaryEntries: List<InsightEntry>,
     val explainEntries: List<InsightEntry>,
+    val buckets: List<InsightBucket> = emptyList(),
 )
 
 @Composable
@@ -654,44 +663,83 @@ private fun parseStatsInsightFromResult(result: JSONObject): ParsedInsightCard? 
         return ParsedInsightCard(
             title = "统计结果",
             primaryEntries = listOf(
-                InsightEntry("bucketCount", "0"),
+                InsightEntry("totalAmount", "0.00"),
                 InsightEntry("timeWindow", friendlyWindowLabel(timeWindow)),
             ),
             explainEntries = emptyList(),
         )
     }
 
-    var total = 0.0
+    val bucketRows = mutableListOf<Pair<String, Double>>()
     for (index in 0 until buckets.length()) {
         val bucket = buckets.optJSONObject(index) ?: continue
-        total += bucket.optDouble("value", 0.0)
+        val label = bucket.optString("key").ifBlank { "未命名" }
+        val value = kotlin.math.abs(bucket.optDouble("value", 0.0))
+        if (value > 0.0) {
+            bucketRows += label to value
+        }
     }
 
-    val top = buckets.optJSONObject(0)
-    val topKey = top?.optString("key").orEmpty().ifBlank { "未命名" }
-    val topValue = top?.optDouble("value", 0.0) ?: 0.0
+    if (bucketRows.isEmpty()) {
+        return ParsedInsightCard(
+            title = "统计结果",
+            primaryEntries = listOf(
+                InsightEntry("totalAmount", "0.00"),
+                InsightEntry("timeWindow", friendlyWindowLabel(timeWindow)),
+            ),
+            explainEntries = emptyList(),
+        )
+    }
+
+    val sortedBuckets = bucketRows.sortedByDescending { it.second }
+    val total = sortedBuckets.sumOf { it.second }
+    val top = sortedBuckets.first()
+    val bucketInsights = sortedBuckets
+        .take(4)
+        .map { (label, value) ->
+            val ratio = if (total <= 0.0) 0f else (value / total).toFloat().coerceIn(0f, 1f)
+            InsightBucket(
+                label = label,
+                amount = formatInsightAmount(value),
+                ratio = ratio,
+            )
+        }
 
     return ParsedInsightCard(
         title = "消费统计结果",
         primaryEntries = listOf(
-            InsightEntry("totalAmount", String.format(Locale.CHINA, "%.2f", kotlin.math.abs(total))),
-            InsightEntry("topBucket", "$topKey（${String.format(Locale.CHINA, "%.2f", kotlin.math.abs(topValue))}）"),
-            InsightEntry("bucketCount", buckets.length().toString()),
+            InsightEntry("totalAmount", formatInsightAmount(total)),
+            InsightEntry("topBucket", "${top.first}（${formatInsightAmount(top.second)}）"),
             InsightEntry("timeWindow", friendlyWindowLabel(timeWindow)),
         ),
         explainEntries = emptyList(),
+        buckets = bucketInsights,
     )
+}
+
+private fun formatInsightAmount(value: Double): String {
+    return String.format(Locale.CHINA, "%.2f", kotlin.math.abs(value))
 }
 
 private fun friendlyWindowLabel(rawWindow: String): String {
     val normalized = rawWindow.trim().lowercase(Locale.ROOT)
+    if (normalized.isBlank()) return "当前范围"
+
+    val isLast7Days = normalized.contains("last7days") ||
+        Regex("(?:近|最近|过去|last)?\\s*7\\s*(?:天|日|day|days|d)", RegexOption.IGNORE_CASE).containsMatchIn(normalized)
+    val isLast30Days = normalized.contains("last30days") ||
+        Regex("(?:近|最近|过去|last)?\\s*30\\s*(?:天|日|day|days|d)", RegexOption.IGNORE_CASE).containsMatchIn(normalized)
+    val isLast12Months = normalized.contains("last12months") ||
+        Regex("(?:近|最近|过去|last)?\\s*12\\s*(?:个月|月|month|months|m)", RegexOption.IGNORE_CASE).containsMatchIn(normalized)
+
     return when {
-        normalized.contains("last7days") || normalized.contains("7") -> "过去一周"
-        normalized.contains("last30days") || normalized.contains("30") -> "最近一个月"
+        normalized == "today" || normalized == "今天" -> "今天"
+        normalized == "yesterday" || normalized == "昨天" -> "昨天"
+        isLast7Days -> "过去一周"
+        isLast30Days -> "最近一个月"
+        isLast12Months -> "过去一年"
         normalized.contains("today") || normalized.contains("今天") -> "今天"
         normalized.contains("yesterday") || normalized.contains("昨天") -> "昨天"
-        normalized.contains("last12months") || normalized.contains("12") -> "过去一年"
-        rawWindow.isBlank() -> "当前范围"
         else -> rawWindow
     }
 }
@@ -1583,6 +1631,28 @@ private fun InsightCard(insight: ParsedInsightCard) {
             )
         }
 
+        if (insight.buckets.isNotEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color(0xFFF4F8FF))
+                    .padding(horizontal = 8.dp, vertical = 7.dp),
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        text = "分类占比",
+                        color = Color(0xFF6B7BAA),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 10.sp,
+                    )
+                    insight.buckets.forEach { bucket ->
+                        InsightBucketRow(bucket = bucket)
+                    }
+                }
+            }
+        }
+
         if (insight.explainEntries.isNotEmpty()) {
             Box(
                 modifier = Modifier
@@ -1608,6 +1678,52 @@ private fun InsightCard(insight: ParsedInsightCard) {
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun InsightBucketRow(bucket: InsightBucket) {
+    val ratio = bucket.ratio.coerceIn(0f, 1f)
+    val ratioText = "${(ratio * 100f).roundToInt()}%"
+    val indicatorRatio = if (ratio <= 0f) 0.05f else ratio
+
+    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = bucket.label,
+                color = WarmBrownMuted,
+                fontWeight = FontWeight.Medium,
+                fontSize = 10.sp,
+            )
+            Text(
+                text = "${bucket.amount} · $ratioText",
+                color = WarmBrown,
+                fontWeight = FontWeight.Bold,
+                fontSize = 10.sp,
+            )
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(6.dp)
+                .clip(RoundedCornerShape(999.dp))
+                .background(Color(0xFFDDE7FA)),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(indicatorRatio)
+                    .fillMaxHeight()
+                    .background(
+                        Brush.horizontalGradient(
+                            listOf(Color(0xFF85A9F9), Color(0xFFAED3FF)),
+                        ),
+                    ),
+            )
         }
     }
 }
