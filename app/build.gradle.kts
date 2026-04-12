@@ -17,6 +17,22 @@ fun localProp(key: String, defaultValue: String = ""): String {
     return (localProperties.getProperty(key) ?: defaultValue).trim().removeSurrounding("\"")
 }
 
+fun localPropInt(key: String, defaultValue: Int): Int {
+    return localProp(key, defaultValue.toString()).toIntOrNull() ?: defaultValue
+}
+
+fun localPropDouble(key: String, defaultValue: Double): Double {
+    return localProp(key, defaultValue.toString()).toDoubleOrNull() ?: defaultValue
+}
+
+fun localPropBoolean(key: String, defaultValue: Boolean): Boolean {
+    return when (localProp(key, defaultValue.toString()).lowercase()) {
+        "1", "true", "yes", "y", "on" -> true
+        "0", "false", "no", "n", "off" -> false
+        else -> defaultValue
+    }
+}
+
 android {
     namespace = "com.qcb.keepaccounts"
     compileSdk {
@@ -29,13 +45,24 @@ android {
         applicationId = "com.qcb.keepaccounts"
         minSdk = 36
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         buildConfigField("String", "SILICONFLOW_API_KEY", "\"${localProp("SILICONFLOW_API_KEY", "")}\"")
         buildConfigField("String", "SILICONFLOW_API_URL", "\"${localProp("SILICONFLOW_API_URL", "https://api.siliconflow.cn/v1")}\"")
+        buildConfigField("String", "SILICONFLOW_MODEL", "\"${localProp("SILICONFLOW_MODEL", "deepseek-ai/DeepSeek-V3")}\"")
+        buildConfigField("String", "SILICONFLOW_MODEL_PLANNER_PRO", "\"${localProp("SILICONFLOW_MODEL_PLANNER_PRO", localProp("SILICONFLOW_MODEL", "deepseek-ai/DeepSeek-V3"))}\"")
+        buildConfigField("String", "SILICONFLOW_MODEL_PLANNER_LITE", "\"${localProp("SILICONFLOW_MODEL_PLANNER_LITE", "Qwen/Qwen2.5-7B-Instruct")}\"")
+        buildConfigField("String", "SILICONFLOW_MODEL_CHAT_PRO", "\"${localProp("SILICONFLOW_MODEL_CHAT_PRO", localProp("SILICONFLOW_MODEL", "deepseek-ai/DeepSeek-V3"))}\"")
+        buildConfigField("String", "SILICONFLOW_MODEL_CHAT_LITE", "\"${localProp("SILICONFLOW_MODEL_CHAT_LITE", "Qwen/Qwen2.5-7B-Instruct")}\"")
+        buildConfigField("boolean", "MODEL_ROUTER_ENABLED", localPropBoolean("MODEL_ROUTER_ENABLED", true).toString())
+        buildConfigField("int", "MODEL_LITE_ROLLOUT_PERCENT", localPropInt("MODEL_LITE_ROLLOUT_PERCENT", 20).coerceIn(0, 100).toString())
+        buildConfigField("double", "MODEL_LITE_MIN_CONFIDENCE", localPropDouble("MODEL_LITE_MIN_CONFIDENCE", 0.80).coerceIn(0.0, 1.0).toString())
+        buildConfigField("boolean", "PLANNER_PRIMARY_ENABLED", localPropBoolean("PLANNER_PRIMARY_ENABLED", true).toString())
+        buildConfigField("int", "PLANNER_PRIMARY_ROLLOUT_PERCENT", localPropInt("PLANNER_PRIMARY_ROLLOUT_PERCENT", 10).coerceIn(0, 100).toString())
+        buildConfigField("double", "PLANNER_PRIMARY_MIN_CONFIDENCE", localPropDouble("PLANNER_PRIMARY_MIN_CONFIDENCE", 0.75).coerceIn(0.0, 1.0).toString())
         buildConfigField("String", "GITHUB_OWNER", "\"${localProp("GITHUB_OWNER", "2019xiaopeng")}\"")
         buildConfigField("String", "GITHUB_REPO", "\"${localProp("GITHUB_REPO", "KeepAccounts")}\"")
     }
@@ -75,10 +102,13 @@ dependencies {
     implementation("androidx.navigation:navigation-compose:2.9.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
+    implementation("androidx.paging:paging-runtime-ktx:3.3.6")
+    implementation("androidx.paging:paging-compose:3.3.6")
 
     // Room (Local-First persistence)
     implementation("androidx.room:room-runtime:2.7.2")
     implementation("androidx.room:room-ktx:2.7.2")
+    implementation("androidx.room:room-paging:2.7.2")
     ksp("androidx.room:room-compiler:2.7.2")
 
     // Network stack for future AI streaming
@@ -97,6 +127,7 @@ dependencies {
     implementation("com.google.accompanist:accompanist-systemuicontroller:0.34.0")
 
     testImplementation(libs.junit)
+    testImplementation("org.json:json:20240303")
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))

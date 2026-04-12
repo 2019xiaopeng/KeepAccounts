@@ -420,12 +420,12 @@ fun AppSettingsScreen(
                 item {
                     GenericCard(
                         title = "AI 对话可做事项",
-                        desc = "你可以在对话里直接要求 AI 记录或修改账单",
+                        desc = "当前已支持账单增删改查（CRUD）与统计分析，优先走本地工具执行。",
                     )
                 }
                 item {
                     CapabilityCard(
-                        title = "记录收支（create）",
+                        title = "新增账单（create）",
                         examples = listOf(
                             "今天午饭 22 元",
                             "打车花了 35",
@@ -435,7 +435,17 @@ fun AppSettingsScreen(
                 }
                 item {
                     CapabilityCard(
-                        title = "修改上一条（update）",
+                        title = "查询流水（query）",
+                        examples = listOf(
+                            "今天都记了什么？",
+                            "最近三笔支出是哪些？",
+                            "昨天餐饮花了多少？",
+                        ),
+                    )
+                }
+                item {
+                    CapabilityCard(
+                        title = "修改账单（update）",
                         examples = listOf(
                             "刚刚记错了，是 15 块钱",
                             "上一笔改成交通分类",
@@ -454,9 +464,29 @@ fun AppSettingsScreen(
                     )
                 }
                 item {
+                    CapabilityCard(
+                        title = "删除账单（delete）",
+                        examples = listOf(
+                            "删除刚才那笔奶茶",
+                            "把昨天打车那条删掉",
+                            "删除今天早餐记录",
+                        ),
+                    )
+                }
+                item {
+                    CapabilityCard(
+                        title = "统计分析（stats/insights）",
+                        examples = listOf(
+                            "本周支出按分类排行",
+                            "这个月花销趋势怎么样？",
+                            "我的预算还剩多少？",
+                        ),
+                    )
+                }
+                item {
                     GenericCard(
-                        title = "使用建议",
-                        desc = "如果 AI 没定位到目标记录，请补充“哪一天/哪一笔/原分类”中的一个关键信息。",
+                        title = "安全与使用建议",
+                        desc = "若 AI 未定位到目标记录，请补充“哪一天/哪一笔/原分类”；删除和批量操作会优先预览或二次确认。",
                     )
                 }
             }

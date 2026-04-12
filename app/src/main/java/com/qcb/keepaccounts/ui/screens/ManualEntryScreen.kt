@@ -51,7 +51,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.qcb.keepaccounts.ui.components.ThemedSegmentedToggle
 import com.qcb.keepaccounts.ui.components.glassCard
+import com.qcb.keepaccounts.ui.format.applyCurrentTimeToDate
 import com.qcb.keepaccounts.ui.format.primaryCurrencySymbol
+import com.qcb.keepaccounts.ui.format.semanticDateTimeText
 import com.qcb.keepaccounts.ui.icons.resolveCategoryIcon
 import com.qcb.keepaccounts.ui.model.ManualEntryPrefill
 import com.qcb.keepaccounts.ui.theme.IncomeGreen
@@ -60,9 +62,6 @@ import com.qcb.keepaccounts.ui.theme.WarmBrown
 import com.qcb.keepaccounts.ui.theme.WarmBrownMuted
 import com.qcb.keepaccounts.ui.theme.WatermelonRed
 import com.qcb.keepaccounts.ui.viewmodel.MainViewModel
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -83,9 +82,14 @@ fun ManualEntryScreen(
     var recordDateMillis by rememberSaveable { mutableLongStateOf(System.currentTimeMillis()) }
     var showDatePicker by rememberSaveable { mutableStateOf(false) }
     var saveTip by rememberSaveable { mutableStateOf<String?>(null) }
+    var editingTransactionId by rememberSaveable { mutableStateOf<Long?>(null) }
+    val semanticRecordDate = remember(recordDateMillis) { semanticDateTimeText(recordDateMillis) }
+    val effectiveRecordTimestamp = remember(recordDateMillis) { applyCurrentTimeToDate(recordDateMillis) }
+    val effectiveRecordDateTime = remember(effectiveRecordTimestamp) { semanticDateTimeText(effectiveRecordTimestamp) }
 
     LaunchedEffect(initialData) {
         if (initialData != null) {
+            editingTransactionId = initialData.transactionId
             type = initialData.type
             amountInput = initialData.amount
             remarkInput = initialData.desc
@@ -239,9 +243,15 @@ fun ManualEntryScreen(
                         horizontalArrangement = Arrangement.Center,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(text = formatRecordDate(recordDateMillis), color = WarmBrownMuted, fontWeight = FontWeight.Bold)
+                        Text(text = semanticRecordDate.dateText, color = WarmBrownMuted, fontWeight = FontWeight.Bold)
                     }
                 }
+
+                Text(
+                    text = "保存后展示为 ${effectiveRecordDateTime.dateTimeText}",
+                    color = WarmBrownMuted.copy(alpha = 0.82f),
+                    fontSize = 12.sp,
+                )
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -296,7 +306,8 @@ fun ManualEntryScreen(
                         if (amount == null || amount <= 0.0) {
                             saveTip = "请输入正确金额"
                         } else {
-                            viewModel.addManualTransaction(
+                            viewModel.saveManualTransaction(
+                                transactionId = editingTransactionId,
                                 type = if (type == "expense") 0 else 1,
                                 amount = amount,
                                 categoryName = selectedCategory.ifBlank { "其他" },
@@ -360,10 +371,6 @@ fun ManualEntryScreen(
             DatePicker(state = pickerState, showModeToggle = false)
         }
     }
-}
-
-private fun formatRecordDate(timestamp: Long): String {
-    return SimpleDateFormat("yyyy-MM-dd", Locale.CHINA).format(Date(timestamp))
 }
 
 @OptIn(ExperimentalLayoutApi::class)

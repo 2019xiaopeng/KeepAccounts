@@ -3,20 +3,33 @@ package com.qcb.keepaccounts.data
 import android.content.Context
 import androidx.room.Room
 import com.qcb.keepaccounts.BuildConfig
+import com.qcb.keepaccounts.data.agent.AgentJsonlMirrorStore
+import com.qcb.keepaccounts.data.agent.AgentQualityFeedbackRepository
+import com.qcb.keepaccounts.data.agent.AgentReplayService
+import com.qcb.keepaccounts.data.agent.RoomAgentRunLogger
 import com.qcb.keepaccounts.data.local.AppDatabase
 import com.qcb.keepaccounts.data.local.preferences.UserSettingsRepository
 import com.qcb.keepaccounts.data.remote.github.GitHubReleaseApi
 import com.qcb.keepaccounts.data.repository.AppUpdateRepository
 import com.qcb.keepaccounts.data.repository.ChatRepository
+import com.qcb.keepaccounts.data.repository.SiliconFlowPlannerGateway
 import com.qcb.keepaccounts.data.remote.siliconflow.SiliconFlowApi
 import com.qcb.keepaccounts.data.repository.SiliconFlowAiGateway
+import com.qcb.keepaccounts.data.repository.TieredAiChatGateway
+import com.qcb.keepaccounts.data.repository.TieredPlannerRouter
 import com.qcb.keepaccounts.data.repository.TransactionRepository
+import com.qcb.keepaccounts.domain.agent.AgentRoutingTraceStore
+import com.qcb.keepaccounts.domain.agent.ModelRoutingPolicy
+import com.qcb.keepaccounts.domain.agent.PlannerOutputValidator
+import com.qcb.keepaccounts.domain.agent.PlannerPromptProfile
 import com.qcb.keepaccounts.domain.contract.AiChatGateway
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
+import java.io.File
+import java.util.concurrent.TimeUnit
 
 interface AppContainer {
     val transactionRepository: TransactionRepository
@@ -30,6 +43,29 @@ class DefaultAppContainer(context: Context) : AppContainer {
 
     private val apiKey = normalizeApiKey(BuildConfig.SILICONFLOW_API_KEY)
     private val apiBaseUrl = normalizeBaseUrl(BuildConfig.SILICONFLOW_API_URL)
+    private val defaultModelName = normalizeModel(BuildConfig.SILICONFLOW_MODEL)
+    private val plannerProModelName = normalizeModel(
+        BuildConfig.SILICONFLOW_MODEL_PLANNER_PRO,
+        fallback = defaultModelName,
+    )
+    private val plannerLiteModelName = normalizeModel(
+        BuildConfig.SILICONFLOW_MODEL_PLANNER_LITE,
+        fallback = plannerProModelName,
+    )
+    private val chatProModelName = normalizeModel(
+        BuildConfig.SILICONFLOW_MODEL_CHAT_PRO,
+        fallback = defaultModelName,
+    )
+    private val chatLiteModelName = normalizeModel(
+        BuildConfig.SILICONFLOW_MODEL_CHAT_LITE,
+        fallback = chatProModelName,
+    )
+    private val modelRouterEnabled = BuildConfig.MODEL_ROUTER_ENABLED
+    private val modelLiteRolloutPercent = BuildConfig.MODEL_LITE_ROLLOUT_PERCENT.coerceIn(0, 100)
+    private val modelLiteMinConfidence = BuildConfig.MODEL_LITE_MIN_CONFIDENCE.coerceIn(0.0, 1.0)
+    private val plannerPrimaryEnabled = BuildConfig.PLANNER_PRIMARY_ENABLED
+    private val plannerPrimaryRolloutPercent = BuildConfig.PLANNER_PRIMARY_ROLLOUT_PERCENT.coerceIn(0, 100)
+    private val plannerPrimaryMinConfidence = BuildConfig.PLANNER_PRIMARY_MIN_CONFIDENCE.coerceIn(0.0, 1.0)
     private val githubOwner = BuildConfig.GITHUB_OWNER
     private val githubRepo = BuildConfig.GITHUB_REPO
 
@@ -37,10 +73,87 @@ class DefaultAppContainer(context: Context) : AppContainer {
         context,
         AppDatabase::class.java,
         "keep_accounts.db",
+    ).addMigrations(
+        AppDatabase.MIGRATION_2_3,
+        AppDatabase.MIGRATION_3_4,
     ).build()
+
+    private val jsonlMirrorStore: AgentJsonlMirrorStore by lazy {
+        AgentJsonlMirrorStore(
+            File(context.filesDir, "agent_logs/agent_tool_calls.jsonl"),
+        )
+    }
+
+    private val agentRunLogger by lazy {
+        RoomAgentRunLogger(
+            runDao = database.agentRunDao(),
+            toolCallDao = database.agentToolCallDao(),
+            jsonlMirrorStore = jsonlMirrorStore,
+        )
+    }
+
+    private val agentReplayService by lazy {
+        AgentReplayService(
+            runDao = database.agentRunDao(),
+            toolCallDao = database.agentToolCallDao(),
+            jsonlMirrorStore = jsonlMirrorStore,
+        )
+    }
+
+    private val agentQualityFeedbackRepository by lazy {
+        AgentQualityFeedbackRepository(
+            dao = database.agentQualityFeedbackDao(),
+        )
+    }
+
+    private val modelRoutingPolicy by lazy {
+        ModelRoutingPolicy(
+            enabled = modelRouterEnabled,
+            liteRolloutPercent = modelLiteRolloutPercent,
+            liteMinConfidence = modelLiteMinConfidence,
+        )
+    }
+
+    private val routingTraceStore by lazy {
+        AgentRoutingTraceStore()
+    }
+
+    private val plannerLite by lazy {
+        SiliconFlowPlannerGateway(
+            api = siliconFlowApi,
+            model = plannerLiteModelName,
+            promptProfile = PlannerPromptProfile.LITE,
+        )
+    }
+
+    private val plannerPro by lazy {
+        SiliconFlowPlannerGateway(
+            api = siliconFlowApi,
+            model = plannerProModelName,
+            promptProfile = PlannerPromptProfile.PRO,
+        )
+    }
+
+    private val agentPlanner by lazy {
+        TieredPlannerRouter(
+            litePlanner = plannerLite,
+            proPlanner = plannerPro,
+            policy = modelRoutingPolicy,
+            validator = PlannerOutputValidator(),
+            routingTraceStore = routingTraceStore,
+        )
+    }
+
+    private val baseAiGateway by lazy {
+        SiliconFlowAiGateway(siliconFlowApi)
+    }
 
     private val aiHttpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
+            .connectTimeout(60, TimeUnit.SECONDS)
+            .readTimeout(60, TimeUnit.SECONDS)
+            .writeTimeout(60, TimeUnit.SECONDS)
+            .callTimeout(75, TimeUnit.SECONDS)
             .addInterceptor { chain ->
                 val builder = chain.request().newBuilder()
                     .header("Content-Type", "application/json")
@@ -85,11 +198,32 @@ class DefaultAppContainer(context: Context) : AppContainer {
             chatMessageDao = database.chatMessageDao(),
             transactionDao = database.transactionDao(),
             aiChatGateway = aiChatGateway,
+            aiModel = chatProModelName,
+            agentRunLogger = agentRunLogger,
+            agentReplayService = agentReplayService,
+            qualityFeedbackRepository = agentQualityFeedbackRepository,
+            agentPlanner = agentPlanner,
+            plannerShadowEnabled = true,
+            plannerPrimaryEnabled = plannerPrimaryEnabled,
+            plannerPrimaryRolloutPercent = plannerPrimaryRolloutPercent,
+            plannerPrimaryMinConfidence = plannerPrimaryMinConfidence,
+            routingTraceStore = routingTraceStore,
+            plannerLiteModel = plannerLiteModelName,
+            plannerProModel = plannerProModelName,
+            chatLiteModel = chatLiteModelName,
+            chatProModel = chatProModelName,
         )
     }
 
     override val aiChatGateway: AiChatGateway by lazy {
-        SiliconFlowAiGateway(siliconFlowApi)
+        TieredAiChatGateway(
+            liteGateway = baseAiGateway,
+            proGateway = baseAiGateway,
+            policy = modelRoutingPolicy,
+            liteModel = chatLiteModelName,
+            proModel = chatProModelName,
+            routingTraceStore = routingTraceStore,
+        )
     }
 
     override val userSettingsRepository: UserSettingsRepository by lazy {
@@ -130,4 +264,8 @@ private fun normalizeApiKey(raw: String): String {
     return raw.trim()
         .replace(Regex("^Bearer\\s+", RegexOption.IGNORE_CASE), "")
         .trim()
+}
+
+private fun normalizeModel(raw: String, fallback: String = "deepseek-ai/DeepSeek-V3"): String {
+    return raw.trim().ifBlank { fallback }
 }
