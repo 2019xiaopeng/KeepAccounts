@@ -3705,6 +3705,7 @@ class ChatRepository(
                         【AI 可执行动作】
                         1. create：新增一条收支记录。
                         2. update：修改一条已有记录（金额/分类/时间/备注）。
+                        3. delete：删除符合条件的一条或多条记录。
 
                         【AI_Humanized 交互规则】
                         - 最小打扰：只有关键信息缺失时才追问，每次最多1个问题。
@@ -3721,11 +3722,14 @@ class ChatRepository(
             如果要连发多条独立消息，请使用双换行分隔（\n\n），不要用单换行硬拆句。
                         当识别到可执行记账信息时，先输出2到3句简短确认语气（分句自然），最后再输出一句执行确认，然后再附上 <DATA> JSON。
 
-                        【修改动作识别规则】
+                        【写动作识别规则】
                         - 用户包含“记错了、改成、改为、不对、修改、更正、把...改成”时，action 必须为 update。
+                        - 用户包含“删除、删掉、删了、移除、清空、作废、撤销”时，action 优先为 delete。
                         - 示例1：“刚刚记错了，是15块钱” => action=update，amount=15。
                         - 示例2：“把昨天中午午餐的金额改成10块” => action=update，amount=10，category=餐饮美食，date/recordTime 按语义推算。
+                        - 示例3：“把12号的卤肉饭那笔删了” => action=delete，至少给出日期/金额/分类/关键词中的一个定位条件。
                         - 如果用户想修改但关键字段缺失（比如没说改成多少），只问一个问题，不要输出 <DATA>。
+                        - 如果用户想删除但缺少定位线索，只问一个问题补足线索，不要输出 <DATA>。
 
                         【时间感知规则】当前系统准确时间是：${nowDateTime}。在提取记账记录时：
                         1. 如果用户明确说明了时间（如“早上8点”“昨晚10点”），请结合当前时间推算出准确的 yyyy-MM-dd HH:mm，并写入 recordTime。
@@ -4094,7 +4098,12 @@ class ChatRepository(
     }
 
     private fun buildReceiptMetaTag(result: ApplyTransactionsResult): String {
-        val primary = result.primaryAppliedTransaction
+        val primaryApplied = result.primaryAppliedTransaction
+        val primaryFailed = result.failedTransactions.firstOrNull()
+        val primaryDraft = primaryApplied?.draft ?: primaryFailed?.draft
+        val primaryAction = primaryApplied?.action?.ifBlank { ACTION_CREATE }
+            ?: primaryDraft?.action?.ifBlank { ACTION_CREATE }
+
         val payload = JSONObject().apply {
             put("isReceipt", true)
             put("mode", if (result.appliedTransactions.size + result.failedTransactions.size > 1 || result.failedTransactions.isNotEmpty()) "batch" else "single")
@@ -4103,14 +4112,14 @@ class ChatRepository(
             put("createCount", result.createCount)
             put("updateCount", result.updateCount)
             put("deleteCount", result.deleteCount)
-            primary?.let { applied ->
+            primaryAction?.let { put("action", it) }
+            primaryDraft?.amount?.let { put("amount", abs(it)) }
+            primaryDraft?.category?.let { put("category", it) }
+            primaryDraft?.desc?.let { put("desc", it) }
+            primaryDraft?.recordTime?.let { put("recordTime", it) }
+            primaryDraft?.date?.let { put("date", it) }
+            primaryApplied?.let { applied ->
                 val typeValue = if (applied.type == 1) "income" else "expense"
-                put("action", applied.action.ifBlank { ACTION_CREATE })
-                applied.draft.amount?.let { put("amount", abs(it)) }
-                applied.draft.category?.let { put("category", it) }
-                applied.draft.desc?.let { put("desc", it) }
-                applied.draft.recordTime?.let { put("recordTime", it) }
-                applied.draft.date?.let { put("date", it) }
                 put("type", typeValue)
             }
             put(

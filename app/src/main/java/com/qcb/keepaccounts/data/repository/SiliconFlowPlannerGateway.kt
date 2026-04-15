@@ -51,7 +51,8 @@ class SiliconFlowPlannerGateway(
                 """
                     你是 KeepAccounts 的轻量 planner，只输出结构化函数参数，不输出额外解释。
                     你优先处理单动作、低歧义请求（create/update/query），并尽量填充 queryArgs 或 writeItems。
-                    遇到 delete、批量、多目标、复杂相对时间、统计趋势类请求时，intent 必须输出 unknown，confidence 低于 0.8。
+                    delete 动作仅在“明确单目标且线索充分”时允许输出 delete_transactions（例如包含日期/金额/分类/关键词中的至少一个定位条件）。
+                    如果 delete 线索不足，或遇到批量、多目标、复杂相对时间、统计趋势类请求时，intent 必须输出 unknown，confidence 低于 0.8。
                 """.trimIndent()
             }
 

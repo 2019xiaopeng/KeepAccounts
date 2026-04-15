@@ -129,6 +129,9 @@ private data class ParsedReceiptPayload(
     val desc: String,
     val recordTimestamp: Long?,
     val isIncome: Boolean?,
+    val successCount: Int?,
+    val failureCount: Int?,
+    val items: List<AiChatReceiptItem>,
     val errors: List<String>,
 )
 
@@ -466,29 +469,36 @@ private fun AiChatRecord.toDemoMessage(): DemoMessage {
     val normalizedRole = if (role == "assistant") "ai" else role
     val payload = parseReceiptPayload(content)
     val resolvedReceiptSummary = receiptSummary ?: payload?.toReceiptSummary()
-    val primaryReceiptItem = resolvedReceiptSummary?.items?.firstOrNull { it.status == "success" }
+    val primarySuccessItem = resolvedReceiptSummary?.items?.firstOrNull { it.status == "success" }
+    val primaryReceiptItem = primarySuccessItem ?: resolvedReceiptSummary?.items?.firstOrNull()
     val primaryAction = primaryReceiptItem?.action?.takeIf { it.isNotBlank() }
         ?: payload?.action?.takeIf { it.isNotBlank() }
         ?: "create"
+    val showReceipt = resolvedReceiptSummary != null
     val pureText = stripReceiptPayload(content)
     val hiddenOnlyPayload = pureText.isBlank() && containsHiddenPayload(content)
     val visibleText = pureText.ifBlank {
         when {
-            isReceipt || resolvedReceiptSummary != null || payload != null -> "已经帮主人记好啦，要好好照顾自己哦"
+            showReceipt -> "已经帮主人记好啦，要好好照顾自己哦"
             hiddenOnlyPayload -> ""
             else -> content.trim()
         }
     }
-    val parsedAmount = primaryReceiptItem?.amount?.takeIf { it.isNotBlank() }
-        ?: payload?.amount?.takeIf { it.isNotBlank() }
-        ?: parseAmount(visibleText)
-        ?: "0.00"
-    val showReceipt = isReceipt || resolvedReceiptSummary != null || payload != null
+    val parsedAmount = if (showReceipt) {
+        primarySuccessItem?.amount?.takeIf { it.isNotBlank() }
+            ?: payload?.amount?.takeIf { it.isNotBlank() }
+            ?: parseAmount(visibleText)
+            ?: "0.00"
+    } else {
+        ""
+    }
     val insightCard = if (!showReceipt && normalizedRole == "ai") parseInsightCard(content) else null
     val resolvedIsIncome = when {
         receiptType != null -> receiptType == 1
+        primarySuccessItem?.isIncome != null -> primarySuccessItem.isIncome
         primaryReceiptItem?.isIncome != null -> primaryReceiptItem.isIncome
         payload?.isIncome != null -> payload.isIncome
+        primarySuccessItem?.category?.contains("收入") == true -> true
         primaryReceiptItem?.category?.contains("收入") == true -> true
         payload?.category?.contains("收入") == true -> true
         else -> false
@@ -548,6 +558,7 @@ private fun parseReceiptPayload(text: String): ParsedReceiptPayload? {
         ?: return null
     return runCatching {
         val json = JSONObject(payload)
+        val items = parsePayloadReceiptItems(json)
         val amount = if (json.has("amount") && !json.isNull("amount")) {
             String.format(Locale.CHINA, "%.2f", kotlin.math.abs(json.optDouble("amount")))
         } else {
@@ -564,39 +575,126 @@ private fun parseReceiptPayload(text: String): ParsedReceiptPayload? {
             typeValue == "expense" || typeValue == "0" -> false
             parsedTypeFromNumber == 1 -> true
             parsedTypeFromNumber == 0 -> false
-            else -> null
+            else -> items.firstOrNull { it.isIncome != null }?.isIncome
         }
+        val successCount = if (json.has("successCount") && !json.isNull("successCount")) {
+            json.optInt("successCount").coerceAtLeast(0)
+        } else if (items.isNotEmpty()) {
+            items.count { it.status == "success" }
+        } else {
+            null
+        }
+        val failureCount = if (json.has("failureCount") && !json.isNull("failureCount")) {
+            json.optInt("failureCount").coerceAtLeast(0)
+        } else if (items.isNotEmpty()) {
+            items.count { it.status == "failed" }
+        } else {
+            null
+        }
+        val topAction = json.optString("action").trim()
+        val topCategory = json.optString("category").trim()
+        val topDesc = json.optString("desc").trim()
+        val primaryItem = items.firstOrNull()
         ParsedReceiptPayload(
-            action = json.optString("action").ifBlank { "create" },
+            action = topAction.ifBlank { primaryItem?.action?.ifBlank { "create" } ?: "create" },
             amount = amount,
-            category = json.optString("category").ifBlank { "已识别" },
-            desc = json.optString("desc").ifBlank { "" },
-            recordTimestamp = parsePayloadRecordTimestamp(json),
+            category = topCategory.ifBlank { primaryItem?.category.orEmpty() },
+            desc = topDesc.ifBlank { primaryItem?.desc.orEmpty() },
+            recordTimestamp = parsePayloadRecordTimestamp(json) ?: primaryItem?.recordTimestamp,
             isIncome = isIncome,
+            successCount = successCount,
+            failureCount = failureCount,
+            items = items,
             errors = parsePayloadErrors(json),
         )
     }.getOrNull()
 }
 
 private fun ParsedReceiptPayload.toReceiptSummary(): AiChatReceiptSummary {
-    return AiChatReceiptSummary(
-        isBatch = false,
-        successCount = 1,
-        failureCount = 0,
-        items = listOf(
+    val normalizedItems = if (items.isNotEmpty()) {
+        items
+    } else {
+        val inferredSuccess = successCount ?: 0
+        val inferredFailure = failureCount ?: if (errors.isNotEmpty() && inferredSuccess == 0) 1 else 0
+        val inferredStatus = if (inferredFailure > 0 && inferredSuccess == 0) "failed" else "success"
+        listOf(
             AiChatReceiptItem(
                 index = 1,
-                status = "success",
+                status = inferredStatus,
                 action = action,
                 category = category,
                 amount = amount,
                 desc = desc,
                 recordTimestamp = recordTimestamp,
                 isIncome = isIncome,
+                failureReason = if (inferredStatus == "failed") errors.firstOrNull() else null,
             ),
-        ),
+        )
+    }
+
+    val resolvedSuccessCount = successCount ?: normalizedItems.count { it.status == "success" }
+    val resolvedFailureCount = failureCount ?: normalizedItems.count { it.status == "failed" }
+
+    return AiChatReceiptSummary(
+        isBatch = normalizedItems.size > 1 || resolvedSuccessCount > 1 || resolvedFailureCount > 0,
+        successCount = resolvedSuccessCount,
+        failureCount = resolvedFailureCount,
+        items = normalizedItems,
         errors = errors,
     )
+}
+
+private fun parsePayloadReceiptItems(json: JSONObject): List<AiChatReceiptItem> {
+    val rawItems = json.optJSONArray("items") ?: return emptyList()
+    return buildList {
+        for (index in 0 until rawItems.length()) {
+            val itemJson = rawItems.optJSONObject(index) ?: continue
+            val status = normalizePayloadReceiptStatus(itemJson.optString("status"))
+            val amount = if (itemJson.has("amount") && !itemJson.isNull("amount")) {
+                String.format(Locale.CHINA, "%.2f", kotlin.math.abs(itemJson.optDouble("amount")))
+            } else {
+                ""
+            }
+            val typeValue = itemJson.optString("type").trim().lowercase(Locale.ROOT)
+            val parsedTypeFromNumber = if (itemJson.has("type") && !itemJson.isNull("type")) {
+                itemJson.optInt("type", -1)
+            } else {
+                -1
+            }
+            val isIncome = when {
+                typeValue == "income" || typeValue == "1" -> true
+                typeValue == "expense" || typeValue == "0" -> false
+                parsedTypeFromNumber == 1 -> true
+                parsedTypeFromNumber == 0 -> false
+                else -> null
+            }
+            add(
+                AiChatReceiptItem(
+                    index = itemJson.optInt("index").takeIf { it > 0 } ?: (index + 1),
+                    status = status,
+                    action = itemJson.optString("action").ifBlank {
+                        json.optString("action").ifBlank { "create" }
+                    },
+                    category = itemJson.optString("category").ifBlank { "" },
+                    amount = amount,
+                    desc = itemJson.optString("desc").ifBlank { "" },
+                    recordTimestamp = parsePayloadRecordTimestamp(itemJson),
+                    isIncome = isIncome,
+                    transactionId = itemJson.optLong("transactionId").takeIf { it > 0L },
+                    failureReason = itemJson.optString("reason").trim().takeIf { it.isNotBlank() },
+                ),
+            )
+        }
+    }
+}
+
+private fun normalizePayloadReceiptStatus(rawStatus: String): String {
+    val normalized = rawStatus.trim().lowercase(Locale.ROOT)
+    return if (normalized == "failed" || normalized == "failure" || normalized == "error") {
+        "failed"
+    } else {
+        "success"
+    }
 }
 
 private fun parsePayloadErrors(json: JSONObject): List<String> {

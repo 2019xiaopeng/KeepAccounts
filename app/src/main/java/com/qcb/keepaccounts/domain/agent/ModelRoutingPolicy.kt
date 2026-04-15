@@ -124,6 +124,7 @@ class ModelRoutingPolicy(
         private val deleteSignals = listOf(
             "删除",
             "删掉",
+            "删了",
             "清空",
             "移除",
             "抹掉",

@@ -1,5 +1,19 @@
 # 猫猫记账 Release Notes
 
+## v1.2.1（修复版，待发布）
+发布日期：TBD
+
+### 🛠️ 关键修复
+- 修复删除意图链路断点：补齐主 Prompt delete 动作、Lite planner delete 条件、路由关键词“删了”。
+- 修复失败回执误渲染：失败执行不再被 UI 默认渲染为“✅ 已记账 / -0.00”。
+- 修复 payload 映射硬编码：回执 summary 改为按 `successCount/failureCount/items/errors` 真实生成。
+- 修复失败场景回执元信息：全失败时也补齐顶层 action/category/amount 等字段，减少展示歧义。
+
+### 🧪 验证重点
+- 删除口语表达（如“删了”）应稳定识别并进入 delete 规划链路。
+- 线索不足时应提示补充信息，且不展示成功卡片。
+- 批量/失败回执需准确展示 success/failure 状态。
+
 ## v1.2.0（Phase1-Phase3 收敛正式版）
 发布日期：2026-04-12
 
