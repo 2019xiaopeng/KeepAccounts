@@ -27,7 +27,13 @@ class ChatViewModel(
 ) : ViewModel() {
 
     val pagedMessages: Flow<PagingData<AiChatRecord>> =
-        Pager(PagingConfig(pageSize = 20)) {
+        Pager(
+            PagingConfig(
+                pageSize = 20,
+                maxSize = 60,
+                enablePlaceholders = false,
+            ),
+        ) {
             chatRepository.getPagedMessages()
         }.flow
             .map { pagingData ->

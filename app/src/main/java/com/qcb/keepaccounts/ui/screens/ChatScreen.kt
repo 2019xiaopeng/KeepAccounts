@@ -56,8 +56,10 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -95,6 +97,9 @@ import com.qcb.keepaccounts.ui.theme.MintGreen
 import com.qcb.keepaccounts.ui.theme.WarmBrown
 import com.qcb.keepaccounts.ui.theme.WarmBrownMuted
 import com.qcb.keepaccounts.ui.theme.WatermelonRed
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.delay
 import org.json.JSONArray
@@ -181,8 +186,29 @@ fun ChatScreen(
     var selectedMessageIds by rememberSaveable { mutableStateOf(emptySet<Long>()) }
     var showClearConfirmDialog by rememberSaveable { mutableStateOf(false) }
     val listState = rememberLazyListState()
+    var currentTimeTick by remember { mutableLongStateOf(System.currentTimeMillis()) }
     val showTypingDots = isSending && latestLoadedMessage?.role == "user"
     var hasAutoScrolledOnce by rememberSaveable { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(60_000L)
+            currentTimeTick = System.currentTimeMillis()
+        }
+    }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                currentTimeTick = System.currentTimeMillis()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
 
     LaunchedEffect(topTip) {
         if (topTip.isNotBlank()) {
@@ -342,7 +368,10 @@ fun ChatScreen(
 
                     if (showDivider) {
                         TimeDividerComponent(
-                            text = formatWeChatStyleTime(currentRecord.timestamp),
+                            text = formatWeChatStyleTime(
+                                timestamp = currentRecord.timestamp,
+                                nowMillis = currentTimeTick,
+                            ),
                             palette = palette,
                         )
                     }
